@@ -53,7 +53,7 @@ const usage = (c, e) => {
   const reset = (c.sevenDayResetsAt != null && resetsAt != null && resetsAt !== c.sevenDayResetsAt) || sevenDay < c.sevenDay;
   // A snapshot from before spentToday existed starts from its day-start difference.
   const spentToday = (c.spentToday ?? Math.max(0, c.sevenDay - c.dayStartSevenDay)) + Math.max(0, sevenDay - (reset ? 0 : c.sevenDay));
-  return { sevenDay, fiveHour: e.fiveHour ?? c.fiveHour, sevenDayResetsAt: resetsAt, spentToday };
+  return { sevenDay, fiveHour: e.fiveHour ?? c.fiveHour, sevenDayResetsAt: resetsAt, spentToday, sampledAt: e.at ?? c.sampledAt ?? null };
 };
 const spentShare = (c, u) => u.spentToday / c.dailyShare;
 
@@ -61,6 +61,8 @@ const spentShare = (c, u) => u.spentToday / c.dailyShare;
 export function createMachines(sink = () => {}) {
   const budgetMachine = setup({
     guards: {
+      // No reading, or the newest is older than staleAfterMs at the tick's time: spend cannot be seen.
+      usageStale: ({ context, event }) => context.sampledAt == null || Date.parse(event.now) - Date.parse(context.sampledAt) > context.staleAfterMs,
       fiveHourExhausted: ({ context, event }) => usage(context, event).fiveHour >= context.fiveHourStopAt,
       mustPause: ({ context, event }) => {
         const u = usage(context, event);
@@ -83,7 +85,8 @@ export function createMachines(sink = () => {}) {
         fiveHour: event.fiveHour ?? context.fiveHour,
         sevenDayResetsAt: event.sevenDayResetsAt ?? context.sevenDayResetsAt ?? null,
         dayStartSevenDay: event.sevenDay ?? context.sevenDay,
-        spentToday: 0
+        spentToday: 0,
+        sampledAt: event.at ?? context.sampledAt ?? null
       })),
       applyConfig: assign(({ event }) => event.config ?? {}),
       reportMode: toParent((_, params) => ({ type: 'BUDGET_MODE', mode: params.mode }))

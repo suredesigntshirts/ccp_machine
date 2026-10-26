@@ -4,7 +4,7 @@ Generated from `packages/harness/spec/*.machine.json` by `npm run spec:render`. 
 
 ## budget (v0.1.0)
 
-Spends a daily slice of the person's 7-day Claude usage window and watches the 5-hour window. Utilization values are 0..1 shares of each window. Today's spend (spentToday) accumulates per sample; when the 7-day window resets mid-day (sevenDayResetsAt changes or utilization drops) it counts on from 0.
+Spends a daily slice of the person's 7-day Claude usage window and watches the 5-hour window. Utilization values are 0..1 shares of each window. Today's spend (spentToday) accumulates per sample; when the 7-day window resets mid-day (sevenDayResetsAt changes or utilization drops) it counts on from 0. A TICK whose time is more than staleAfterMs after the newest reading (or with no reading yet) drains a normal budget to wrappingUp, since spend can no longer be seen; a fresh reading lifts it.
 
 ```mermaid
 stateDiagram-v2
@@ -15,6 +15,7 @@ stateDiagram-v2
   [*] --> normal
   normal --> paused : USAGE_SAMPLED [mustPause]
   normal --> wrappingUp : USAGE_SAMPLED [mustWrapUp]
+  normal --> wrappingUp : TICK [usageStale]
   wrappingUp --> paused : USAGE_SAMPLED [mustPause]
   wrappingUp --> normal : USAGE_SAMPLED [mayRun]
   paused --> normal : USAGE_SAMPLED [mayRun]
@@ -25,7 +26,7 @@ stateDiagram-v2
 
 Effects and context updates: `applyConfig`, `recordUsage`, `reportMode`, `startDay`
 
-Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`
+Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`, `usageStale`
 
 ## decision (v0.1.0)
 

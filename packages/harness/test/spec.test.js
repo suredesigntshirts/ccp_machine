@@ -144,6 +144,20 @@ test('budget: a 7-day window that resets mid-day keeps counting today\'s spend f
   assert.equal(s.value, 'paused', 'the slice is spent, though the 7-day reading is only 7%');
 });
 
+test('budget: a stale usage reading drains new work until a fresh one arrives', () => {
+  const [s0] = initialTransition(machines.budget);
+  let [s] = transition(machines.budget, s0, { type: 'DAY_STARTED', sevenDay: 0.1, fiveHour: 0, at: '2026-10-26T10:00:00Z' });
+  const tick = (now) => ([s] = transition(machines.budget, s, { type: 'TICK', now }));
+  tick('2026-10-26T11:59:00Z');
+  assert.equal(s.value, 'normal', 'under two hours old');
+  tick('2026-10-26T12:01:00Z');
+  assert.equal(s.value, 'wrappingUp', 'over two hours old: drain');
+  [s] = transition(machines.budget, s, { type: 'USAGE_SAMPLED', sevenDay: 0.11, fiveHour: 0.1, at: '2026-10-26T12:02:00Z' });
+  assert.equal(s.value, 'normal', 'a fresh reading lifts it');
+  const [never] = transition(machines.budget, initialTransition(machines.budget)[0], { type: 'TICK', now: '2026-10-26T12:00:00Z' });
+  assert.equal(never.value, 'wrappingUp', 'no reading at all also drains');
+});
+
 test('the harness keeps at most wipLimit items in flight and pauses starts on a budget stop', () => {
   const root = createActor(machines.harness, { systemId: 'harness', input: { wipLimit: 2 } }).start();
   for (const id of ['a', 'b', 'c']) root.send({ type: 'REQUEST_RECEIVED', request: { id, project: 'web', tier: 1 } });

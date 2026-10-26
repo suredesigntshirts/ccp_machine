@@ -14,6 +14,7 @@ const HELP = `harness <command> [options]
                                  --id makes the send idempotent. Prints the effects it queued.
   usage [--samples FILE]         feed saved usage samples (ledger usage, default .ledger/usage.json)
                                  to the budget actor; a stop or soft limit reaches the scheduler
+  tick [--now ISO]               tell the budget the time, so a reading older than 2 hours drains it
   status                         print the summary as JSON
   effects                        print effects the host has not acknowledged
   ack <effect-id>... [--outcome done|failed] [--note TEXT]
@@ -49,10 +50,12 @@ const { values: o, positionals: [cmd, ...args] } = parseArgs({
     title: { type: 'string', default: 'Mission control' },
     standalone: { type: 'boolean', default: false },
     day: { type: 'string' },
-    url: { type: 'string' }
+    url: { type: 'string' },
+    now: { type: 'string' }
   }
 });
 const store = openStore(o.dir);
+const tick = (now) => apply(store, { type: 'TICK', now }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
 const print = (x) => console.log(JSON.stringify(x, null, 2));
 
 try {
@@ -67,10 +70,15 @@ try {
     case 'usage': {
       const samples = JSON.parse(readFileSync(o.samples, 'utf8'));
       for (const e of budgetEvents(samples)) apply(store, e.event, { to: e.to, id: e.id });
+      tick(new Date().toISOString());
       const st = status(store);
       print({ budget: st.budget, scheduler: st.state.scheduler });
       break;
     }
+    case 'tick':
+      tick(o.now ?? new Date().toISOString());
+      print(status(store).budget);
+      break;
     case 'status':
       print(status(store));
       break;
