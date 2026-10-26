@@ -53,7 +53,7 @@ const usage = (c, e) => {
   const reset = (c.sevenDayResetsAt != null && resetsAt != null && resetsAt !== c.sevenDayResetsAt) || sevenDay < c.sevenDay;
   // A snapshot from before spentToday existed starts from its day-start difference.
   const spentToday = (c.spentToday ?? Math.max(0, c.sevenDay - c.dayStartSevenDay)) + Math.max(0, sevenDay - (reset ? 0 : c.sevenDay));
-  return { sevenDay, fiveHour: e.fiveHour ?? c.fiveHour, sevenDayResetsAt: resetsAt, spentToday, sampledAt: e.at ?? c.sampledAt ?? null };
+  return { sevenDay, fiveHour: e.fiveHour ?? c.fiveHour, sevenDayResetsAt: resetsAt, spentToday, sampledAt: e.at ?? c.sampledAt ?? null, estimated: e.type === 'USAGE_SAMPLED' ? e.estimated === true : (c.estimated ?? false) };
 };
 const spentShare = (c, u) => u.spentToday / c.dailyShare;
 

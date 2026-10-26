@@ -9,6 +9,6 @@ export function budgetEvents(samples, config = {}) {
   const { latest } = st;
   return [
     { id: `day-${st.dayStart}`, to: 'budget', event: { type: 'DAY_STARTED', sevenDay: st.dayStartSevenDay, fiveHour: latest.fiveHour, at: latest.at } },
-    { id: `usage-${latest.at}`, to: 'budget', event: { type: 'USAGE_SAMPLED', sevenDay: latest.sevenDay, fiveHour: latest.fiveHour, sevenDayResetsAt: latest.sevenDayResetsAt, at: latest.at } }
+    { id: `usage-${latest.at}`, to: 'budget', event: { type: 'USAGE_SAMPLED', sevenDay: latest.sevenDay, fiveHour: latest.fiveHour, sevenDayResetsAt: latest.sevenDayResetsAt, at: latest.at, ...(latest.estimated ? { estimated: true } : {}) } }
   ];
 }

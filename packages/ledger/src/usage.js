@@ -63,6 +63,7 @@ const dayStartOf = (iso, offsetMin) => {
  */
 export function budgetStatus(samples, config = {}) {
   const c = { ...DEFAULT_BUDGET, ...config };
+  samples = liveSamples(samples);
   if (!samples.length) return { mode: 'unknown', reason: 'no usage samples yet', config: c };
   const last = samples.at(-1);
   const dayStart = dayStartOf(last.at, c.utcOffsetMinutes);
@@ -99,5 +100,44 @@ export function budgetStatus(samples, config = {}) {
     shareOfSlice: Number(share.toFixed(3)),
     latest: last,
     config: c
+  };
+}
+
+/** Drops each estimate that a real reading newer than its base has superseded. */
+export function liveSamples(samples) {
+  const newestReal = samples.filter((s) => !s.estimated && s.at).reduce((m, s) => (s.at > m ? s.at : m), '');
+  return samples.filter((s) => !s.estimated || s.estimatedFrom >= newestReal);
+}
+
+/**
+ * A usage sample estimated from the ledger, for when no real reading has arrived (they are rare).
+ * From the newest real sample, it adds the cost of the turns that started since, at the utilization
+ * per dollar seen between the oldest and newest real samples, window by window. Null when there is
+ * no real sample, nothing was spent since, or no rate can be measured (no spend or no rise between
+ * readings). Estimates are marked `estimated: true` and never feed the next estimate.
+ */
+export function estimateSample(samples, ledger, now = new Date().toISOString()) {
+  const real = samples.filter((s) => !s.estimated && s.at).sort((a, b) => a.at.localeCompare(b.at));
+  const last = real.at(-1);
+  if (!last) return null;
+  const turns = (ledger?.sessions ?? []).flatMap((s) => s.turns ?? []);
+  const spent = (from, to) => turns.filter((t) => t.start > from && t.start <= to).reduce((a, t) => a + (t.all?.cost ?? 0), 0);
+  const since = spent(last.at, now);
+  if (!(since > 0)) return null;
+  const first = real.find((s) => s.at < last.at);
+  const between = first ? spent(first.at, last.at) : 0;
+  const rate = (k) => (between > 0 && last[k] != null && first[k] != null && last[k] >= first[k] && last.sevenDayResetsAt === first.sevenDayResetsAt ? (last[k] - first[k]) / between : null);
+  const r7 = rate('sevenDay');
+  if (!r7) return null;
+  const r5 = rate('fiveHour') ?? r7;
+  const round = (x) => Math.round(x * 1e4) / 1e4;
+  return {
+    ...last,
+    at: now,
+    sevenDay: round(Math.min(1, last.sevenDay + since * r7)),
+    fiveHour: last.fiveHour == null ? null : round(Math.min(1, last.fiveHour + since * r5)),
+    estimated: true,
+    estimatedFrom: last.at,
+    costSince: round(since)
   };
 }

@@ -93,6 +93,26 @@ test('usage samples reach the scheduler: a spent slice halts starts, and feeding
   assert.equal(store.events().length, 2);
 });
 
+test('an estimated reading keeps the budget accepting through a 3-hour gap, and the page says so', () => {
+  const store = fresh();
+  const at = (h) => `2026-10-26T${String(h).padStart(2, '0')}:00:00Z`;
+  const feed = (samples) => { for (const e of budgetEvents(samples)) apply(store, e.event, { to: e.to, id: e.id }); };
+  const real = [{ at: at(1), sevenDay: 0.3, fiveHour: 0.1, sevenDayResetsAt: 1 }, { at: at(10), sevenDay: 0.32, fiveHour: 0.2, sevenDayResetsAt: 1 }];
+  feed(real);
+  // No reading for 3 hours: without an estimate, the tick drains the budget.
+  apply(store, { type: 'TICK', now: at(13) }, { to: 'budget', id: 'tick-13' });
+  assert.equal(status(store).state.scheduler, 'draining');
+  const est = { ...real[1], at: at(13), sevenDay: 0.33, fiveHour: 0.25, estimated: true, estimatedFrom: at(10) };
+  feed([...real, est]);
+  apply(store, { type: 'TICK', now: at(13) }, { to: 'budget', id: 'tick-13b' });
+  const st = status(store);
+  assert.deepEqual([st.state.scheduler, st.budget.mode, st.budget.estimated, st.budget.sevenDay], ['accepting', 'normal', true, 0.33]);
+  assert.match(renderPage(st), /estimated 0m old|estimated [^<]* old/);
+  // A real reading replaces the estimate.
+  feed([...real, est, { at: at(14), sevenDay: 0.335, fiveHour: 0.2, sevenDayResetsAt: 1 }]);
+  assert.equal(status(store).budget.estimated, false);
+});
+
 test('an item page shows what was asked, how it ended, who decided and what the host did', () => {
   const store = fresh();
   const { effects } = apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 1, title: 'Ship it', expect: 'A <b> page' } }, { id: 'req-p' });

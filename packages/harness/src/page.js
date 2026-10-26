@@ -94,7 +94,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   <div class="tile${asks.length ? ' ask' : ''}"><span class="eyebrow">Needs you</span><b>${asks.length}</b><small>${asks.length ? 'decisions waiting below' : 'nothing to decide'}</small></div>
   <div class="tile"><span class="eyebrow">In flight</span><b>${st.context.inFlight.length} / ${st.context.wipLimit}</b><small>${st.context.queued.length} queued</small></div>
   <div class="tile"><span class="eyebrow">Finished</span><b>${finished.length}</b><small>${finished.filter((i) => i.state === 'done').length} merged</small></div>
-  <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${esc(scheduler)}">${esc(scheduler)}</span></b><small>budget ${esc(budget?.mode ?? 'unknown')}${budget?.sevenDay != null ? ` · 7-day ${pct(budget.sevenDay)}` : ''} · ${budget?.sampledAt ? `reading ${esc(ago(st.updatedAt, budget.sampledAt))} old` : 'no reading yet'}</small></div>
+  <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${esc(scheduler)}">${esc(scheduler)}</span></b><small>budget ${esc(budget?.mode ?? 'unknown')}${budget?.sevenDay != null ? ` · 7-day ${pct(budget.sevenDay)}` : ''} · ${budget?.sampledAt ? `${budget.estimated ? 'estimated' : 'reading'} ${esc(ago(st.updatedAt, budget.sampledAt))} old` : 'no reading yet'}</small></div>
   <div class="tile"><span class="eyebrow">Host to-do</span><b>${pending.length}</b><small>effects not yet acknowledged</small></div>
 </div>
 ${requestBox ? REQUEST_BOX : ''}

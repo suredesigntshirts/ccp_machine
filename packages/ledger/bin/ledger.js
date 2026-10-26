@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
-import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
+import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, estimateSample, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
 
 const HELP = `ledger <command> [options]
 
@@ -18,6 +18,9 @@ const HELP = `ledger <command> [options]
                                  output, JSON or JSONL) to --samples (default .ledger/usage.json), then
                                  print today's budget status.
   budget                         Print today's budget status from --samples.
+  estimate                       When no reading is newer than the turns in --out's ledger, add a sample
+                                 estimated from their cost (marked estimated) to --samples, then print
+                                 the budget status. Run it after refresh when list_events has no reading.
   file [path ...]                File session ledgers in the Library (--sessions, default
                                  /mnt/project-files/harness/ledger/sessions): transcripts (.jsonl, default
                                  this machine's) and saved list_events output (.json); one file per session
@@ -33,7 +36,7 @@ const usageError = (msg) => {
   console.error(`ledger: ${msg}\n\n${HELP}`);
   process.exit(2);
 };
-const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'help'];
+const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'estimate', 'help'];
 if (process.argv.slice(2).some((a) => a === '--help' || a === '-h')) {
   console.log(HELP);
   process.exit(0);
@@ -138,6 +141,13 @@ switch (cmd) {
     write(o.samples, JSON.stringify(samples, null, 1));
     console.log(`${added.length} samples read, ${samples.length} kept in ${o.samples}`);
     console.log(JSON.stringify(budgetStatus(samples, budgetConfig()), null, 2));
+    break;
+  }
+  case 'estimate': {
+    const samples = readJson(o.samples, []);
+    const est = estimateSample(samples, readJson(o.out, null));
+    if (est) write(o.samples, JSON.stringify(mergeSamples(samples, [est]), null, 1));
+    console.log(JSON.stringify({ estimated: est, budget: budgetStatus(est ? [...samples, est] : samples, budgetConfig()) }, null, 2));
     break;
   }
   case 'budget':

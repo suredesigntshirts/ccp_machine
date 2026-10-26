@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildLedger, requestCost, samplesFromText, budgetStatus, renderReport } from '../src/index.js';
+import { buildLedger, requestCost, samplesFromText, budgetStatus, estimateSample, liveSamples, renderReport } from '../src/index.js';
 
 const usage = (o) => ({
   input_tokens: 10,
@@ -169,4 +169,23 @@ test('builds sessions from saved list_events result events, for sessions not on 
   assert.deepEqual([s.turns[0].origin, s.turns[0].start, s.turns[1].label], ['human', '2026-10-26T17:18:21.000Z', 'Round 2 is done.']);
   assert.equal(Number(s.totals.cost.toFixed(2)), 0.11);
   assert.deepEqual(s.models, ['claude-opus-5-5']);
+});
+
+test('with no fresh reading, the ledger estimates one from the cost of turns since the last', () => {
+  const real = [
+    { at: '2026-10-26T10:00:00Z', sevenDay: 0.05, fiveHour: 0.1, sevenDayResetsAt: 9 },
+    { at: '2026-10-26T12:00:00Z', sevenDay: 0.07, fiveHour: 0.3, sevenDayResetsAt: 9 }
+  ];
+  const turn = (start, cost) => ({ start, all: { cost } });
+  // $20 between the readings moved 7-day by 2 points and 5-hour by 20: 0.1 and 1 point per dollar.
+  const ledger = { sessions: [{ turns: [turn('2026-10-26T11:00:00Z', 20), turn('2026-10-26T13:00:00Z', 5), turn('2026-10-26T14:30:00Z', 5)] }] };
+  const est = estimateSample(real, ledger, '2026-10-26T15:00:00Z');
+  assert.deepEqual([est.at, est.sevenDay, est.fiveHour, est.estimated, est.estimatedFrom, est.costSince], ['2026-10-26T15:00:00Z', 0.08, 0.4, true, '2026-10-26T12:00:00Z', 10]);
+  assert.equal(estimateSample(real, { sessions: [] }, '2026-10-26T15:00:00Z'), null, 'nothing spent since');
+  assert.equal(estimateSample(real.slice(1), ledger, '2026-10-26T15:00:00Z'), null, 'one reading gives no rate');
+  // Estimates never feed the next one, and a newer real reading supersedes them.
+  assert.equal(estimateSample([...real, est], ledger, '2026-10-26T15:00:00Z').sevenDay, 0.08);
+  const later = { at: '2026-10-26T16:00:00Z', sevenDay: 0.075, fiveHour: 0.2, sevenDayResetsAt: 9 };
+  assert.deepEqual(liveSamples([...real, est, later]).map((s) => s.at), [real[0].at, real[1].at, later.at]);
+  assert.equal(budgetStatus([...real, est, later]).latest.estimated, undefined);
 });
