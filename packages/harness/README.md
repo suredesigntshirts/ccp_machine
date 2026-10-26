@@ -65,6 +65,9 @@ The harness spec and the runtime that drives it.
 - `src/intake.js`: the request box. `harness page --request-box` adds an "Ask for work" form to mission
   control that saves to the Artifact `db` collection `requests`; `harness intake FILE` files each new row
   as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken.
+- `src/expect-check.js`: `harness check <item> --init` writes `checks/<item>.md` from the request's `expect`, one
+  line each, to mark `[met]`, `[unmet]` or `[unclear]` with evidence. `harness send` refuses a stand-in approve
+  on an accept gate until every line is met, and the item page shows the check beside the ask.
 - `src/sim.js`: `npm run sim` drives 12 synthetic items (every tier, a failed run, failed checks, a block,
   a person's revise) through a scratch store at WIP 3 and at WIP 12 with a scripted host. It checks the
   WIP limit, the queue, the outbox, doctor, the page size and an apply at 500 events, and saves the

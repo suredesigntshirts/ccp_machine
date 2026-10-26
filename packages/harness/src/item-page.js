@@ -52,6 +52,16 @@ function verdict(item, events, decided) {
  * @param {object} item one entry of status().items
  * @param {{events?: object[], outbox?: object[], acks?: object[], back?: string}} records the whole store's rows
  */
+// The expectation check beside the ask: each expected line with its status and evidence.
+function checkList(lines, expect) {
+  if (!expect) return '';
+  if (!lines) return '<span class="m">Not yet checked against these expectations.</span>';
+  return `<ul class="verdict expect">${lines
+    .map((l) => `<li class="${l.status === 'met' && l.evidence ? 'ok' : l.status === 'unmet' ? 'bad' : 'warn'}"><b>${esc(l.status)}</b> ${esc(l.line)}${l.evidence ? `<br><span class="m">${esc(l.evidence)}</span>` : ''}</li>`)
+    .join('')}</ul>`;
+}
+
+/** records.checks: {itemId: parsed check lines}, from checks/<id>.md (harness check). */
 export function renderItemPage(item, records = {}) {
   const { events, effects } = itemRecords(item.id, records);
   const request = events.find((e) => e.event.type === 'REQUEST_RECEIVED')?.event.request ?? {};
@@ -88,7 +98,7 @@ export function renderItemPage(item, records = {}) {
 <header><span class="eyebrow">${records.back ? `<a href="${esc(records.back)}">Mission control</a> · ` : ''}${esc(item.project ?? '')} · tier ${esc(item.tier)}</span><h1>${esc(item.title ?? item.id)}</h1>${track(item)}</header>
 <section><h2>What was asked</h2><div class="card ask-card"><b>${esc(request.expect ?? request.title ?? item.title ?? item.id)}</b>${
     request.url ? `<a href="${esc(request.url)}">${esc(request.url)}</a>` : ''
-  }</div></section>
+  }${checkList(records.checks?.[item.id], request.expect)}</div></section>
 <section><h2>Did it do that?</h2><ul class="verdict">${verdict(item, events, decided)
     .map(([k, t]) => `<li class="${k}">${esc(t)}</li>`)
     .join('')}${pr ? `<li><a href="${esc(pr)}">${esc(pr)}</a></li>` : ''}</ul></section>
@@ -102,4 +112,4 @@ export function renderItemPage(item, records = {}) {
 
 const ITEM_CSS = `.ask-card{border-left-color:var(--accent)}.verdict{margin:0;padding:0;list-style:none;display:grid;gap:6px}
 .verdict li{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:8px 12px;overflow-wrap:anywhere}
-.verdict li.ok{border-left-color:var(--ok)}.verdict li.bad{border-left-color:var(--bad)}.verdict li.now{border-left-color:var(--warn)}`;
+.verdict li.ok{border-left-color:var(--ok)}.verdict li.bad{border-left-color:var(--bad)}.verdict li.now,.verdict li.warn{border-left-color:var(--warn)}.expect{margin-top:4px}`;

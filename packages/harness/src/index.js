@@ -17,5 +17,6 @@ export { canaryRequest, canaryReport, canaryId, CANARY_LATE_MS } from './canary.
 export { calibration, calibrateClass, MIN_TESTED } from './calibration.js';
 export { retro, writeRetro, retroDue, lastRetro, renderRetro, windowMetrics, RETRO_EVERY } from './retro.js';
 export { intakeRows, requestFor, rowsOf, REQUESTS } from './intake.js';
+export { expectLines, checkTemplate, parseCheck, checkVerdict, readCheck, initCheck, acceptBlocked, requestOf } from './expect-check.js';
 export { auditPicks, auditCard, recordAudit, dayAudit, answerAudit, untestedRuns, auditLine, reverseOf, AUDIT_MAX, UNTESTED_WARN } from './audit.js';
 export { parseGithubEvent, mapGithubEvent, fromGithub, prMap, prKey } from './github.js';

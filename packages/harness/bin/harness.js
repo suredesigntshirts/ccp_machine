@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, dayAudit, answerAudit, auditCard, fromGithub } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -30,6 +30,10 @@ const HELP = `harness <command> [options]
   canary [--day D] [--check]     file the day's tier-0 canary item once (canary-<day>); with --check, report
                                  each stage's time and exit 1 with one attention line if it failed or is
                                  not merged 2 hours after the request
+  check <item> [--init]          the expectation check: --init writes checks/<item>.md from the request's
+                                 expect, one line each; mark each [met], [unmet] or [unclear] with
+                                 evidence. Prints the verdict; exits 1 unless every line is met. send
+                                 refuses a stand-in approve on an accept gate until it is
   audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
                                  once a day (audits/<day>.json); prints request_decision arguments for one
                                  card. --answer records the tap: 0 confirms all, N reverses pick N
@@ -97,6 +101,7 @@ try {
       sessions: { type: 'string' },
       rebuild: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
+      init: { type: 'boolean', default: false },
       answer: { type: 'string' },
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
@@ -133,7 +138,12 @@ try {
       break;
     case 'send':
       if (!args[0]) throw new Error('send needs an event, such as \'{"type":"REQUEST_RECEIVED","request":{"id":"a"}}\'');
-      print(apply(store, JSON.parse(args[0]), { to: o.to, id: o.id }));
+      {
+        const event = JSON.parse(args[0]);
+        const blocked = acceptBlocked(store, event, o.to);
+        if (blocked) throw new Error(blocked);
+        print(apply(store, event, { to: o.to, id: o.id }));
+      }
       break;
     case 'usage': {
       const samples = JSON.parse(readFileSync(o.samples, 'utf8'));
@@ -169,6 +179,22 @@ try {
       if (!args[0]) throw new Error('standin needs a decision class, such as plan or accept');
       print(ladder(readDecisionLog(store), args[0]));
       break;
+    case 'check': {
+      const id = args[0];
+      if (!id) throw new Error('check needs an item id');
+      if (o.init) {
+        const expect = requestOf(store, id)?.expect;
+        if (!expect) throw new Error(`${id} has no expect line in its request`);
+        print(initCheck(store, id, expect));
+        break;
+      }
+      const lines = readCheck(store, id);
+      if (!lines) throw new Error(`no check for ${id}; run harness check ${id} --init`);
+      const v = checkVerdict(lines);
+      print({ ...v, lines });
+      if (!v.allMet) process.exitCode = 1;
+      break;
+    }
     case 'audit': {
       const day = o.day ?? new Date().toISOString().slice(0, 10);
       if (o.answer != null) {
@@ -263,7 +289,7 @@ try {
       const file = o.html ?? `${o.dir}/mission-control.html`;
       mkdirSync(dirname(file), { recursive: true });
       const events = store.events();
-      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store) };
+      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store), checks: Object.fromEntries(status(store).items.map((i) => [i.id, readCheck(store, i.id)]).filter(([, c]) => c)) };
       const metrics = Object.fromEntries(st.items.map((i) => [i.id, attentionText(attention(i, records))]));
       writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true, metrics, requestBox: o['request-box'] }));
       const items = st.items.map((item) => {
