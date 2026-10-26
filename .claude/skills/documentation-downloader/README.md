@@ -1,34 +1,77 @@
 # documentation-downloader
 
-A [Claude Code](https://claude.com/claude-code) skill that downloads external documentation,
-converts it to GitHub-flavored markdown, and caches it in the project you are working in — so an
-agent reads a library's real API surface instead of recalling it from training data.
+A [Claude Code](https://claude.com/claude-code) skill that caches external documentation **word
+for word** as markdown inside the project you are working in, and answers questions from it
+with **exact line ranges** — so an agent reads a library's real API surface, and only the part
+it needs, instead of recalling it from training data.
 
-It is a plain set of Node CLIs, so it also works from a terminal, a script, or any agent that can
-run a shell command.
+It is a plain Node CLI (`scripts/docs.mjs`), so it also works from a terminal or any agent that
+can run a shell command.
 
-## Why not just fetch the page
+## What it does
 
-Documentation sites are among the worst pages to scrape naively:
+```
+question ─► docs search ─► hits? ──yes──► check ranges ─► reply: path:start-end (verbatim lines)
+                              │
+                              no ─► docs fetch <url> / --discover ─► search again
+```
 
-- Most modern doc sites render client-side, so an HTTP GET returns an empty shell.
-- Many publish the **markdown source** of a page (`page.md`, `raw.githubusercontent.com`, …).
-  Fetching that is faster and cleaner than converting the rendered HTML, but only if you find it
-  *and* verify it is the same page.
-- Naive HTML→markdown conversion drags in nav, sidebars, cookie banners, and "Edit this page"
-  links, which then poison anything built on top of the text.
+- **Fetch**: prefers the site's own markdown for the page (`<url>.md` or `Accept:
+  text/markdown`) when it is complete and clean — many CDNs now auto-generate markdown that
+  still carries the site's navigation, and that is detected and rejected; otherwise converts
+  the page's HTML — the server's HTML without a browser once a site's first pages have been
+  shown to convert the same as a Playwright render, else the render — picks the content area generically (landmarks, statistics, what
+  repeats across the site's pages; optionally a model-derived site profile), and converts it.
+  Bot-checks, error pages, empty JS shells and redirect stubs are never cached.
+- **Markdown**: GitHub-flavoured; code blocks byte-exact (line-per-element editors rebuilt,
+  gutters/copy buttons dropped); every tab panel kept and labelled; `<details>` expanded;
+  callouts → GitHub alerts; simple tables → GFM, complex ones → minimal HTML; API entries
+  (`dl > dt[id]`) → headings; absolute links; no `data:` URIs.
+- **Large pages** (over ~25k tokens) become an index at the page's own path plus verbatim parts
+  in `<page>.parts/`.
+- **Search**: a section-level index (SQLite FTS5 via `node:sqlite`, pure-JS fallback on older
+  Node) with identifier-aware tokenisation and a reranker; results are line ranges with the
+  heading path.
+- **Concurrency**: many agents can fetch into one cache at once — per-URL/per-domain locks,
+  atomic writes, SQLite WAL, machine-wide caps on browsers and per-host request rate.
 
-This skill handles all three, then keeps an `llms.txt` index so the next session knows what is
-already cached and does not refetch it.
+## Results
+
+Measured by the eval suite in `eval/` (see [eval/README.md](eval/README.md)). Composite of content
+kept, template removed, exact code blocks, headings, and markdown validity (0–100):
+
+| | tuning pages (dev, 44) | held-out sites (test, 14) | **blind set** (25, unseen sites, independent gold) |
+|---|---|---|---|
+| a real v1 cache (harempants.com) | 66.5 | 83.0 | (3 of 25 pages cached) |
+| v1 pipeline on the same pages | 76.2 | 87.4 | 84.5 |
+| **v2** | **98.5** | **99.6** | **96.9** |
+
+Blind set, by part — v1 → v2: exact code blocks 48 → 96, markdown validity 78 → 100, content
+kept 97 → 99, template removed 92 → 94.
+
+Search over a real 526-page cache (195 questions; answer's section in the top 5): v1
+`search-docs` 3% (whole files), grep 41% (whole files, ~30k tokens each), **v2 93% dev / 82%
+test** (line ranges, ~750 tokens to read the first hit). The top-level catalog is ~900 tokens
+where the v1 `llms.txt` index was ~18k.
+
+Speed, live from this cloud environment (`eval/bench/`, every change in
+[eval/results/SPEED_LOG.md](eval/results/SPEED_LOG.md); kept only with identical output):
+
+| | v1 | v2 `--browser always` | **v2 default (`auto`)** |
+|---|---|---|---|
+| 59 pages, 8 sites (8 per site) | 46–49 s | 54–58 s (was 143 s) | **45–47 s** |
+| 90 pages, 3 sites (a `--discover` crawl) | 59 s | 61 s | **34 s** |
+
+A single-page `docs fetch`: owner markdown ~0.8 s (was 1.6 s), an already cached URL ~0.2 s (was
+0.9 s). The live gold-scored run of the 58 tuning/test pages: composite 96.9 in 131 s (285 s before).
+v1 renders every page too, but converts it at 76–87 instead of 97–99.
 
 ## Requirements
 
-- Node.js 20 or newer
-- ~180 MB of disk (28 MB of npm packages, ~150 MB for the browser binary)
+- Node.js 20+ (22.13+ for the SQLite search index; older Node uses the JSON fallback)
+- ~180 MB of disk (npm packages + a Chromium build)
 
 ## Install
-
-Pick the location that matches how you want to use it.
 
 **Per project** — committed to a repo, so it reaches teammates and cloud/CI sessions:
 
@@ -38,133 +81,69 @@ git clone https://github.com/suredesigntshirts/skill-documentation-downloader \
 cd .claude/skills/documentation-downloader && npm run setup
 ```
 
-**Personal** — available in every project on one machine:
+**Personal** — every project on one machine: clone into `~/.claude/skills/documentation-downloader`
+instead. (A personal install does not travel to a Claude Code cloud session.)
 
-```bash
-git clone https://github.com/suredesigntshirts/skill-documentation-downloader \
-  ~/.claude/skills/documentation-downloader
-cd ~/.claude/skills/documentation-downloader && npm run setup
-```
-
-`npm run setup` runs two steps and **both are required**:
-
-| Step | What it does |
-|------|--------------|
-| `npm install` | turndown + playwright (~28 MB) |
-| `npm run install-browsers` | the browser binary (~150 MB) — `npm install` does **not** fetch it |
-
-> A personal install in `~/.claude/skills/` does **not** travel to a Claude Code cloud session.
-> For cloud or CI, commit the skill into the repo.
-
-## Verify the install
-
-```bash
-npm run doctor
-```
-
-```
-documentation-downloader — /path/to/skill
-
-  ok    Node.js        v24.7.0 (need >= 20)
-  ok    npm packages   playwright, turndown, turndown-plugin-gfm
-  ok    Browser binary chromium 151.0.7922.34
-
-Ready.
-```
-
-Every failing check prints the exact command that fixes it. Exit code is 0 when ready, 1 when not.
-
-## Quick start
-
-Run from the root of the project you want the docs cached into.
-
-```bash
-SKILL=~/.claude/skills/documentation-downloader
-
-# 1. What is already cached?
-node $SKILL/scripts/search-docs.js --list
-
-# 2. Discover what a site publishes, and fetch it
-node $SKILL/scripts/fetch-docs.js --discover "https://docs.example.com" \
-  --output-dir docs/ --skip-existing --update-index
-
-# 3. Or fetch specific pages (batch them — one process, one browser)
-node $SKILL/scripts/fetch-docs.js \
-  "https://docs.example.com/intro" "https://docs.example.com/api" \
-  --output-dir docs/ --skip-existing --update-index
-```
-
-Results land as `docs/<domain>/<url-path>.md`, indexed in `docs/llms.txt`.
-
-## For agents
-
-If you are an LLM picking this up, the whole contract is:
-
-1. **Check the cache first.** `node scripts/search-docs.js <query>` — no dependencies needed, so
-   this works even before setup.
-2. **If setup is missing, every command tells you so** and prints the command to run. You never
-   have to infer it from a stack trace.
-3. **Fetch in one batch**, always with `--output-dir docs/ --skip-existing --update-index`.
-4. **Read the cached markdown** rather than refetching.
-
-Every CLI supports `--help`. `SKILL.md` is the full instruction set, and is what Claude Code loads
-automatically.
+`npm run setup` = `npm install` + `npm run install-browsers` (Chromium). Check with
+`npm run doctor`: it reports the browser it will use, the search backend, whether the `claude`
+CLI is available for site profiles, and whether an old cache needs migrating.
 
 ## Commands
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/fetch-docs.js` | Fetch, discover, and cache pages |
-| `scripts/search-docs.js` | Search the cache by name, description, or content |
-| `scripts/compare-docs.js` | Check `llms.txt` against what is on disk |
-| `scripts/fix-descriptions.js` | Improve index description quality |
-| `scripts/doctor.js` | Check the install |
-
-`search-docs`, `compare-docs`, and `fix-descriptions` are pure Node and need no dependencies at
-all. Only `fetch-docs` needs playwright and turndown.
-
-## How the cache works
-
-```
-docs/
-  llms.txt                  index: "- <path>: <description>", grouped by domain
-  docs.example.com/
-    intro.md                YAML front matter carries Source / Generated / Updated
-    api.md
-```
-
-Each file keeps **one** front-matter block. When the upstream source is already markdown with its
-own front matter, provenance keys are merged into it rather than stacked on top, so the upstream
-`title:` and `description:` survive and feed the index.
-
-`--update-index` is safe under parallel agents: the index is rewritten under a lock file and
-replaced atomically, so concurrent fetches into one `docs/` tree cannot lose entries.
-
-Refresh anything stale:
+Run from the root of the project whose cache you are using (`SKILL=<skill dir>`):
 
 ```bash
-node scripts/fetch-docs.js --refresh 30 --output-dir docs/ --update-index
+node $SKILL/scripts/docs.mjs search "useEdgesState initial edges"     # ranked line ranges
+node $SKILL/scripts/docs.mjs fetch https://reactflow.dev/api-reference/hooks/use-edges-state
+node $SKILL/scripts/docs.mjs fetch --discover https://vite.dev/guide/ --max-discover 40
+node $SKILL/scripts/docs.mjs outline external-docs/vite.dev/guide/features.md
+node $SKILL/scripts/docs.mjs lookup https://vite.dev/guide/assets
+node $SKILL/scripts/docs.mjs catalog
+node $SKILL/scripts/docs.mjs fetch --refresh 30        # re-fetch pages older than 30 days
+node $SKILL/scripts/docs.mjs reindex                   # rebuild index + generated files
+node $SKILL/scripts/docs.mjs migrate [--apply]         # move a v1 docs/ cache
 ```
 
-`--refresh` preserves the original `Generated:` date and only moves `Updated:`.
+Every command has `--help`. `scripts/fetch-docs.js` and `scripts/search-docs.js` still accept the
+v1 flags.
 
-## Claude Code cloud sessions
+## The cache
 
-Cloud sessions route traffic through an egress proxy that a default Chromium launch cannot use —
-every navigation fails with `ERR_CONNECTION_RESET` while `curl` to the same URL succeeds. When
-`CLAUDE_CODE_REMOTE=true`, the skill switches to system Chrome with a TLS 1.2 pin, which is the
-combination that works. Nothing to configure; local runs are untouched.
+```
+external-docs/                  (default; --root or DD_DOCS_ROOT to change)
+  .docs-cache.json              marker + schema version
+  catalog.md                    generated: one line per site
+  <host>/_outline.md            generated: one line per page
+  <host>/<url-path>.md          one page, verbatim; front matter Source / Generated / Updated / Via
+  <host>/<page>.parts/*.md      slices of a page too large for one read
+  _profiles/<host>.json         site profiles (content-area selectors)
+  .cache/                       search index + raw downloads (gitignored automatically)
+```
 
-Cloud sessions need system Chrome present, which `npm run install-browsers` installs.
+The markdown files are the source of truth; everything generated or under `.cache/` is rebuilt
+by `docs reindex`. The folder is not hidden on purpose: ripgrep (and so Claude's Grep/Glob)
+skips hidden and gitignored paths.
+
+### Moving a v1 `docs/` cache
+
+`docs migrate` (dry run) then `docs migrate --apply`. Only pages this skill created (front matter
+`Source:`) move; URL-shaped paths are kept, older layouts are re-derived from `Source:`; good
+v1 `llms.txt` descriptions are carried into page front matter; stacked front matter is merged;
+bot-check/error pages are flagged; other files are listed and left alone. Copy → verify →
+remove, safe to interrupt and re-run. On a real 526-file cache: 506 pages moved, 36 large pages
+split, index built, in ~10 s.
 
 ## Development
 
 ```bash
-npm test
+npm test                          # unit + integration tests, no network
+node eval/run.mjs --variant v2 --split dev            # conversion eval (needs recorded snapshots)
+node eval/search/run.mjs                              # search eval
 ```
 
-49 `node:test` cases, no network access. Every case corresponds to a failure observed in real
-output — add one alongside any fix.
+`eval/record.mjs` records the corpus snapshots (gitignored) from the live sites; gold
+annotations, results and experiment logs are committed. `DESIGN.md` is the design and the
+reasoning behind it.
 
 ## License
 

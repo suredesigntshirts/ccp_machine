@@ -30,3 +30,10 @@ documentation-downloader-workspace/
 .DS_Store
 *.log
 npm-debug.log*
+
+# Eval snapshots: re-downloadable, large
+eval/.snapshots
+eval/.runs
+
+# Agent worktrees (local only)
+.claude/worktrees/

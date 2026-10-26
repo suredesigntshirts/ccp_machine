@@ -1,5 +1,8 @@
 /**
- * Unit tests for the pure helpers in fetch-docs.js.
+ * The v1 entry point (`fetch-docs.js`, now a wrapper over the v2 pipeline) and
+ * the v1 helpers that moved: conversion helpers into lib/convert/v1.mjs (the
+ * placeholder converter), sitemap/locale helpers into lib/fetch/discover.mjs,
+ * cache paths into lib/paths.mjs, the pool into lib/fetch/batch.mjs.
  *
  * Every case here is a regression that was observed in real output, not a
  * hypothetical. Run with: npm test
@@ -8,25 +11,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  mapOutsideFences,
-  cleanMarkdown,
-  applyFrontMatter,
-  parseSitemapXml,
-  urlToOutputPath,
-  preferDefaultLocale,
-  isSoft404,
-  looksLikeMarkdown,
-  isRelevantContent,
-  sameSource,
-  convertToRawUrl,
-  parseIndex,
-  renderIndex,
-  parseIndexPaths,
-  runPool,
-  globalBudgetMs,
-  TIMEOUTS,
-} from '../fetch-docs.js';
+import { translateArgs, documentFor } from '../fetch-docs.js';
+import { mapOutsideFences, cleanMarkdown, looksLikeMarkdown } from '../lib/convert/v1.mjs';
+import { parseSitemapXml, preferDefaultLocale } from '../lib/fetch/discover.mjs';
+import { urlToOutputPath } from '../lib/paths.mjs';
+import { runPool } from '../lib/fetch/batch.mjs';
+import { detectBadPage } from '../lib/store/quality.mjs';
 
 // ============================================================================
 // Code fences must survive cleanup
@@ -81,39 +71,76 @@ test('mapOutsideFences: handles a document that opens with a fence', () => {
 });
 
 // ============================================================================
-// Front matter
+// Front matter of -o / stdout output
 // ============================================================================
 
-test('applyFrontMatter prepends a block when the document has none', () => {
-  const out = applyFrontMatter('# Title\n\nBody', 'https://example.com/a');
+test('documentFor prepends a block when the document has none', async () => {
+  const out = await documentFor('# Title\n\nBody', 'https://example.com/a');
   assert.match(out, /^---\nSource: https:\/\/example\.com\/a\n/);
   assert.equal(out.match(/^---$/gm).length, 2, 'expected exactly one front-matter block');
 });
 
-test('applyFrontMatter merges into upstream front matter instead of stacking', () => {
+test('documentFor merges into upstream front matter instead of stacking', async () => {
   // Observed on vitepress.dev: the upstream `description:` was buried under a
-  // second block, so llms.txt fell back to a weaker heading-derived description.
+  // second block, so the index fell back to a weaker heading-derived description.
   const upstream = '---\nurl: /guide/markdown.md\ndescription: VitePress markdown extensions\n---\n\n# Markdown Extensions\n';
-  const out = applyFrontMatter(upstream, 'https://vitepress.dev/guide/markdown');
-
+  const out = await documentFor(upstream, 'https://vitepress.dev/guide/markdown', { via: 'markdown' });
   assert.equal(out.match(/^---$/gm).length, 2, 'front matter was stacked, not merged');
   assert.match(out, /description: VitePress markdown extensions/);
   assert.match(out, /Source: https:\/\/vitepress\.dev\/guide\/markdown/);
+  assert.match(out, /Via: markdown/);
   assert.match(out, /\n---\n\n# Markdown Extensions/);
 });
 
-test('applyFrontMatter preserves the original Generated date on refresh', () => {
-  const out = applyFrontMatter('# T\n', 'https://example.com/a', { generated: '2020-01-01' });
-  assert.match(out, /Generated: 2020-01-01/);
-  assert.doesNotMatch(out, /Updated: 2020-01-01/);
-});
-
-test('applyFrontMatter replaces stale provenance keys rather than duplicating them', () => {
+test('documentFor replaces stale provenance keys rather than duplicating them', async () => {
   const prior = '---\nSource: https://old.example/x\nGenerated: 2020-01-01\nUpdated: 2020-01-01\ntitle: Keep me\n---\n\nBody\n';
-  const out = applyFrontMatter(prior, 'https://new.example/x', { generated: '2020-01-01' });
+  const out = await documentFor(prior, 'https://new.example/x');
   assert.equal(out.match(/^Source:/gm).length, 1);
   assert.match(out, /Source: https:\/\/new\.example\/x/);
   assert.match(out, /title: Keep me/);
+});
+
+test('documentFor records where a redirect landed', async () => {
+  const out = await documentFor('# T\n\nBody', 'https://a.example/stable/x', { finalUrl: 'https://a.example/2.14/x' });
+  assert.match(out, /Final: https:\/\/a\.example\/2\.14\/x/);
+});
+
+test('documentFor --no-front-matter drops upstream front matter too', async () => {
+  const out = await documentFor('---\ntitle: T\n---\n\n# T\n', 'https://a.example/x', { frontMatter: false });
+  assert.equal(out, '# T\n');
+});
+
+// ============================================================================
+// v1 flag translation
+// ============================================================================
+
+test('translateArgs: a lone URL prints to stdout, -o writes a file', () => {
+  assert.equal(translateArgs(['https://a.example/x']).mode, 'stdout');
+  const t = translateArgs(['https://a.example/x', '-o', 'out.md', '--no-front-matter']);
+  assert.equal(t.mode, 'file');
+  assert.equal(t.output, 'out.md');
+  assert.equal(t.frontMatter, false);
+});
+
+test('translateArgs: -d becomes the cache root; v1 no-op flags are accepted', () => {
+  const t = translateArgs(['https://a.example/x', '-d', 'docs/', '--skip-existing', '--update-index', '-c', '5']);
+  assert.equal(t.mode, 'cache');
+  assert.deepEqual(t.docsArgv, ['https://a.example/x', '--root', 'docs/', '--concurrency', '5']);
+});
+
+test('translateArgs: --discover, --refresh with and without days, -u', () => {
+  const t = translateArgs(['--discover', 'https://a.example/docs', '--max-discover', '10', '--refresh', '-u', 'urls.txt']);
+  assert.equal(t.mode, 'cache');
+  assert.deepEqual(t.docsArgv, ['--urls', 'urls.txt', '--discover', 'https://a.example/docs', '--refresh', '30', '--max-discover', '10']);
+  assert.deepEqual(translateArgs(['--refresh', '7', '-d', 'd']).docsArgv, ['--root', 'd', '--refresh', '7']);
+});
+
+test('translateArgs: errors and warnings', () => {
+  assert.match(translateArgs(['https://a/x', '-o']).error, /requires a value/);
+  assert.match(translateArgs(['https://a/x', 'https://a/y', '-o', 'f.md']).error, /exactly one URL/);
+  assert.match(translateArgs(['https://a/x', '--bogus']).error, /Unknown option/);
+  assert.match(translateArgs(['https://a/x', '-s', 'main', '-d', 'd']).warnings[0], /ignored/);
+  assert.equal(translateArgs(['https://a/x', 'https://a/y']).mode, 'cache', 'several URLs go to the default root');
 });
 
 // ============================================================================
@@ -178,10 +205,10 @@ test('urlToOutputPath maps URLs to stable cache paths', () => {
 // Content validation
 // ============================================================================
 
-test('isSoft404 catches short not-found bodies and 404 headings', () => {
-  assert.equal(isSoft404('---\nSource: x\n---\n\n# Page Not Found\n'), true);
-  assert.equal(isSoft404('# 404\n\n' + 'Real content. '.repeat(40)), true);
-  assert.equal(isSoft404('# Real Page\n\n' + 'Genuine documentation body. '.repeat(20)), false);
+test('soft 404s are refused (detectBadPage, which replaced isSoft404)', () => {
+  assert.ok(detectBadPage('---\nSource: x\n---\n\n# Page Not Found\n'));
+  assert.ok(detectBadPage('# 404\n\n' + 'Real content. '.repeat(40)));
+  assert.equal(detectBadPage('# Real Page\n\n' + 'Genuine documentation body. '.repeat(20)), null);
 });
 
 test('looksLikeMarkdown rejects HTML, PDFs and JSON error bodies', () => {
@@ -195,84 +222,21 @@ test('looksLikeMarkdown rejects HTML, PDFs and JSON error bodies', () => {
   assert.equal(looksLikeMarkdown('# Title\n\n- a\n- b\n\n```js\nconst x = 1;\n```\n\n**bold** and [link](http://a)'), true);
 });
 
-test('isRelevantContent ignores structural URL segments', () => {
-  // Observed: the real upstream source of /en/guides/markdown-content/ was
-  // rejected because "en" and "guides" never appear in the prose.
-  const body = '# Markdown in Astro\n\nAstro has built-in support for markdown content in your project.';
-  assert.equal(isRelevantContent(body, 'https://docs.astro.build/en/guides/markdown-content/'), true);
-});
-
-test('isRelevantContent still rejects an unrelated page', () => {
-  const body = '# Sphinx Theme\n\nThis theme provides styling for documentation sites.';
-  assert.equal(isRelevantContent(body, 'https://example.com/reference/array-broadcasting'), false);
-});
-
-test('sameSource allows same host and known raw mirrors, rejects off-site', () => {
-  assert.equal(sameSource('https://www.example.com/a.md', 'https://example.com/b'), true);
-  assert.equal(sameSource('https://github.com/o/r/blob/main/a.md', 'https://example.com/b'), true);
-  assert.equal(sameSource('https://gitlab.com/o/r/-/blob/main/a.md', 'https://example.com/b'), true);
-  assert.equal(sameSource('https://sphinx-doc.org/theme', 'https://docs.scipy.org/x'), false);
-});
-
-test('convertToRawUrl rewrites VCS blob/edit/tree URLs', () => {
-  assert.equal(
-    convertToRawUrl('https://github.com/withastro/docs/edit/main/src/a.mdx'),
-    'https://raw.githubusercontent.com/withastro/docs/main/src/a.mdx');
-  assert.equal(
-    convertToRawUrl('https://gitlab.com/g/p/-/blob/main/a.md'),
-    'https://gitlab.com/g/p/-/raw/main/a.md');
-  assert.equal(convertToRawUrl('https://example.com/a'), 'https://example.com/a');
-});
-
-// ============================================================================
-// llms.txt index structure
-// ============================================================================
-
-test('parseIndex folds a repeated domain header into one section', () => {
-  // Racy appends from parallel agents left duplicate `## domain` headers.
-  const content = '## example.com\n\n- docs/example.com/a.md: A\n\n## example.com\n\n- docs/example.com/b.md: B\n';
-  const index = parseIndex(content);
-  assert.equal(index.sections.length, 1);
-  assert.equal(index.sections[0].name, 'example.com');
-  assert.equal(renderIndex(index).match(/^## example\.com$/gm).length, 1);
-});
-
-test('parseIndexPaths matches whole paths, not substrings', () => {
-  const paths = parseIndexPaths('- docs/example.com/api.md: API\n');
-  assert.ok(paths.has('docs/example.com/api.md'));
-  assert.ok(!paths.has('docs/example.com/api-reference.md'));
-});
-
-test('renderIndex preserves the preamble', () => {
-  const out = renderIndex(parseIndex('# Docs index\n\n## a.com\n\n- docs/a.com/x.md: X\n'));
-  assert.match(out, /^# Docs index/);
-  assert.match(out, /## a\.com/);
-});
-
 // ============================================================================
 // Scheduling
 // ============================================================================
 
-test('runPool runs everything and honours the concurrency ceiling', async () => {
+test('runPool runs everything, honours the concurrency ceiling, keeps input order', async () => {
   let inFlight = 0;
   let peak = 0;
-  const done = [];
-  await runPool([...Array(12).keys()], async (n) => {
+  const out = await runPool([...Array(12).keys()], async (n) => {
     inFlight++;
     peak = Math.max(peak, inFlight);
-    await new Promise(r => setTimeout(r, 5));
-    done.push(n);
+    await new Promise(r => setTimeout(r, 5 + (n % 3)));
     inFlight--;
+    return n * 2;
   }, 3);
 
-  assert.equal(done.length, 12);
+  assert.deepEqual(out, [...Array(12).keys()].map(n => n * 2));
   assert.ok(peak <= 3, `peak concurrency ${peak} exceeded limit`);
-});
-
-test('globalBudgetMs scales the watchdog with the amount of work', () => {
-  // A fixed 2-minute budget killed large --discover runs before the index
-  // update, discarding it and exiting 1.
-  assert.equal(globalBudgetMs(1, 1), TIMEOUTS.GLOBAL + TIMEOUTS.PER_URL);
-  assert.ok(globalBudgetMs(50, 3) > globalBudgetMs(3, 3));
-  assert.ok(globalBudgetMs(50, 3) > 10 * 60 * 1000);
 });

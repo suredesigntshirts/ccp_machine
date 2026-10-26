@@ -11,9 +11,10 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { SKILL_ROOT, setupCommand } from './lib/deps.mjs';
+import { SKILL_ROOT, setupCommand, FETCH_PACKAGES } from './lib/deps.mjs';
+import { launchBrowser, launchedWith } from './lib/browser.mjs';
 
-const PACKAGES = ['playwright', 'turndown', 'turndown-plugin-gfm'];
+const PACKAGES = FETCH_PACKAGES;
 const MIN_NODE_MAJOR = 20;
 
 const results = [];
@@ -58,16 +59,11 @@ if (missing.includes('playwright')) {
   record(false, 'Browser binary', 'not checked (playwright missing)', setupCommand());
 } else {
   const { chromium } = await import('playwright');
-  const isCloud = process.env.CLAUDE_CODE_REMOTE === 'true';
   try {
-    const browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-dev-shm-usage'],
-      ...(isCloud ? { channel: 'chrome' } : {}),
-    });
+    const browser = await launchBrowser(chromium);
     const version = browser.version();
     await browser.close();
-    record(true, 'Browser binary', `${isCloud ? 'system Chrome' : 'chromium'} ${version}`, null);
+    record(true, 'Browser binary', `${version} via ${launchedWith()}`, null);
   } catch (err) {
     record(
       false,
@@ -82,8 +78,39 @@ if (missing.includes('playwright')) {
 // Environment notes (informational — never a failure)
 // ---------------------------------------------------------------------------
 const notes = [];
+
+// Search backend: node:sqlite (FTS5) from Node 22.13; otherwise the JSON fallback.
+try {
+  process.removeAllListeners('warning'); // node:sqlite prints an ExperimentalWarning
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE VIRTUAL TABLE t USING fts5(x)');
+  db.close();
+  notes.push('Search index: SQLite FTS5 (node:sqlite).');
+} catch {
+  notes.push('Search index: JSON fallback (node:sqlite needs Node >= 22.13) — works, ~0.5 s slower per search.');
+}
+
+// Optional: the Claude Code CLI, for --llm-profiles.
+{
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('claude', ['--version'], { encoding: 'utf-8', timeout: 5000 });
+  notes.push(r.status === 0
+    ? `claude CLI ${r.stdout.trim()} — available for \`docs fetch --llm-profiles haiku\`.`
+    : 'claude CLI not found — --llm-profiles unavailable (optional).');
+}
+
+// The cache in the current project.
+{
+  const { resolveRoot, detectLegacyRoot } = await import('./lib/config.mjs');
+  const root = resolveRoot();
+  const legacy = detectLegacyRoot();
+  if (root.exists) notes.push(`Cache: ${root.rel}/ (schema ${root.marker?.schema ?? root.marker?.version ?? '?'}).`);
+  else notes.push(`Cache: ${root.rel}/ does not exist yet — the first \`docs fetch\` creates it.`);
+  if (legacy) notes.push(`A v1 cache is at ${legacy} — preview moving it with: node ${join(SKILL_ROOT, 'scripts', 'docs.mjs')} migrate`);
+}
 if (process.env.CLAUDE_CODE_REMOTE === 'true') {
-  notes.push('Claude Code cloud session — browser launches use system Chrome + a TLS 1.2 pin.');
+  notes.push('Claude Code cloud session — the browser is resolved from what is installed (see lib/browser.mjs).');
 }
 if (!existsSync(join(SKILL_ROOT, 'package.json'))) {
   notes.push(`No package.json at ${SKILL_ROOT} — this file may have been copied out of the skill.`);
@@ -100,7 +127,7 @@ for (const { ok, label, detail } of results) {
 const failures = results.filter(r => !r.ok);
 if (failures.length === 0) {
   console.log('\nReady. Fetch docs with:\n');
-  console.log(`  node ${join(SKILL_ROOT, 'scripts', 'fetch-docs.js')} <url> --output-dir docs/ --update-index\n`);
+  console.log(`  node ${join(SKILL_ROOT, 'scripts', 'docs.mjs')} fetch <url>\n`);
 } else {
   console.log('\nNot ready. Fix in this order:\n');
   const seen = new Set();
