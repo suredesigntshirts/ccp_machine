@@ -281,3 +281,14 @@ test('find searches the description of downloaded pages', () => {
   lib(root, ['scan', '--write']);
   assert.match(lib(root, ['find', 'state', 'machine']), /external-docs\/stately\.ai\/docs\/actors\.md/);
 });
+
+test('window counts dot entries, which the file list shows, and audit names them', () => {
+  const root = seeded();
+  put(root, 'external-docs/.cache/index.sqlite', 'x');
+  put(root, 'external-docs/catalog.md', '# c\n');
+  lib(root, ['scan', '--write']);
+  const w = lib(root, ['window', '--all']);
+  assert.match(w, /external-docs\/\.cache\/\n/);
+  assert.match(w, /external-docs\/\.cache\/index\.sqlite\n/);
+  assert.match(lib(root, ['audit']), /window-dot/);
+});

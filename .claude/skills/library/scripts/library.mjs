@@ -265,6 +265,11 @@ async function loadCatalog() {
     return new Map();
   }
   const map = new Map();
+  try {
+    map.dots = JSON.parse(await fsp.readFile(path.join(dir, 'dots.json'), 'utf8'));
+  } catch {
+    map.dots = [];
+  }
   await pool(names, 16, async (n) => {
     const text = await fsp.readFile(path.join(dir, n), 'utf8');
     for (const line of text.split('\n')) {
@@ -296,9 +301,12 @@ async function saveCatalog(entries) {
   }
 }
 
-// Walk the tree with listings only. Returns [{p, d, size, mtime}], dot entries skipped.
-async function walk(startRel = '', { jobs = 16 } = {}) {
+// Walk the tree with listings only. Returns [{p, d, size, mtime}], dot entries skipped. Dot
+// entries still take slots in the sessions' file list (C5), so when `dots` is given they are
+// collected there ({p, d?}), apart from the temp files writeAtomic makes.
+async function walk(startRel = '', { jobs = 16, dots = null } = {}) {
   const out = [];
+  const dotted = new Set();
   let queue = [startRel];
   while (queue.length) {
     const next = [];
@@ -310,8 +318,17 @@ async function walk(startRel = '', { jobs = 16 } = {}) {
         return;
       }
       for (const ent of ents) {
-        if (ent.name.startsWith('.')) continue;
         const p = rel ? `${rel}/${ent.name}` : ent.name;
+        if (ent.name.startsWith('.') || dotted.has(rel)) {
+          if (dots && !/\.tmp-/.test(ent.name)) {
+            dots.push(ent.isDirectory() ? { p, d: 1 } : { p });
+            if (ent.isDirectory()) {
+              dotted.add(p);
+              next.push(p);
+            }
+          }
+          continue;
+        }
         let st;
         try {
           st = await fsp.stat(abs(p));
@@ -379,7 +396,8 @@ async function scan({ write = false, jobs = 16, quiet = false } = {}) {
   const t0 = Date.now();
   const policy = await loadPolicy();
   const old = await loadCatalog();
-  const tree = await walk('', { jobs });
+  const dots = [];
+  const tree = await walk('', { jobs, dots });
   const tWalk = Date.now();
   const todo = [];
   const next = new Map();
@@ -391,8 +409,10 @@ async function scan({ write = false, jobs = 16, quiet = false } = {}) {
   const described = await pool(todo, jobs, (e) => describe(e, policy));
   for (const e of described) next.set(e.p, e);
   const removed = [...old.keys()].filter((p) => !next.has(p));
+  next.dots = dots;
   if (write) {
     await saveCatalog(next);
+    await writeAtomic(`${SYS}/catalog/dots.json`, JSON.stringify(dots.sort((a, b) => compareFlat(a.p, b.p))) + '\n');
     // Signals older than 30 days have done their job (reflection.md, "Housekeeping").
     const cutoff = iso(new Date(Date.now() - 30 * 864e5)).slice(0, 10);
     for (const e of tree) if (e.p.startsWith(`${SYS}/signals/`) && path.posix.basename(e.p).slice(0, 10) < cutoff) await fsp.rm(abs(e.p), { force: true });
@@ -536,7 +556,7 @@ function resolvePath(rel, moves) {
 
 function windowList(catalog, { n = 150, policy = DEFAULT_POLICY } = {}) {
   const unlisted = Object.entries(policy.areas || {}).filter(([, a]) => a.listed === false).map(([k]) => k + '/');
-  const ents = [...catalog.values()].filter((e) => !unlisted.some((u) => e.p.startsWith(u)));
+  const ents = [...catalog.values(), ...(catalog.dots || [])].filter((e) => !unlisted.some((u) => e.p.startsWith(u)));
   ents.sort((a, b) => compareFlat(windowKey(a), windowKey(b)));
   const all = ents.map((e) => (e.d ? e.p + '/' : e.p));
   return { all, visible: all.slice(0, n) };
@@ -610,6 +630,8 @@ async function audit(catalog, policy) {
   if (mapTotal + 2 > policy.window - policy.reserve) add('warn', 'window-tight', MAP, `${mapTotal} signposts leave less than the ${policy.reserve}-slot reserve`);
   const sysVisible = visible.filter((k) => k.startsWith(SYS)).length;
   if (sysVisible && all.length > visible.length) add('warn', 'window-sys', SYS, `${sysVisible} machinery entries are visible; they waste slots`);
+  const dotVisible = visible.filter((k) => k.split('/').some((seg) => seg.startsWith('.'))).length;
+  if (dotVisible) add('info', 'window-dot', '', `${dotVisible} dot entries (caches, hidden files) take slots in the file list; they belong outside the Library`);
   // catalog age
   const catAge = Math.max(0, ...files.filter((e) => e.p.startsWith(`${SYS}/catalog/`)).map((e) => e.mtime));
 
