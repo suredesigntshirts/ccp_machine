@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -35,6 +35,9 @@ const HELP = `harness <command> [options]
                                  expect, one line each; mark each [met], [unmet] or [unclear] with
                                  evidence. Prints the verdict; exits 1 unless every line is met. send
                                  refuses a stand-in approve on an accept gate until it is
+  acceptance [--ledger F] [--text]  the PRD's v1 acceptance criteria against this store: met, not met or
+                                 unknown, each with its evidence (peak in flight, the person's touches by
+                                 tier, scenarios, duplicate ids; --ledger checks turn costs)
   handoff                        write handoff.md in the store: items in flight with stage, PR and plan,
                                  cards waiting on the person, pending effects, budget, doctor, the host's
                                  own handoff-notes.md, and the next actions; run at the end of each wake
@@ -91,6 +94,8 @@ try {
     options: {
       dir: { type: 'string', default: process.env.HARNESS_DIR ?? '.harness' },
       wip: { type: 'string' },
+      ledger: { type: 'string' },
+      text: { type: 'boolean' },
       to: { type: 'string' },
       id: { type: 'string' },
       outcome: { type: 'string', default: 'done' },
@@ -197,6 +202,12 @@ try {
       const v = checkVerdict(lines);
       print({ ...v, lines });
       if (!v.allMet) process.exitCode = 1;
+      break;
+    }
+    case 'acceptance': {
+      const rows = acceptance(store, { ledgerFile: o.ledger });
+      if (o.text) console.log(acceptanceText(rows));
+      else print(rows);
       break;
     }
     case 'handoff':
