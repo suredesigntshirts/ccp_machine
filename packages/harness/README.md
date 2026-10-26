@@ -26,6 +26,11 @@ The harness spec and the runtime that drives it.
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
   flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.
+- `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
+  pending over a day, a lock older than 60s, a snapshot that will not restore) and exits 1 on a problem.
+- `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
+  arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
+  and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.
 
 ## Use
 
@@ -44,6 +49,3 @@ harness page --standalone           # .harness/mission-control.html
 The host (an orchestrator thread) is the only writer. It runs each effect (dispatch a run, post a
 decision card, merge a PR), acknowledges it, and turns what comes back (CI result, a person's tap)
 into the next `send`.
-- `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
-  arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
-  and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.

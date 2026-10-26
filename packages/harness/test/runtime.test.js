@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, cardFor } from '../src/index.js';
-
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor } from '../src/index.js';
 const fresh = (input) => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, input, '2026-10-26T18:00:00Z');
@@ -168,6 +167,21 @@ test('the digest goes out once per UTC day and says what finished, what runs and
   const again = writeDigest(store, { day: '2026-10-26' });
   assert.equal(again.acked, 0, 'a second run the same day queues no second digest');
   assert.equal(store.events().filter((e) => e.event.type === 'DIGEST_DUE').length, 1);
+});
+
+test('doctor passes a sound store and names each problem in a broken one', () => {
+  const store = fresh();
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 } }, { now: '2026-10-20T00:00:00Z' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
+  const soon = Date.parse('2026-10-20T01:00:00Z');
+  assert.deepEqual(doctor(store, { now: soon }).problems, []);
+  store.appendAcks([{ effectId: 'ghost', outcome: 'done' }]);
+  store.appendEvents([{ id: 'x', version: 9, at: '2026-10-20T00:00:00Z', to: 'harness', event: { type: 'X' } }]);
+  const { ok, problems } = doctor(store, { now: Date.parse('2026-10-26T00:00:00Z') });
+  assert.equal(ok, false);
+  assert.ok(problems.some((p) => /unknown effect ghost/.test(p)));
+  assert.ok(problems.some((p) => /version 9, expected 4/.test(p)));
+  assert.ok(problems.some((p) => /pending since/.test(p)));
 });
 
 test('a postDecisionCard effect becomes a card whose tap maps back to PERSON_DECIDED', () => {

@@ -6,4 +6,5 @@ export { budgetEvents } from './budget-feed.js';
 export { renderItemPage, itemRecords } from './item-page.js';
 export { logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, EARN_ACT, RUNGS } from './decision-log.js';
 export { renderDigest, writeDigest } from './digest.js';
+export { doctor } from './doctor.js';
 export { cardFor } from './card.js';
