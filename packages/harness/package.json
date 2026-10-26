@@ -1,0 +1,23 @@
+{
+  "name": "@ccp/harness",
+  "version": "0.1.0",
+  "description": "The harness spec (XState JSON machines) and a restore-apply-persist runtime with an effects outbox",
+  "type": "module",
+  "bin": {
+    "harness": "bin/harness.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "xstate": "5.33.3",
+    "@ccp/ledger": "0.1.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "spec:render": "node spec/render.js"
+  }
+}

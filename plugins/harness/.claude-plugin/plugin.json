@@ -1,0 +1,6 @@
+{
+  "name": "harness",
+  "version": "0.1.0",
+  "description": "Agent harness for Claude Projects: files every session's turn ledger in the Library after each turn, and teaches an orchestrator thread to run the harness loop.",
+  "author": { "name": "suredesigntshirts" }
+}

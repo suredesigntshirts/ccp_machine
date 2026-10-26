@@ -1,0 +1,94 @@
+{
+  "id": "decision",
+  "version": "0.1.0",
+  "description": "One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation.",
+  "initial": "askingStandIn",
+  "context": {
+    "id": "",
+    "decisionClass": "",
+    "tier": 2,
+    "question": "",
+    "options": [],
+    "standIn": null,
+    "choice": null,
+    "decidedBy": null
+  },
+  "states": {
+    "askingStandIn": {
+      "entry": [
+        {
+          "type": "askStandIn"
+        }
+      ],
+      "on": {
+        "STAND_IN_ANSWERED": {
+          "target": "routing",
+          "actions": [
+            {
+              "type": "recordStandInAnswer"
+            }
+          ]
+        },
+        "STAND_IN_FAILED": {
+          "target": "awaitingPerson"
+        }
+      }
+    },
+    "routing": {
+      "always": [
+        {
+          "guard": {
+            "type": "standInMayDecide"
+          },
+          "target": "decided",
+          "actions": [
+            {
+              "type": "acceptStandInChoice"
+            }
+          ]
+        },
+        {
+          "target": "awaitingPerson"
+        }
+      ]
+    },
+    "awaitingPerson": {
+      "description": "A decision card is in front of the person, with the stand-in's recommendation.",
+      "tags": [
+        "needs-human"
+      ],
+      "entry": [
+        {
+          "type": "postDecisionCard"
+        },
+        {
+          "type": "notifyInboxOpened"
+        }
+      ],
+      "on": {
+        "PERSON_DECIDED": {
+          "target": "decided",
+          "actions": [
+            {
+              "type": "recordPersonChoice"
+            }
+          ]
+        }
+      }
+    },
+    "decided": {
+      "type": "final",
+      "entry": [
+        {
+          "type": "logPrecedent"
+        },
+        {
+          "type": "reportDecision"
+        },
+        {
+          "type": "notifyInboxClosed"
+        }
+      ]
+    }
+  }
+}

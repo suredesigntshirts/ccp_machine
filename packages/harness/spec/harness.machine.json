@@ -1,0 +1,176 @@
+{
+  "id": "harness",
+  "version": "0.1.0",
+  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox.",
+  "type": "parallel",
+  "context": {
+    "wipLimit": 3,
+    "queued": [],
+    "inFlight": [],
+    "inbox": [],
+    "budgetMode": "normal"
+  },
+  "invoke": {
+    "src": "budget",
+    "id": "budget",
+    "systemId": "budget"
+  },
+  "states": {
+    "intake": {
+      "initial": "listening",
+      "states": {
+        "listening": {
+          "on": {
+            "REQUEST_RECEIVED": {
+              "actions": [
+                {
+                  "type": "spawnWorkItem"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "scheduler": {
+      "initial": "accepting",
+      "on": {
+        "ITEM_FINISHED": {
+          "actions": [
+            {
+              "type": "releaseSlot"
+            }
+          ]
+        },
+        "BUDGET_MODE": [
+          {
+            "guard": {
+              "type": "modeIs",
+              "params": {
+                "mode": "paused"
+              }
+            },
+            "target": ".halted",
+            "actions": [
+              {
+                "type": "recordBudgetMode"
+              }
+            ]
+          },
+          {
+            "guard": {
+              "type": "modeIs",
+              "params": {
+                "mode": "wrappingUp"
+              }
+            },
+            "target": ".draining",
+            "actions": [
+              {
+                "type": "recordBudgetMode"
+              }
+            ]
+          },
+          {
+            "target": ".accepting",
+            "actions": [
+              {
+                "type": "recordBudgetMode"
+              }
+            ]
+          }
+        ]
+      },
+      "states": {
+        "accepting": {
+          "description": "Start ready items while fewer than wipLimit are in flight.",
+          "entry": [
+            {
+              "type": "startReadyItems"
+            }
+          ],
+          "on": {
+            "REQUEST_RECEIVED": {
+              "actions": [
+                {
+                  "type": "startReadyItems"
+                }
+              ]
+            },
+            "ITEM_FINISHED": {
+              "actions": [
+                {
+                  "type": "releaseSlot"
+                },
+                {
+                  "type": "startReadyItems"
+                }
+              ]
+            }
+          }
+        },
+        "draining": {
+          "description": "Soft budget limit: nothing new starts; items in flight are told to wrap up.",
+          "entry": [
+            {
+              "type": "wrapUpInFlight"
+            }
+          ]
+        },
+        "halted": {
+          "description": "Budget stop: nothing runs until usage allows.",
+          "tags": [
+            "budget-stop"
+          ]
+        }
+      }
+    },
+    "attention": {
+      "initial": "quiet",
+      "on": {
+        "DECISION_PENDING": {
+          "target": ".needsPerson",
+          "actions": [
+            {
+              "type": "addToInbox"
+            }
+          ]
+        },
+        "DIGEST_DUE": {
+          "actions": [
+            {
+              "type": "publishDigest"
+            }
+          ]
+        }
+      },
+      "states": {
+        "quiet": {
+          "description": "Nothing needs the person."
+        },
+        "needsPerson": {
+          "tags": [
+            "needs-human"
+          ],
+          "always": [
+            {
+              "guard": {
+                "type": "inboxEmpty"
+              },
+              "target": "quiet"
+            }
+          ],
+          "on": {
+            "DECISION_CLOSED": {
+              "actions": [
+                {
+                  "type": "removeFromInbox"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

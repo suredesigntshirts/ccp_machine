@@ -1,0 +1,15 @@
+{
+  "name": "ccp-machine-test",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "build:plugin": "node scripts/build-plugin.mjs"
+  }
+}
