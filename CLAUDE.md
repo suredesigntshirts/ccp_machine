@@ -38,3 +38,7 @@ git worktree add ../feat-42-retry-failed-jobs--tests -b feat/42-retry-failed-job
 ## The project Library
 
 The Library (`/mnt/project-files`) is shared by every session and kept organized by the librarian. Repository skills do not load in Project threads by themselves, so before you read more than 5 Library files, write a file there, or keep research results, read `.claude/skills/library/SKILL.md` (installed copy: `/mnt/project-files/~librarian/kit/skills/library/SKILL.md`). If you are briefed as the librarian or asked to tidy or reorganize the Library, read `.claude/skills/librarian/SKILL.md` instead.
+
+## Safeguard false positives
+
+If a safety check blocks a safe request, retry once with the intent stated plainly: name the flagged thing you are not doing and why you need the result. If it is blocked again, stop, report the error, and use another legitimate route (such as reading the source on disk).
