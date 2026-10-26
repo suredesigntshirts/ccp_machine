@@ -51,6 +51,7 @@ const pages = [page, ...files.map((f) => join(dirname(page), f))];
 const { chromium } = await import('playwright');
 const browser = await chromium.launch();
 const failures = [];
+const warnings = [];
 let checked = 0;
 for (const file of pages) {
   const name = file.slice(dirname(page).length + 1);
@@ -75,12 +76,15 @@ for (const file of pages) {
           const target = fileURLToPath(new URL(href.split('#')[0], pathToFileURL(file)));
           if (!existsSync(target)) failures.push(`${name}: link ${href} goes nowhere`);
         }
-      await tab.screenshot({ path: join(shots, `${name.replace(/[/.]/g, '_')}-${width}-${colorScheme}.png`), fullPage: true });
+      // Screenshots are review material, not the check: retry a failed capture once, then warn and go on.
+      const shot = { path: join(shots, `${name.replace(/[/.]/g, '_')}-${width}-${colorScheme}.png`), fullPage: true };
+      await tab.screenshot(shot).catch(() => tab.screenshot(shot)).catch((e) => warnings.push(`${where}: no screenshot (${e.message.split('\n')[0]})`));
       await ctx.close();
       checked++;
     }
 }
 await browser.close();
 console.log(`checked ${pages.length} pages in ${checked} views; screenshots in ${shots}`);
+for (const w of warnings) console.log(`WARN ${w}`);
 for (const f of failures) console.log(`FAIL ${f}`);
 if (failures.length) process.exitCode = 1;
