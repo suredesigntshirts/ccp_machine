@@ -26,6 +26,8 @@ The harness spec and the runtime that drives it.
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
   flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.
+- `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
+  the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore) and exits 1 on a problem.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`

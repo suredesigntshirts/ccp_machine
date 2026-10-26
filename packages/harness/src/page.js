@@ -1,10 +1,12 @@
 // Mission control: one page that answers, at a glance, what needs the person, what is in flight and
 // where each item stands, and what the harness has asked the host to do. Rebuilt from the store on
 // every change; no scripts are needed to read it.
+import { lastMoved } from './stalled.js';
+
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 export const time = (iso) => (iso ? iso.slice(5, 16).replace('T', ' ') : '');
-const age = (now, then) => {
+const ago = (now, then) => {
   const m = Math.max(0, Math.round((Date.parse(now) - Date.parse(then)) / 60000));
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
 };
@@ -73,7 +75,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   const rows = (items) =>
     items
       .map(
-        (i) => `<tr><td><b>${itemLinks ? `<a href="${esc(itemHref(i.id))}">${esc(i.id)}</a>` : esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${i.retries} retry)` : ''}</td><td>${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`
+        (i) => `<tr><td><b>${itemLinks ? `<a href="${esc(itemHref(i.id))}">${esc(i.id)}</a>` : esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${i.retries} retry)` : ''}${!i.done && lastMoved(events, i.id) ? `<br>moved ${esc(ago(st.updatedAt, lastMoved(events, i.id)))} ago` : ''}</td><td>${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`
       )
       .join('');
   const head = '<thead><tr><th>Item</th><th>Project</th><th>Tier</th><th>Stage</th><th>Runs</th><th></th></tr></thead>';
@@ -84,7 +86,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   <div class="tile${asks.length ? ' ask' : ''}"><span class="eyebrow">Needs you</span><b>${asks.length}</b><small>${asks.length ? 'decisions waiting below' : 'nothing to decide'}</small></div>
   <div class="tile"><span class="eyebrow">In flight</span><b>${st.context.inFlight.length} / ${st.context.wipLimit}</b><small>${st.context.queued.length} queued</small></div>
   <div class="tile"><span class="eyebrow">Finished</span><b>${finished.length}</b><small>${finished.filter((i) => i.state === 'done').length} merged</small></div>
-  <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${esc(scheduler)}">${esc(scheduler)}</span></b><small>budget ${esc(budget?.mode ?? 'unknown')}${budget?.sevenDay != null ? ` · 7-day ${pct(budget.sevenDay)}` : ''} · ${budget?.sampledAt ? `reading ${esc(age(st.updatedAt, budget.sampledAt))} old` : 'no reading yet'}</small></div>
+  <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${esc(scheduler)}">${esc(scheduler)}</span></b><small>budget ${esc(budget?.mode ?? 'unknown')}${budget?.sevenDay != null ? ` · 7-day ${pct(budget.sevenDay)}` : ''} · ${budget?.sampledAt ? `reading ${esc(ago(st.updatedAt, budget.sampledAt))} old` : 'no reading yet'}</small></div>
   <div class="tile"><span class="eyebrow">Host to-do</span><b>${pending.length}</b><small>effects not yet acknowledged</small></div>
 </div>
 <section><h2>Needs you</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>

@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter } from '../src/index.js';
 const fresh = (input) => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, input, '2026-10-26T18:00:00Z');
@@ -199,6 +199,18 @@ test('a postDecisionCard effect becomes a card whose tap maps back to PERSON_DEC
   assert.equal(apply(store, { type: 'PERSON_DECIDED', choice: 'reject' }, { to: card.address, id: 'cmsg_tap' }).duplicate, true);
   assert.equal(status(store).items[0].state, 'active.building');
   assert.throws(() => cardFor(effects[0].name === 'postDecisionCard' ? { name: 'x' } : effects[0]), /not a postDecisionCard/);
+});
+
+test('stalled lists in-flight items quiet for longer than the limit, and the page shows when each moved', () => {
+  const store = fresh();
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'old', tier: 0 } }, { now: '2026-10-26T08:00:00Z' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'new', tier: 0 } }, { now: '2026-10-26T09:50:00Z' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:old', now: '2026-10-26T08:30:00Z' });
+  const now = Date.parse('2026-10-26T10:00:00Z');
+  assert.deepEqual(stalled(status(store), store.events(), { afterMs: parseAfter('60m'), now }).map((i) => i.id), ['old']);
+  assert.equal(parseAfter('2h'), 72e5);
+  assert.throws(() => parseAfter('soon'), /--after/);
+  assert.match(renderPage(status(store), { events: store.events() }), /moved \d+m ago/);
 });
 
 test('an item page lists the turns of the sessions named on its events, inside its window', () => {
