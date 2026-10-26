@@ -66,4 +66,5 @@ test('a CI result fed late splits its wait into CI and the host', () => {
   assert.equal(record.now.waits.CI, 5 * 60e3);
   assert.equal(record.now.waits['the host'], 55 * 60e3);
   assert.equal(record.bottlenecks[0].wait, 'the host');
+  assert.ok(!record.bottlenecks.some((b) => b.wait === 'merging'), 'a 1-minute merge wait (under 5%) is noise');
 });

@@ -13,6 +13,8 @@ import { itemRecords } from './item-page.js';
 
 const DAY = 864e5;
 const STALL_MS = 36e5;
+// A wait under this share of the total is noise, not a constraint worth an issue.
+const NOISE_SHARE = 0.05;
 export const RETRO_EVERY = { days: 7, items: 20 };
 
 // A wait is named after what ended it: time before a CI result is time spent on CI. When the ending
@@ -99,6 +101,7 @@ export function retro(store, { day = new Date().toISOString().slice(0, 10), wind
   }
   const total = Object.values(now.waits).reduce((a, b) => a + b, 0);
   const bottlenecks = Object.entries(now.waits)
+    .filter(([, ms]) => total && ms / total >= NOISE_SHARE)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([wait, ms]) => ({
