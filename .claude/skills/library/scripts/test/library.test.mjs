@@ -1,0 +1,198 @@
+// Run: node --test .claude/skills/library/scripts/test/
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const HERE = path.dirname(new URL(import.meta.url).pathname);
+const CLI = path.join(HERE, '..', 'library.mjs');
+const SEED = path.join(HERE, '..', '..', '..', 'librarian', 'policy.seed.json');
+
+function lib(root, args, { writer = 'w1', ok = true } = {}) {
+  try {
+    return execFileSync('node', [CLI, ...args], { env: { ...process.env, LIBRARY_ROOT: root, LIBRARY_WRITER: writer }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    if (ok) throw new Error(`${args.join(' ')} failed: ${e.stderr}`);
+    return { code: e.status, stderr: e.stderr, stdout: e.stdout };
+  }
+}
+
+function tmpRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'library-test-'));
+}
+
+function put(root, rel, text = 'x\n', ageMin = 60) {
+  const f = path.join(root, rel);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, text);
+  const t = new Date(Date.now() - ageMin * 60e3);
+  fs.utimesSync(f, t, t);
+}
+
+const md = (title, body = '', extra = '') => `---\ntitle: ${title}\nsummary: about ${title}\nkind: notes\n${extra}---\n\n# ${title}\n\n${body}\n`;
+
+function seeded() {
+  const root = tmpRoot();
+  lib(root, ['init', '--seed', SEED]);
+  const pol = JSON.parse(fs.readFileSync(path.join(root, '~librarian/policy.json'), 'utf8'));
+  pol.settle_minutes = 5;
+  fs.writeFileSync(path.join(root, '~librarian/policy.json'), JSON.stringify(pol));
+  lib(root, ['lease', 'acquire', '--wait', '0']);
+  lib(root, ['install']);
+  return root;
+}
+
+test('window order reproduces the session file list measured on 2026-10-26', () => {
+  // Fixture: a real thread's "Project files" list, copied verbatim by a probe thread.
+  const listing = fs.readFileSync(path.join(HERE, 'fixtures', 'session-file-list-2026-10-26.md'), 'utf8');
+  const lines = listing.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(2).replace(/ \([\d.]+ [KMG]?B\)$/, ''));
+  const expected = lines.filter((l) => !l.startsWith('.') && !l.startsWith('…'));
+  const root = tmpRoot();
+  for (const l of expected) {
+    if (l.endsWith('/')) fs.mkdirSync(path.join(root, l), { recursive: true });
+    else put(root, l);
+  }
+  // uploads/ children are not listed by the platform; policy marks the area unlisted.
+  put(root, 'uploads/hearth/c6909300-0c61-4250-9017-664fa9b758d2');
+  fs.mkdirSync(path.join(root, '~librarian'), { recursive: true });
+  fs.copyFileSync(SEED, path.join(root, '~librarian/policy.json'));
+  const out = lib(root, ['window', '--live', '--all']).split('\n').filter((l) => /^\s+\d+ {2}/.test(l)).map((l) => l.replace(/^\s+\d+ {2}/, ''));
+  const got = out.filter((l) => !l.startsWith('~librarian'));
+  assert.deepEqual(got.slice(0, expected.length), expected);
+});
+
+test('build puts START-HERE first and the map right after it; audit is clean', () => {
+  const root = seeded();
+  put(root, 'notes/a-note.md', md('A note'));
+  lib(root, ['new-topic', 'xstate-orchestration', '--title', 'XState orchestration']);
+  lib(root, ['build']);
+  const win = lib(root, ['window']).split('\n');
+  assert.match(win[0], /^\s+1 {2}00-START-HERE\.md$/);
+  assert.match(win[1], /01-map\/$/);
+  assert.ok(win.some((l) => l.includes('01-map/50-research--xstate-orchestration--draft.md')));
+  const { metrics, findings } = JSON.parse(lib(root, ['audit', '--json']));
+  const errors = findings.filter((f) => f.sev === 'error');
+  assert.deepEqual(errors, []);
+  assert.equal(metrics.window.first, '00-START-HERE.md');
+  assert.ok(fs.existsSync(path.join(root, 'research/INDEX.md')));
+  assert.ok(fs.existsSync(path.join(root, 'drop/README.md')));
+});
+
+test('scan is incremental: an unchanged tree opens nothing', () => {
+  const root = seeded();
+  put(root, 'notes/one.md', md('One'));
+  lib(root, ['scan', '--write']);
+  const second = JSON.parse(lib(root, ['scan', '--write']).trim());
+  assert.equal(second.changed, 0);
+  assert.equal(second.opened, 0);
+});
+
+test('find searches titles, summaries and paths', () => {
+  const root = seeded();
+  put(root, 'notes/rclone-cache.md', md('Rclone cache timings'));
+  put(root, 'notes/other.md', md('Something else'));
+  lib(root, ['scan', '--write']);
+  const out = lib(root, ['find', 'rclone']);
+  assert.match(out, /notes\/rclone-cache\.md/);
+  assert.doesNotMatch(out, /other\.md/);
+});
+
+test('mv moves a file, rewrites relative, absolute and anchored links, logs the move', () => {
+  const root = seeded();
+  put(root, 'notes/target.md', md('Target', 'see [self](#top)'));
+  put(root, 'notes/linker.md', md('Linker', 'rel [t](target.md#sec) abs /mnt/project-files/notes/target.md. and [up](../notes/target.md)'));
+  put(root, 'research/t1/README.md', md('T1', 'cite [t](../../notes/target.md)'));
+  lib(root, ['scan', '--write']);
+  const dry = JSON.parse(lib(root, ['mv', 'notes/target.md', 'research/t1/target.md']));
+  assert.equal(dry.applied, false);
+  assert.ok(fs.existsSync(path.join(root, 'notes/target.md')));
+  const res = JSON.parse(lib(root, ['mv', 'notes/target.md', 'research/t1/target.md', '--apply']));
+  assert.equal(res.applied, true);
+  assert.ok(fs.existsSync(path.join(root, 'research/t1/target.md')));
+  const linker = fs.readFileSync(path.join(root, 'notes/linker.md'), 'utf8');
+  assert.match(linker, /\[t\]\(\.\.\/research\/t1\/target\.md#sec\)/);
+  assert.match(linker, /\/mnt\/project-files\/research\/t1\/target\.md\./);
+  assert.match(linker, /\[up\]\(\.\.\/research\/t1\/target\.md\)/);
+  assert.match(fs.readFileSync(path.join(root, 'research/t1/README.md'), 'utf8'), /\[t\]\(target\.md\)/);
+  assert.match(lib(root, ['resolve', 'notes/target.md']), /notes\/target\.md -> research\/t1\/target\.md/);
+  assert.match(lib(root, ['refs', 'research/t1/target.md']), /notes\/linker\.md/);
+  const { findings } = JSON.parse(lib(root, ['audit', '--json']));
+  assert.deepEqual(findings.filter((f) => f.code === 'dangling-link'), []);
+});
+
+test('mv of a folder keeps the moved files\' own relative links pointing at the same targets', () => {
+  const root = seeded();
+  put(root, 'notes/shared.md', md('Shared'));
+  put(root, 'research/old-name/README.md', md('Old', '[s](sources.md) [n](../../notes/shared.md)'));
+  put(root, 'research/old-name/sources.md', md('Sources'));
+  lib(root, ['scan', '--write']);
+  lib(root, ['mv', 'research/old-name', 'research/archive/new-name', '--apply']);
+  const readme = fs.readFileSync(path.join(root, 'research/archive/new-name/README.md'), 'utf8');
+  assert.match(readme, /\[s\]\(sources\.md\)/);
+  assert.match(readme, /\[n\]\(\.\.\/\.\.\/\.\.\/notes\/shared\.md\)/);
+  assert.match(lib(root, ['resolve', 'research/old-name/sources.md']), /-> research\/archive\/new-name\/sources\.md/);
+});
+
+test('mv refuses foreign areas, recently changed files, and writing without the lease', () => {
+  const root = seeded();
+  put(root, 'ccp/worklog/x.md', 'x');
+  put(root, 'notes/fresh.md', md('Fresh'), 0);
+  put(root, 'notes/old.md', md('Old'));
+  lib(root, ['scan', '--write']);
+  assert.match(lib(root, ['mv', 'ccp/worklog/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by ccp/);
+  assert.match(lib(root, ['mv', 'notes/fresh.md', 'notes/f2.md', '--apply'], { ok: false }).stderr, /changed in the last/);
+  assert.match(lib(root, ['mv', 'notes/old.md', 'notes/o2.md', '--apply'], { ok: false, writer: 'w2' }).stderr, /does not hold the librarian lease/);
+});
+
+test('lease: a second writer cannot take a live lease', () => {
+  const root = seeded();
+  const other = JSON.parse(lib(root, ['lease', 'acquire', '--wait', '0'], { writer: 'w2' }));
+  assert.equal(other.acquired, false);
+  assert.equal(other.holder.writer, 'w1');
+  lib(root, ['lease', 'release']);
+  assert.equal(JSON.parse(lib(root, ['lease', 'acquire', '--wait', '0'], { writer: 'w2' })).acquired, true);
+});
+
+test('lint flags missing frontmatter, bad names and dangling links', () => {
+  const root = seeded();
+  put(root, 'notes/Bad Name.md', '# no frontmatter\n\n[x](missing.md)\n');
+  put(root, 'stray.md', md('Stray'));
+  const r = lib(root, ['lint', 'notes/Bad Name.md', 'stray.md'], { ok: false });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /no frontmatter/);
+  assert.match(r.stdout, /uppercase or spaces/);
+  assert.match(r.stdout, /missing\.md does not resolve/);
+  assert.match(r.stdout, /stray\.md: not under a registered area/);
+});
+
+test('audit reports strays, topics without sources, and the drop backlog', () => {
+  const root = seeded();
+  put(root, 'random-folder/x.md', md('X'));
+  put(root, 'research/t2/README.md', md('T2'));
+  put(root, 'drop/w9--thing.md', md('Thing'));
+  lib(root, ['build']);
+  const { findings } = JSON.parse(lib(root, ['audit', '--json']));
+  const codes = new Set(findings.map((f) => `${f.code}:${f.p}`));
+  assert.ok(codes.has('stray-root:random-folder'));
+  assert.ok(codes.has('topic-no-sources:research/t2'));
+  assert.ok(codes.has('drop-waiting:drop/w9--thing.md'));
+});
+
+test('build signposts uploads by what they are', () => {
+  const root = seeded();
+  put(root, 'uploads/hearth/c6909300-0c61-4250-9017-664fa9b758d2', '%PDF-1.7 blah');
+  put(root, 'uploads/hearth/a1b2c3d4-0000-0000-0000-000000000000', 'Quarterly plan for shirts\nmore\n');
+  lib(root, ['build']);
+  const map = fs.readdirSync(path.join(root, '01-map'));
+  assert.ok(map.includes('60-upload--pdf--c6909300.md'), map.join(','));
+  assert.ok(map.includes('60-upload--Quarterly-plan-for-shirts--a1b2c3d4.md'), map.join(','));
+});
+
+test('journal and trend', () => {
+  const root = seeded();
+  lib(root, ['build']);
+  assert.match(lib(root, ['audit', '--journal', 'first run']), /journal: ~librarian\/journal\//);
+  assert.match(lib(root, ['trend']), /errors=0/);
+});
