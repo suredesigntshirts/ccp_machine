@@ -50,10 +50,11 @@ export function logPrecedents(store) {
 export const RUNGS = ['shadow', 'recommend', 'act'];
 
 /**
- * A class's stand-in autonomy, from its decisions in order. It starts at `recommend`. A reversal (the
- * final choice differs from the stand-in's lean) drops it one rung, floor `shadow`; EARN_ACT.decisions
- * decisions since the last change with at least EARN_ACT.agreement agreement climb it one rung, cap `act`.
- * Either change restarts the count.
+ * A class's stand-in autonomy, from its decisions in order. It starts at `recommend`. Only decisions the
+ * person made against a stand-in lean test it: a decision the stand-in made itself agrees with itself, so
+ * it counts in `decisions` but never moves the ladder. A reversal (the person chose other than the lean)
+ * drops it one rung, floor `shadow`; EARN_ACT.decisions tested decisions since the last change with at
+ * least EARN_ACT.agreement agreement climb it one rung, cap `act`. Either change restarts the count.
  * @returns {{decisionClass: string, autonomy: string, decisions: number, sinceChange: number, agreement: number|null, reversals: number, why: string}}
  */
 export function ladder(rows, decisionClass, earn = EARN_ACT) {
@@ -66,7 +67,8 @@ export function ladder(rows, decisionClass, earn = EARN_ACT) {
   const mine = rows.filter((r) => r.decisionClass === decisionClass);
   for (const r of mine) {
     const lean = r.standIn?.choice;
-    if (lean && r.choice && lean !== r.choice) {
+    if (r.decidedBy !== 'person' || !lean || !r.choice) continue;
+    if (lean !== r.choice) {
       reversals++;
       rung = Math.max(0, rung - 1);
       [count, leaned, agreed] = [0, 0, 0];
@@ -74,17 +76,15 @@ export function ladder(rows, decisionClass, earn = EARN_ACT) {
       continue;
     }
     count++;
-    if (lean) {
-      leaned++;
-      agreed++;
-    }
-    if (rung < RUNGS.length - 1 && count >= earn.decisions && leaned && agreed / leaned >= earn.agreement) {
+    leaned++;
+    agreed++;
+    if (rung < RUNGS.length - 1 && count >= earn.decisions && agreed / leaned >= earn.agreement) {
       rung++;
       why = `${count} decisions at ${pct(agreed / leaned)} agreement since the last change`;
       [count, leaned, agreed] = [0, 0, 0];
     }
   }
-  const next = rung < RUNGS.length - 1 ? `; ${Math.max(0, earn.decisions - count)} more agreeing decisions to reach ${RUNGS[rung + 1]}` : '';
+  const next = rung < RUNGS.length - 1 ? `; ${Math.max(0, earn.decisions - count)} more agreeing decisions by the person to reach ${RUNGS[rung + 1]}` : '';
   return { decisionClass, autonomy: RUNGS[rung], decisions: mine.length, sinceChange: count, agreement: leaned ? agreed / leaned : null, reversals, why: why + next };
 }
 
@@ -95,7 +95,7 @@ export function classStats(rows, earn = EARN_ACT) {
     const s = by.get(r.decisionClass) ?? { decisionClass: r.decisionClass, decisions: 0, byPerson: 0, leaned: 0, agreed: 0 };
     s.decisions++;
     if (r.decidedBy === 'person') s.byPerson++;
-    if (r.standIn?.choice) {
+    if (r.standIn?.choice && r.decidedBy === 'person') {
       s.leaned++;
       if (r.standIn.choice === r.choice) s.agreed++;
     }

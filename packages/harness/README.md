@@ -20,7 +20,8 @@ The harness spec and the runtime that drives it.
   the store (once per effect, backfilling acknowledged ones) and acks it. `decisions.html` shows, per
   decision class, how often the stand-in's lean matched the final choice and the class's rung, then every
   decision. `harness standin <class>` prints the rung (`ladder()`): a class starts at `recommend`, climbs
-  one rung (to `act`) after 20 decisions since its last change at 90% agreement (`EARN_ACT`), and drops
+  one rung (to `act`) after 20 of the person's decisions since its last change at 90% agreement with the
+  lean (`EARN_ACT`; a decision the stand-in made itself never counts), and drops
   one rung (to `shadow` at the floor) on each reversal, where the final choice differs from the lean.
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in

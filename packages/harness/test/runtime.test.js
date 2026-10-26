@@ -128,8 +128,8 @@ test('logPrecedent effects become the decision log once, and the page shows agre
   assert.equal(rows[0].decidedBy, 'stand-in');
   assert.ok(!store.pending().some((e) => e.name === 'logPrecedent'));
   const [plan] = classStats(rows);
-  assert.deepEqual([plan.decisions, plan.agreement, plan.earnedAct], [1, 1, false]);
-  const many = Array.from({ length: 20 }, () => ({ ...rows[0] }));
+  assert.deepEqual([plan.decisions, plan.agreement, plan.earnedAct], [1, null, false]);
+  const many = Array.from({ length: 20 }, () => ({ ...rows[0], decidedBy: 'person' }));
   assert.equal(classStats(many)[0].earnedAct, true);
   const html = renderDecisionLog(rows);
   assert.match(html, /recommend/);
@@ -147,6 +147,11 @@ test('the stand-in ladder climbs after 20 agreeing decisions and drops a rung on
   assert.equal(ladder([row('reject'), row('reject')], 'plan').autonomy, 'shadow');
   assert.equal(ladder([row('reject'), ...agree(20)], 'plan').autonomy, 'recommend', 'climbing back takes 20 more');
   assert.equal(ladder(agree(20), 'accept').autonomy, 'recommend', 'classes are separate');
+  const self = Array.from({ length: 30 }, () => ({ ...row('approve'), decidedBy: 'stand-in' }));
+  const own = ladder(self, 'plan');
+  assert.deepEqual([own.autonomy, own.decisions, own.agreement], ['recommend', 30, null], 'the stand-in agreeing with itself proves nothing');
+  assert.equal(ladder([...agree(10), ...self, ...agree(10)], 'plan').autonomy, 'act', 'only the person\'s 20 count');
+  assert.equal(classStats(self)[0].agreement, null);
 });
 
 test('the digest goes out once per UTC day and says what finished, what runs and what waits', () => {
