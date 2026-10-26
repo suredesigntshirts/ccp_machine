@@ -1,0 +1,4 @@
+{"p":"research/INDEX.md","size":469,"mtime":1793021838552,"fm":1,"title":"Research topics","summary":"All 1 research topics, newest first","kind":"index","links":["research/old-cache-study/README.md"]}
+{"p":"research/README.md","size":835,"mtime":1793021838550,"fm":1,"title":"research/: Research the person asked for: one folder per topic, a cited report, its sources, and each researcher's notes","summary":"Research the person asked for: one folder per topic, a cited report, its sources, and each researcher's notes","kind":"index"}
+{"p":"research/old-cache-study","d":1,"mtime":1792918800000}
+{"p":"research/old-cache-study/findings.md","size":234,"mtime":1792918800000,"fm":1,"title":"Old cache study findings","summary":"First measurements of the Library mount cache","kind":"notes","links":["notes/mount-timing.md"]}

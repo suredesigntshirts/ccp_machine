@@ -1,0 +1,2 @@
+{"p":"notes/README.md","size":536,"mtime":1793021837892,"fm":1,"title":"notes/: Notes, reviews and memos from threads that are not a research topic","summary":"Notes, reviews and memos from threads that are not a research topic","kind":"index"}
+{"p":"notes/mount-timing.md","size":262,"mtime":1792918800000,"fm":1,"title":"Library mount timing","summary":"Cold opens cost about 100 ms each on the Library mount; warm opens under 1 ms","kind":"notes"}

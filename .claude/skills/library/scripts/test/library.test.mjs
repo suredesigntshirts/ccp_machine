@@ -137,11 +137,11 @@ test('mv of a folder keeps the moved files\' own relative links pointing at the 
 
 test('mv refuses foreign areas, recently changed files, and writing without the lease', () => {
   const root = seeded();
-  put(root, 'ccp/worklog/x.md', 'x');
+  put(root, 'external-docs/example.com/x.md', 'x');
   put(root, 'notes/fresh.md', md('Fresh'), 0);
   put(root, 'notes/old.md', md('Old'));
   lib(root, ['scan', '--write']);
-  assert.match(lib(root, ['mv', 'ccp/worklog/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by ccp/);
+  assert.match(lib(root, ['mv', 'external-docs/example.com/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by tool:documentation-downloader/);
   assert.match(lib(root, ['mv', 'notes/fresh.md', 'notes/f2.md', '--apply'], { ok: false }).stderr, /changed in the last/);
   assert.match(lib(root, ['mv', 'notes/old.md', 'notes/o2.md', '--apply'], { ok: false, writer: 'w2' }).stderr, /does not hold the librarian lease/);
 });
@@ -232,4 +232,45 @@ test('find sees a file that passed lint before the next scan', () => {
   assert.match(lib(root, ['find', 'fresh']), /no match/);
   assert.match(lib(root, ['lint', 'notes/fresh-thing.md']), /^ok/);
   assert.match(lib(root, ['find', 'fresh'], { writer: 'w2' }), /notes\/fresh-thing\.md/);
+});
+
+test('put writes with frontmatter, refuses top level, foreign areas and overwrites, and is findable at once', () => {
+  const root = seeded();
+  const run = (args, input, writer = 'w1') => {
+    try {
+      return { out: execFileSync('node', [CLI, ...args], { input, env: { ...process.env, LIBRARY_ROOT: root, LIBRARY_WRITER: writer }, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }) };
+    } catch (e) {
+      return { err: e.stderr };
+    }
+  };
+  const ok = JSON.parse(run(['put', 'notes/cache-notes.md', '--title', 'Cache notes', '--summary', 'What warms the cache', '--kind', 'notes', '--tags', 'cache,mount'], '# Cache notes\n\nbody\n').out);
+  assert.equal(ok.lint, 'ok');
+  const text = fs.readFileSync(path.join(root, 'notes/cache-notes.md'), 'utf8');
+  assert.match(text, /^---\ntitle: Cache notes\nsummary: What warms the cache\nkind: notes\nauthor: w1\ncreated: \d{4}-\d\d-\d\d\ntags: \[cache, mount\]\n---\n/);
+  assert.match(text, /# Cache notes\n\nbody\n$/);
+  assert.match(run(['put', 'top.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /registered area/);
+  assert.match(run(['put', 'external-docs/x.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /owned by/);
+  assert.match(run(['put', 'notes/cache-notes.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /exists/);
+  assert.match(run(['put', 'notes/no-title.md', '--summary', 'x', '--kind', 'notes'], 'x').err, /--title/);
+  assert.match(lib(root, ['find', 'warms'], { writer: 'w2' }), /notes\/cache-notes\.md/);
+  run(['put', 'notes/cache-notes.md', '--replace'], '# Cache notes\n\nbody v2\n', 'w3');
+  const v2 = fs.readFileSync(path.join(root, 'notes/cache-notes.md'), 'utf8');
+  assert.match(v2, /title: Cache notes\n/);
+  assert.match(v2, /author: w1\n/);
+  assert.match(v2, /updated: \d{4}-\d\d-\d\d\n/);
+  assert.match(v2, /body v2/);
+});
+
+test('a link rewrite by mv keeps the file settled, so a folder can be filed one file at a time', () => {
+  const root = seeded();
+  put(root, 'notes/a.md', '---\ntitle: A\nsummary: a\nkind: notes\n---\n\n[b](b.md)\n');
+  put(root, 'notes/b.md', '---\ntitle: B\nsummary: b\nkind: notes\n---\n\n[a](a.md)\n');
+  const old = new Date(Date.now() - 3600e3);
+  for (const f of ['notes/a.md', 'notes/b.md']) fs.utimesSync(path.join(root, f), old, old);
+  lib(root, ['scan', '--write']);
+  lib(root, ['mv', 'notes/a.md', 'notes/x/a.md', '--apply']);
+  assert.match(fs.readFileSync(path.join(root, 'notes/b.md'), 'utf8'), /\[a\]\(x\/a\.md\)/);
+  lib(root, ['mv', 'notes/b.md', 'notes/x/b.md', '--apply']);
+  assert.match(fs.readFileSync(path.join(root, 'notes/x/a.md'), 'utf8'), /\[b\]\(b\.md\)/);
+  assert.match(fs.readFileSync(path.join(root, 'notes/x/b.md'), 'utf8'), /\[a\]\(a\.md\)/);
 });

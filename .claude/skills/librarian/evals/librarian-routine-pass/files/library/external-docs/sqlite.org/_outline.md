@@ -1,0 +1,1 @@
+- wal.md: Write-Ahead Logging - How WAL mode works

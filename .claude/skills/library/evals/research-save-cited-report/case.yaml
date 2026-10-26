@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: research-save-cited-report
+expected_outcome: |
+  A single new research topic under research/ holds a report (README.md) with frontmatter, a sources.md listing all three sources with S-numbers, and findings that each cite a defined source; the weak SMB claim is marked unverified; nothing is added at the Library's top level; the files lint clean and another session's find returns the report.
+context:
+  scaffold_script: place-files.sh
