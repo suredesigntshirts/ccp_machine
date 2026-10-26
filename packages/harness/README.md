@@ -57,6 +57,9 @@ The harness spec and the runtime that drives it.
   better and worse, and names the top 3 bottlenecks: where finished items' time went, by what each wait ended
   with (worker runs, stand-in, the person, CI, merging, blocked). Each comes as an issue draft with an expected
   change. It writes `<DIR>/<day>.md` and `.json`, and the next retro checks the last one's expectations.
+- `src/intake.js`: the request box. `harness page --request-box` adds an "Ask for work" form to mission
+  control that saves to the Artifact `db` collection `requests`; `harness intake FILE` files each new row
+  as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.

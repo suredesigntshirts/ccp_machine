@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   init [--wip N]                 create a harness in --dir
@@ -22,6 +22,9 @@ const HELP = `harness <command> [options]
   decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
                                  worked out from decisions.jsonl; use it as STAND_IN_ANSWERED's autonomy
+  intake FILE                    file each new request-box row in FILE (an ArtifactData list result of the
+                                 mission control \`requests\` collection) as REQUEST_RECEIVED req-<row id>,
+                                 and print the row updates to write back (status taken, item, href)
   canary [--day D] [--check]     file the day's tier-0 canary item once (canary-<day>); with --check, report
                                  each stage's time and exit 1 with one attention line if it failed or is
                                  not merged 2 hours after the request
@@ -44,7 +47,7 @@ const HELP = `harness <command> [options]
                                  scratch stores and check each step; exits 1 on a failure
   card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
                                  option i is PERSON_DECIDED {choice: choices[i]} to address, --id <card id>
-  page [--html FILE] [--title T] [--standalone]
+  page [--html FILE] [--title T] [--standalone] [--request-box]
                                  render mission control (default .harness/mission-control.html) and
                                  one page per item beside it (items/<id>.html), linked from its row,
                                  and the decision log (decisions.html);
@@ -73,6 +76,7 @@ const { values: o, positionals: [cmd, ...args] } = parseArgs({
     rebuild: { type: 'boolean', default: false },
     check: { type: 'boolean', default: false },
     due: { type: 'boolean', default: false },
+    'request-box': { type: 'boolean', default: false },
     out: { type: 'string' },
     now: { type: 'string' }
   }
@@ -138,6 +142,11 @@ try {
       if (!args[0]) throw new Error('standin needs a decision class, such as plan or accept');
       print(ladder(readDecisionLog(store), args[0]));
       break;
+    case 'intake': {
+      if (!args[0]) throw new Error('intake needs a file holding the requests rows');
+      print(intakeRows(store, JSON.parse(readFileSync(args[0], 'utf8'))));
+      break;
+    }
     case 'canary': {
       const day = o.day ?? new Date().toISOString().slice(0, 10);
       if (!o.check) {
@@ -214,7 +223,7 @@ try {
       const events = store.events();
       const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store) };
       const metrics = Object.fromEntries(st.items.map((i) => [i.id, attentionText(attention(i, records))]));
-      writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true, metrics }));
+      writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true, metrics, requestBox: o['request-box'] }));
       const items = st.items.map((item) => {
         const path = join(dirname(file), itemHref(item.id));
         mkdirSync(dirname(path), { recursive: true });

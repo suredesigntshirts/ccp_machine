@@ -42,6 +42,7 @@ export const CSS = `
 .empty{color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:12px 14px}
 .tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;font-size:.86rem;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font:500 .68rem/1.2 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}tr:last-child td{border-bottom:0}
+.rb{border-left-color:var(--accent)}.rb label{display:grid;gap:4px;font-size:.85rem;color:var(--muted)}.rb input,.rb textarea,.rb select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}.rb button{font:inherit;font-weight:600;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:8px 16px;cursor:pointer}.rb button:disabled{opacity:.6}
 .track{display:flex;gap:3px;min-width:220px}.track span{flex:1;height:8px;border-radius:3px;background:var(--line)}.track span.past{background:var(--accent)}.track span.now{background:var(--warn)}.track.ok span{background:var(--ok)}
 a{color:var(--accent)}code{font-family:var(--mono);font-size:.8rem;overflow-wrap:anywhere}
 `;
@@ -66,8 +67,9 @@ function decisionCard(item, d) {
  * @param {{events?: object[], pending?: object[], title?: string, standalone?: boolean, itemLinks?: boolean}} opts
  *   itemLinks: link each item to items/<id>.html (written next to the page by `harness page`)
  *   metrics: {id: text} per item (attentionText); finished items show it as an Attention column
+ *   requestBox: add the "Ask for work" form, which saves to the Artifact db (publish with capabilities {db: {}})
  */
-export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {} } = {}) {
+export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {}, requestBox = false } = {}) {
   const live = st.items.filter((i) => !i.done);
   const finished = st.items.filter((i) => i.done);
   const asks = live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => decisionCard(i, d)));
@@ -91,6 +93,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${esc(scheduler)}">${esc(scheduler)}</span></b><small>budget ${esc(budget?.mode ?? 'unknown')}${budget?.sevenDay != null ? ` · 7-day ${pct(budget.sevenDay)}` : ''} · ${budget?.sampledAt ? `reading ${esc(ago(st.updatedAt, budget.sampledAt))} old` : 'no reading yet'}</small></div>
   <div class="tile"><span class="eyebrow">Host to-do</span><b>${pending.length}</b><small>effects not yet acknowledged</small></div>
 </div>
+${requestBox ? REQUEST_BOX : ''}
 <section><h2>Needs you</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>
 <section><h2>In flight</h2>${live.length ? `<div class="tablewrap"><table>${head}<tbody>${rows(live)}</tbody></table></div>` : '<div class="empty">Nothing in flight.</div>'}</section>
 ${finished.length ? `<section><h2>Finished</h2><div class="tablewrap"><table>${finishedHead}<tbody>${rows(finished, true)}</tbody></table></div></section>` : ''}
@@ -113,6 +116,44 @@ ${finished.length ? `<section><h2>Finished</h2><div class="tablewrap"><table>${f
 </div>`;
   return wrapPage(title, body, { standalone });
 }
+
+// The form saves to the `requests` collection; `harness intake` files new rows and the host marks them
+// taken. Without the db capability (a local file, a signed-out viewer) the form stays hidden.
+const REQUEST_BOX = `<section id="rb"><h2>Ask for work</h2>
+<p class="empty" id="rb-off">To ask for work here, open this page on claude.ai while signed in. Or ask in the project chat.</p>
+<form class="card rb" id="rb-form" hidden>
+<label>What to do<input name="title" required maxlength="200" placeholder="Fix the Safari export button"></label>
+<label>Project<input name="project" maxlength="100" placeholder="packages/harness"></label>
+<label>What done looks like<textarea name="done" rows="2" maxlength="1000" placeholder="Export works in Safari 18, with a test"></textarea></label>
+<label>Tier<select name="tier"><option value="0">0: just do it</option><option value="1" selected>1: the stand-in checks the plan</option><option value="2">2: ask me at the plan and the merge</option></select></label>
+<div><button type="submit">Send</button> <span class="m" id="rb-msg" role="status"></span></div>
+</form>
+<div class="tablewrap" id="rb-list" hidden><table><thead><tr><th>Asked</th><th>Tier</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+</section>
+<script>(async () => {
+  const db = await window.claude?.use?.('db');
+  if (!db) return;
+  const $ = (id) => document.getElementById(id);
+  const form = $('rb-form'), msg = $('rb-msg'), list = $('rb-list');
+  $('rb-off').hidden = true; form.hidden = false;
+  const col = db.collection('requests');
+  const cell = (text, href) => { const td = document.createElement('td'); if (href) { const a = document.createElement('a'); a.href = href; a.textContent = text; td.append(a); } else td.textContent = text; return td; };
+  col.orderBy('at', 'desc').limit(10).onSnapshot((snap) => {
+    const body = list.querySelector('tbody'); body.replaceChildren();
+    for (const d of snap.docs) { const r = d.data() || {}; const tr = document.createElement('tr');
+      tr.append(cell(String(r.title || '')), cell(String(r.tier ?? '')), cell(r.status === 'taken' ? 'filed as ' + r.item : 'waiting for the next tick', r.status === 'taken' && /^items\\/[\\w%.-]+\\.html$/.test(r.href || '') ? r.href : null));
+      body.append(tr); }
+    list.hidden = snap.empty;
+  }, () => { list.hidden = true; });
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault(); const f = new FormData(form); const btn = form.querySelector('button'); btn.disabled = true; msg.textContent = 'Sending…';
+    try {
+      await col.add({ title: String(f.get('title')).trim(), project: String(f.get('project')).trim(), done: String(f.get('done')).trim(), tier: Number(f.get('tier')), status: 'new', at: new Date().toISOString() });
+      form.reset(); msg.textContent = 'Sent. The harness files it on its next tick.';
+    } catch (e) { msg.textContent = e?.code === 'permission_denied' || e?.code === 'not_granted' ? 'You can view this page but not add to it.' : 'Not sent: ' + (e?.message || 'try again'); }
+    btn.disabled = false;
+  });
+})();</script>`;
 
 export const itemHref = (id) => `items/${encodeURIComponent(id)}.html`;
 
