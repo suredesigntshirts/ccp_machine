@@ -1,0 +1,181 @@
+{
+  "id": "budget",
+  "version": "0.1.0",
+  "description": "Spends a daily slice of the person's 7-day Claude usage window and watches the 5-hour window. Utilization values are 0..1 shares of each window.",
+  "initial": "normal",
+  "context": {
+    "dailyShare": 0.1,
+    "softAt": 0.8,
+    "fiveHourStopAt": 0.95,
+    "dayStartSevenDay": 0,
+    "sevenDay": 0,
+    "fiveHour": 0
+  },
+  "on": {
+    "DAY_STARTED": [
+      {
+        "guard": {
+          "type": "fiveHourExhausted"
+        },
+        "target": ".paused",
+        "actions": [
+          {
+            "type": "startDay"
+          }
+        ]
+      },
+      {
+        "target": ".normal",
+        "actions": [
+          {
+            "type": "startDay"
+          }
+        ]
+      }
+    ],
+    "CONFIGURE": {
+      "actions": [
+        {
+          "type": "applyConfig"
+        }
+      ]
+    }
+  },
+  "states": {
+    "normal": {
+      "description": "Work may start.",
+      "entry": [
+        {
+          "type": "reportMode",
+          "params": {
+            "mode": "normal"
+          }
+        }
+      ],
+      "on": {
+        "USAGE_SAMPLED": [
+          {
+            "guard": {
+              "type": "mustPause"
+            },
+            "target": "paused",
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          },
+          {
+            "guard": {
+              "type": "mustWrapUp"
+            },
+            "target": "wrappingUp",
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          },
+          {
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "wrappingUp": {
+      "description": "Soft limit reached: start nothing new, bring work in flight to a checkpoint.",
+      "entry": [
+        {
+          "type": "reportMode",
+          "params": {
+            "mode": "wrappingUp"
+          }
+        }
+      ],
+      "on": {
+        "USAGE_SAMPLED": [
+          {
+            "guard": {
+              "type": "mustPause"
+            },
+            "target": "paused",
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          },
+          {
+            "guard": {
+              "type": "mayRun"
+            },
+            "target": "normal",
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          },
+          {
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "paused": {
+      "description": "Daily allowance spent or the 5-hour window nearly full: no turns except to save state.",
+      "tags": [
+        "budget-stop"
+      ],
+      "entry": [
+        {
+          "type": "reportMode",
+          "params": {
+            "mode": "paused"
+          }
+        }
+      ],
+      "on": {
+        "USAGE_SAMPLED": [
+          {
+            "guard": {
+              "type": "mayRun"
+            },
+            "target": "normal",
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          },
+          {
+            "guard": {
+              "type": "mustWrapUp"
+            },
+            "target": "wrappingUp",
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          },
+          {
+            "actions": [
+              {
+                "type": "recordUsage"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

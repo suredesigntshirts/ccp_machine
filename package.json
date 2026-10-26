@@ -3,12 +3,19 @@
   "private": true,
   "type": "module",
   "description": "Agent harness for Claude Projects and GitHub, modeled as XState v5 statecharts",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "xstate:src": "bash harness/scripts/fetch-xstate-src.sh",
-    "spike": "node --test \"harness/spike/*.test.js\""
+    "spike": "node --test \"harness/spike/*.test.js\"",
+    "spec": "node --test \"harness/spec/*.test.js\"",
+    "spec:render": "node harness/spec/render.js"
   },
   "dependencies": {
     "xstate": "5.33.3"
+  },
+  "devDependencies": {
+    "xstate-v6": "npm:xstate@6.0.0-alpha.70"
   }
 }

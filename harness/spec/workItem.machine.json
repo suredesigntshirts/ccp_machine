@@ -1,0 +1,455 @@
+{
+  "id": "workItem",
+  "version": "0.1.0",
+  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes.",
+  "initial": "active",
+  "context": {
+    "id": "",
+    "project": "",
+    "tier": 1,
+    "criteria": [],
+    "retries": 0,
+    "runs": 0,
+    "choice": null,
+    "decisions": 0,
+    "decisionId": null
+  },
+  "on": {
+    "CANCEL": {
+      "target": ".cancelled"
+    }
+  },
+  "states": {
+    "active": {
+      "initial": "queued",
+      "on": {
+        "BLOCK": {
+          "target": "blocked"
+        },
+        "WRAP_UP": {
+          "actions": [
+            {
+              "type": "checkpoint"
+            }
+          ]
+        }
+      },
+      "states": {
+        "queued": {
+          "description": "Waiting for the scheduler to give it a slot.",
+          "on": {
+            "START": {
+              "target": "triaging"
+            }
+          }
+        },
+        "triaging": {
+          "description": "Scope, project, and acceptance criteria in the person's words.",
+          "entry": [
+            {
+              "type": "dispatchRun",
+              "params": {
+                "step": "triage"
+              }
+            }
+          ],
+          "on": {
+            "RUN_SUCCEEDED": {
+              "target": "planGate",
+              "actions": [
+                {
+                  "type": "recordRun"
+                }
+              ]
+            },
+            "RUN_FAILED": [
+              {
+                "guard": {
+                  "type": "retriesLeft",
+                  "params": {
+                    "max": 2
+                  }
+                },
+                "target": "triaging",
+                "reenter": true,
+                "actions": [
+                  {
+                    "type": "countRetry"
+                  }
+                ]
+              },
+              {
+                "target": "#workItem.failed"
+              }
+            ]
+          }
+        },
+        "planGate": {
+          "always": [
+            {
+              "guard": {
+                "type": "tierBelow",
+                "params": {
+                  "tier": 1
+                }
+              },
+              "target": "building"
+            },
+            {
+              "target": "awaitingPlanDecision"
+            }
+          ]
+        },
+        "awaitingPlanDecision": {
+          "tags": [
+            "gated"
+          ],
+          "entry": [
+            {
+              "type": "openDecision",
+              "params": {
+                "gate": "plan"
+              }
+            }
+          ],
+          "on": {
+            "DECISION_MADE": [
+              {
+                "guard": {
+                  "type": "choiceIs",
+                  "params": {
+                    "choice": "approve"
+                  }
+                },
+                "target": "building",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              },
+              {
+                "guard": {
+                  "type": "choiceIs",
+                  "params": {
+                    "choice": "revise"
+                  }
+                },
+                "target": "triaging",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              },
+              {
+                "target": "#workItem.cancelled",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              }
+            ]
+          },
+          "exit": [
+            {
+              "type": "withdrawDecision"
+            }
+          ]
+        },
+        "building": {
+          "description": "A worker thread builds on its own branch and opens a PR.",
+          "entry": [
+            {
+              "type": "dispatchRun",
+              "params": {
+                "step": "build"
+              }
+            }
+          ],
+          "on": {
+            "RUN_SUCCEEDED": {
+              "target": "verifying",
+              "actions": [
+                {
+                  "type": "recordRun"
+                }
+              ]
+            },
+            "RUN_FAILED": [
+              {
+                "guard": {
+                  "type": "retriesLeft",
+                  "params": {
+                    "max": 2
+                  }
+                },
+                "target": "building",
+                "reenter": true,
+                "actions": [
+                  {
+                    "type": "countRetry"
+                  }
+                ]
+              },
+              {
+                "target": "#workItem.failed"
+              }
+            ]
+          }
+        },
+        "verifying": {
+          "description": "CI, spec checks and a reviewer run against the acceptance criteria.",
+          "entry": [
+            {
+              "type": "dispatchRun",
+              "params": {
+                "step": "verify"
+              }
+            }
+          ],
+          "on": {
+            "CHECKS_PASSED": {
+              "target": "acceptGate"
+            },
+            "CHECKS_FAILED": [
+              {
+                "guard": {
+                  "type": "retriesLeft",
+                  "params": {
+                    "max": 2
+                  }
+                },
+                "target": "building",
+                "actions": [
+                  {
+                    "type": "countRetry"
+                  }
+                ]
+              },
+              {
+                "target": "#workItem.blocked"
+              }
+            ]
+          }
+        },
+        "acceptGate": {
+          "always": [
+            {
+              "guard": {
+                "type": "tierBelow",
+                "params": {
+                  "tier": 1
+                }
+              },
+              "target": "integrationGate"
+            },
+            {
+              "target": "awaitingAcceptance"
+            }
+          ]
+        },
+        "awaitingAcceptance": {
+          "description": "Evidence against each acceptance criterion: is the work doing what the person expected?",
+          "tags": [
+            "gated"
+          ],
+          "entry": [
+            {
+              "type": "openDecision",
+              "params": {
+                "gate": "accept"
+              }
+            }
+          ],
+          "on": {
+            "DECISION_MADE": [
+              {
+                "guard": {
+                  "type": "choiceIs",
+                  "params": {
+                    "choice": "approve"
+                  }
+                },
+                "target": "integrationGate",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              },
+              {
+                "guard": {
+                  "type": "choiceIs",
+                  "params": {
+                    "choice": "revise"
+                  }
+                },
+                "target": "building",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              },
+              {
+                "target": "#workItem.cancelled",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              }
+            ]
+          },
+          "exit": [
+            {
+              "type": "withdrawDecision"
+            }
+          ]
+        },
+        "integrationGate": {
+          "always": [
+            {
+              "guard": {
+                "type": "tierBelow",
+                "params": {
+                  "tier": 2
+                }
+              },
+              "target": "merging"
+            },
+            {
+              "target": "awaitingMergeDecision"
+            }
+          ]
+        },
+        "awaitingMergeDecision": {
+          "description": "Merge to main: the person decides, the stand-in recommends.",
+          "tags": [
+            "gated"
+          ],
+          "entry": [
+            {
+              "type": "openDecision",
+              "params": {
+                "gate": "merge"
+              }
+            }
+          ],
+          "on": {
+            "DECISION_MADE": [
+              {
+                "guard": {
+                  "type": "choiceIs",
+                  "params": {
+                    "choice": "approve"
+                  }
+                },
+                "target": "merging",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              },
+              {
+                "guard": {
+                  "type": "choiceIs",
+                  "params": {
+                    "choice": "revise"
+                  }
+                },
+                "target": "building",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              },
+              {
+                "target": "#workItem.cancelled",
+                "actions": [
+                  {
+                    "type": "recordChoice"
+                  }
+                ]
+              }
+            ]
+          },
+          "exit": [
+            {
+              "type": "withdrawDecision"
+            }
+          ]
+        },
+        "merging": {
+          "entry": [
+            {
+              "type": "mergePullRequest"
+            }
+          ],
+          "on": {
+            "MERGED": {
+              "target": "#workItem.done"
+            },
+            "MERGE_FAILED": {
+              "target": "#workItem.blocked"
+            }
+          }
+        },
+        "hist": {
+          "type": "history",
+          "target": "queued"
+        }
+      }
+    },
+    "blocked": {
+      "description": "Waiting on something outside the item (a dependency, a conflict, a failing check). Resumes where it stopped.",
+      "entry": [
+        {
+          "type": "reportBlocked"
+        }
+      ],
+      "on": {
+        "UNBLOCKED": {
+          "target": "active.hist"
+        }
+      }
+    },
+    "done": {
+      "type": "final",
+      "entry": [
+        {
+          "type": "reportFinished",
+          "params": {
+            "outcome": "done"
+          }
+        }
+      ]
+    },
+    "failed": {
+      "type": "final",
+      "entry": [
+        {
+          "type": "reportFinished",
+          "params": {
+            "outcome": "failed"
+          }
+        }
+      ]
+    },
+    "cancelled": {
+      "type": "final",
+      "entry": [
+        {
+          "type": "reportFinished",
+          "params": {
+            "outcome": "cancelled"
+          }
+        }
+      ]
+    }
+  }
+}
