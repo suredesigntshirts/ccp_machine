@@ -426,7 +426,7 @@ async function signal(kind, data) {
     const dir = abs(`${SYS}/signals`);
     if (!fs.existsSync(abs(SYS))) return;
     await fsp.mkdir(dir, { recursive: true });
-    await fsp.appendFile(path.join(dir, `${d.slice(0, 10)}--${WRITER}.jsonl`), JSON.stringify({ at: d, kind, ...data }) + '\n');
+    await fsp.appendFile(path.join(dir, `${d.slice(0, 10)}--${WRITER}.jsonl`), JSON.stringify({ ...data, at: d, kind }) + '\n');
   } catch {}
 }
 
@@ -1117,6 +1117,7 @@ async function main() {
   switch (cmd) {
     case 'find': {
       const cat = await catalogOrScan();
+      for (const w of await readSignals(2)) if (w.kind === 'wrote' && !cat.has(w.p) && (await exists(w.p))) cat.set(w.p, { p: w.p, title: w.title, summary: w.summary, kind: w.doc_kind, tags: w.tags });
       const terms = pos.map((t) => t.toLowerCase());
       if (!terms.length) die('find <words...>');
       const scored = [];
@@ -1173,6 +1174,13 @@ async function main() {
       const probs = await lint(pos);
       for (const [p, m] of probs) console.log(`${p}: ${m}`);
       if (probs.length) await signal('lint', { problems: probs.slice(0, 20).map(([p, m]) => `${p}: ${m}`) });
+      // A clean file is announced, so find sees it before the librarian's next scan.
+      for (const a of pos) {
+        const rel = toRel(a);
+        if (probs.some(([p]) => p === rel) || !rel.endsWith('.md')) continue;
+        const fm = parseFrontmatter(await readText(rel)) || {};
+        await signal('wrote', { p: rel, title: fm.title, summary: fm.summary, doc_kind: fm.kind, tags: fm.tags });
+      }
       if (!probs.length) console.log('ok');
       process.exitCode = probs.length ? 1 : 0;
       break;

@@ -85,7 +85,8 @@ frontmatter). Link to other Library files with relative markdown links (`[report
 full `/mnt/project-files/...` paths; links must point to files that exist. The librarian rewrites both
 forms when it moves a file.
 
-Before you finish, run `node "$L" lint <your files>` and fix what it reports.
+Before you finish, run `node "$L" lint <your files>` and fix what it reports. A clean lint also
+announces each file, so `find` shows it before the librarian's next catalog scan.
 
 ## Asking the librarian
 

@@ -224,3 +224,12 @@ test('lint accepts README.md and full /mnt/project-files paths from any folder',
   const rel = execFileSync('node', [CLI, 'lint', 'README.md'], { cwd: path.join(root, 'research/abc'), env: { ...process.env, LIBRARY_ROOT: root }, encoding: 'utf8' });
   assert.match(rel, /^ok/);
 });
+
+test('find sees a file that passed lint before the next scan', () => {
+  const root = seeded();
+  lib(root, ['scan', '--write']);
+  put(root, 'notes/fresh-thing.md', md('Fresh thing'), 0);
+  assert.match(lib(root, ['find', 'fresh']), /no match/);
+  assert.match(lib(root, ['lint', 'notes/fresh-thing.md']), /^ok/);
+  assert.match(lib(root, ['find', 'fresh'], { writer: 'w2' }), /notes\/fresh-thing\.md/);
+});
