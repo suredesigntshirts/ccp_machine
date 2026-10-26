@@ -15,7 +15,8 @@ const DAY = 864e5;
 const STALL_MS = 36e5;
 export const RETRO_EVERY = { days: 7, items: 20 };
 
-// A wait is named after what ended it: time before a CI result is time spent on CI.
+// A wait is named after what ended it: time before a CI result is time spent on CI. When the ending
+// event carries observedAt (when GitHub reported it), the time after that is the host's delay instead.
 const WAIT = {
   RUN_SUCCEEDED: 'worker runs', RUN_FAILED: 'worker runs', STAND_IN_ANSWERED: 'stand-in', STAND_IN_FAILED: 'stand-in',
   PERSON_DECIDED: 'the person', CHECKS_PASSED: 'CI', CHECKS_FAILED: 'CI', MERGED: 'merging', MERGE_FAILED: 'merging', UNBLOCKED: 'blocked'
@@ -39,9 +40,13 @@ export function windowMetrics(st, records, from, to) {
   const per = items.map((i) => {
     const evs = itemRecords(i.id, records).events;
     evs.slice(1).forEach((e, k) => {
-      const gap = Date.parse(e.at) - Date.parse(evs[k].at);
+      const start = Date.parse(evs[k].at);
+      const end = Date.parse(e.at);
+      const gap = end - start;
       const name = WAIT[e.event.type] ?? 'other';
-      waits[name] = (waits[name] ?? 0) + gap;
+      const seen = Math.min(Math.max(Date.parse(e.event.observedAt) || end, start), end);
+      waits[name] = (waits[name] ?? 0) + (seen - start);
+      if (end > seen) waits['the host'] = (waits['the host'] ?? 0) + (end - seen);
       if (gap > STALL_MS) stalls++;
     });
     // The machine resets its retry count on each success, so failures are counted from the events.

@@ -66,3 +66,11 @@ test('harness from-github reads a file', () => {
   const r = spawnSync(process.execPath, [new URL('../bin/harness.js', import.meta.url).pathname, 'from-github', f, '--dir', dir], { encoding: 'utf8' });
   assert.equal(JSON.parse(r.stdout).event, 'CHECKS_PASSED');
 });
+
+test('a wake\'s current-time is stamped on the event as observedAt', () => {
+  const { store } = storeAtVerify();
+  const text = wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR }).replace('<wake ', '<wake current-time="2026-10-26T20:45:55Z" ');
+  assert.equal(parseGithubEvent(text).at, '2026-10-26T20:45:55Z');
+  assert.equal(fromGithub(store, text).result, 'sent');
+  assert.equal(store.events().at(-1).event.observedAt, '2026-10-26T20:45:55.000Z');
+});

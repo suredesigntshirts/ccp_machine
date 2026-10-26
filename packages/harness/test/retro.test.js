@@ -52,3 +52,18 @@ test('with nothing finished the retro says so instead of inventing bottlenecks',
   assert.deepEqual(record.bottlenecks, []);
   assert.match(text, /no finished items to measure/);
 });
+
+test('a CI result fed late splits its wait into CI and the host', () => {
+  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-retro-')));
+  init(store, {}, '2026-10-24T00:00:00Z');
+  const t = (m) => new Date(Date.parse('2026-10-24T10:00:00Z') + m * 60e3).toISOString();
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'late', tier: 0 } }, { now: t(0) });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:late', now: t(2) });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:late', now: t(10) });
+  apply(store, { type: 'CHECKS_PASSED', observedAt: t(15) }, { to: 'item:late', now: t(70) });
+  apply(store, { type: 'MERGED' }, { to: 'item:late', now: t(71) });
+  const { record } = writeRetro(store, mkdtempSync(join(tmpdir(), 'reviews-')), { day: '2026-10-26', scenarios: noScenarios });
+  assert.equal(record.now.waits.CI, 5 * 60e3);
+  assert.equal(record.now.waits['the host'], 55 * 60e3);
+  assert.equal(record.bottlenecks[0].wait, 'the host');
+});

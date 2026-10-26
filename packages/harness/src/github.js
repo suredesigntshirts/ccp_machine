@@ -3,16 +3,20 @@
 // translating them by hand. Items are found through the PR links on their own events.
 import { apply, ack, status } from './runtime.js';
 
-/** {kind, data} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON. */
+/**
+ * {kind, data, at?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
+ * `at` is the wake's current-time: when GitHub reported, which can be well before the host feeds it.
+ */
 export function parseGithubEvent(text) {
   const s = String(text).trim();
   const tag = /<event\b[^>]*\bkind="([^"]+)"[^>]*>([\s\S]*?)<\/event>/.exec(s);
   if (tag) {
     const json = tag[2].replace(/<!--[\s\S]*?-->/g, '').trim();
-    return { kind: tag[1], data: JSON.parse(json) };
+    const at = /<wake\b[^>]*\bcurrent-time="([^"]+)"/.exec(s)?.[1];
+    return { kind: tag[1], data: JSON.parse(json), ...(at && { at }) };
   }
   const o = JSON.parse(s);
-  return { kind: o.kind, data: o.data ?? o };
+  return { kind: o.kind, data: o.data ?? o, ...(o.at && { at: o.at }) };
 }
 
 /** "owner/repo#12" or ".../owner/repo/pull/12" as "owner/repo#12". */
@@ -69,6 +73,9 @@ export function fromGithub(store, raw) {
     const merge = store.pending().filter((e) => e.name === 'mergePullRequest' && (e.subject === item || e.actor === item)).map((e) => e.id);
     if (merge.length) ack(store, merge, { note: `merged: ${m.event.pr}` });
   }
-  const r = apply(store, m.event, { to: `item:${item}`, id: m.id });
+  // observedAt lets the retro tell CI's time from the host's delay in feeding the result.
+  const at = Date.parse(ev.at);
+  const event = Number.isNaN(at) ? m.event : { ...m.event, observedAt: new Date(at).toISOString() };
+  const r = apply(store, event, { to: `item:${item}`, id: m.id });
   return { result: r.duplicate ? 'duplicate' : 'sent', item, id: m.id, event: m.event.type, effects: r.effects.map((e) => e.name) };
 }
