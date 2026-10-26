@@ -1,0 +1,5 @@
+node_modules/
+# xstate source checkout for reading, made by `npm run xstate:src`
+vendor/
+# documentation-downloader cache; the copy that matters lives in the Library
+external-docs/

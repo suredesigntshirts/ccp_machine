@@ -1,0 +1,14 @@
+{
+  "name": "ccp-machine",
+  "private": true,
+  "type": "module",
+  "description": "Agent harness for Claude Projects and GitHub, modeled as XState v5 statecharts",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "xstate:src": "bash harness/scripts/fetch-xstate-src.sh",
+    "spike": "node --test \"harness/spike/*.test.js\""
+  },
+  "dependencies": {
+    "xstate": "5.33.3"
+  }
+}
