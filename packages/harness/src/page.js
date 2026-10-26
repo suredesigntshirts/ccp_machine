@@ -65,20 +65,22 @@ function decisionCard(item, d) {
  * @param {object} st from status()
  * @param {{events?: object[], pending?: object[], title?: string, standalone?: boolean, itemLinks?: boolean}} opts
  *   itemLinks: link each item to items/<id>.html (written next to the page by `harness page`)
+ *   metrics: {id: text} per item (attentionText); finished items show it as an Attention column
  */
-export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false } = {}) {
+export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {} } = {}) {
   const live = st.items.filter((i) => !i.done);
   const finished = st.items.filter((i) => i.done);
   const asks = live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => decisionCard(i, d)));
   const scheduler = st.state.scheduler;
   const budget = st.budget;
-  const rows = (items) =>
+  const rows = (items, withAttention = false) =>
     items
       .map(
-        (i) => `<tr><td><b>${itemLinks ? `<a href="${esc(itemHref(i.id))}">${esc(i.id)}</a>` : esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${i.retries} retry)` : ''}${!i.done && lastMoved(events, i.id) ? `<br>moved ${esc(ago(st.updatedAt, lastMoved(events, i.id)))} ago` : ''}</td><td>${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`
+        (i) => `<tr><td><b>${itemLinks ? `<a href="${esc(itemHref(i.id))}">${esc(i.id)}</a>` : esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${i.retries} retry)` : ''}${!i.done && lastMoved(events, i.id) ? `<br>moved ${esc(ago(st.updatedAt, lastMoved(events, i.id)))} ago` : ''}</td>${withAttention ? `<td class="m">${esc(metrics[i.id] ?? "")}</td>` : ''}<td>${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`
       )
       .join('');
   const head = '<thead><tr><th>Item</th><th>Project</th><th>Tier</th><th>Stage</th><th>Runs</th><th></th></tr></thead>';
+  const finishedHead = '<thead><tr><th>Item</th><th>Project</th><th>Tier</th><th>Stage</th><th>Runs</th><th>Attention</th><th></th></tr></thead>';
 
   const body = `<div class="wrap">
 <header><span class="eyebrow">Harness · v${esc(st.version)} · updated ${esc(time(st.updatedAt))} UTC</span><h1>${esc(title)}</h1>${itemLinks ? '<a class="m" href="decisions.html">Decision log</a>' : ''}</header>
@@ -91,7 +93,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
 </div>
 <section><h2>Needs you</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>
 <section><h2>In flight</h2>${live.length ? `<div class="tablewrap"><table>${head}<tbody>${rows(live)}</tbody></table></div>` : '<div class="empty">Nothing in flight.</div>'}</section>
-${finished.length ? `<section><h2>Finished</h2><div class="tablewrap"><table>${head}<tbody>${rows(finished)}</tbody></table></div></section>` : ''}
+${finished.length ? `<section><h2>Finished</h2><div class="tablewrap"><table>${finishedHead}<tbody>${rows(finished, true)}</tbody></table></div></section>` : ''}
 <section><h2>Host to-do</h2>${
     pending.length
       ? `<div class="tablewrap"><table><thead><tr><th>Effect</th><th>For</th><th>Params</th><th>Queued</th></tr></thead><tbody>${pending

@@ -5,15 +5,16 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apply, ack, status } from './runtime.js';
 import { readDecisionLog } from './decision-log.js';
+import { touchesTrend } from './attention.js';
 
 const pct = (x) => (x == null ? 'unknown' : `${Math.round(x * 100)}%`);
 const leaf = (state) => state.split('.').pop();
 
 /**
  * @param {object} st from status()
- * @param {{events?: object[], decisions?: object[], day: string}} opts day is YYYY-MM-DD (UTC)
+ * @param {{events?: object[], outbox?: object[], decisions?: object[], day: string}} opts day is YYYY-MM-DD (UTC)
  */
-export function renderDigest(st, { events = [], decisions = [], day }) {
+export function renderDigest(st, { events = [], outbox = [], decisions = [], day }) {
   const onDay = (at) => at?.slice(0, 10) === day;
   const mergedToday = new Set(events.filter((e) => e.event.type === 'MERGED' && onDay(e.at)).map((e) => e.to.replace(/^item:/, '').split('/')[0]));
   const finished = st.items.filter((i) => i.done && mergedToday.has(i.id));
@@ -23,6 +24,8 @@ export function renderDigest(st, { events = [], decisions = [], day }) {
   const byPerson = today.filter((d) => d.decidedBy === 'person').length;
   const list = (rows, empty) => (rows.length ? rows.map((r) => `- ${r}`).join('\n') : `- ${empty}`);
   const b = st.budget;
+  const trend = touchesTrend(st.items, { events, outbox, decisions }, day);
+  const per = (t) => (t.perItem == null ? 'no items' : `${t.perItem.toFixed(1)} per item (${t.items})`);
   return `# Harness digest, ${day}
 
 **Finished today (${finished.length})**
@@ -34,6 +37,8 @@ ${list(live.map((i) => `${i.id}: ${leaf(i.state)}`), 'nothing')}
 **Waiting on you (${waiting.length})**
 ${list(waiting, 'nothing')}
 
+**Your touches:** ${per(trend.today)} today, ${per(trend.before)} the day before.
+
 **Decisions today:** ${today.length}, ${byPerson} by you, ${today.length - byPerson} by the stand-in.
 
 **Budget:** ${b ? `${b.mode}, 7-day window at ${pct(b.sevenDay)}, 5-hour at ${pct(b.fiveHour)}` : 'no usage samples yet'}; scheduler ${st.state.scheduler}.
@@ -43,7 +48,7 @@ ${list(waiting, 'nothing')}
 /** Send today's DIGEST_DUE (once per day), write the digest and ack its publishDigest effects. */
 export function writeDigest(store, { day = new Date().toISOString().slice(0, 10) } = {}) {
   apply(store, { type: 'DIGEST_DUE', day }, { id: `digest-${day}` });
-  const text = renderDigest(status(store), { events: store.events(), decisions: readDecisionLog(store), day });
+  const text = renderDigest(status(store), { events: store.events(), outbox: store.outbox(), decisions: readDecisionLog(store), day });
   const dir = join(store.dir, 'digests');
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${day}.md`);

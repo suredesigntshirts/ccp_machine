@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   init [--wip N]                 create a harness in --dir
@@ -158,8 +158,9 @@ try {
       const file = o.html ?? `${o.dir}/mission-control.html`;
       mkdirSync(dirname(file), { recursive: true });
       const events = store.events();
-      writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true }));
-      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions) };
+      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store) };
+      const metrics = Object.fromEntries(st.items.map((i) => [i.id, attentionText(attention(i, records))]));
+      writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true, metrics }));
       const items = st.items.map((item) => {
         const path = join(dirname(file), itemHref(item.id));
         mkdirSync(dirname(path), { recursive: true });

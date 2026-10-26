@@ -26,6 +26,11 @@ The harness spec and the runtime that drives it.
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
   flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.
+- `src/attention.js`: `attention(item, records)` is what an item cost: the person's touches (decision cards
+  plus events marked `person: true`), stand-in decisions and the person's reversals of its lean, turns,
+  tokens and cost from the session ledgers (n/a without one; items running at the same time share
+  turns), and wall time. Mission control shows it as the Attention column of finished items; the digest
+  shows touches per item today against the day before.
 - `src/replay.js`: `harness replay` rebuilds the harness from `events.jsonl` on a scratch copy and compares
   state values, children and shared context keys with `state.json`, and regenerated effects with the outbox;
   it names the first divergent event and exits 1. Context keys only one side has are notes (a spec change).
