@@ -18,6 +18,7 @@ const HELP = `ledger <command> [options]
                                  output, JSON or JSONL) to --samples (default .ledger/usage.json), then
                                  print today's budget status.
   budget                         Print today's budget status from --samples.
+  refresh [dir ...]              collect, then report: what the orchestrator runs after each wake
   report                         Render --out's ledger and --samples' budget as HTML to --html
                                  (default .ledger/report.html). --standalone writes a full document.
   turns [transcript.jsonl ...]   Print one line per turn: index, start, duration, cost, label.
@@ -58,6 +59,38 @@ const budgetConfig = () =>
   );
 const transcripts = () => (args.length ? args : findTranscripts(join(homedir(), '.claude', 'projects')));
 
+function collect(dirs) {
+  // Session files the harness plugin's Stop hook files in the Library, one per session.
+  const ledger = readJson(o.out, { generatedAt: new Date().toISOString(), version: 1, sessions: [], usage: [] });
+  dirs = dirs.length ? dirs : ['/mnt/project-files/harness/ledger/sessions'];
+  const added = dirs.flatMap((d) =>
+    readdirSync(d)
+      .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+      .map((f) => readJson(join(d, f), null)?.session)
+      .filter(Boolean)
+  );
+  const ids = new Set(added.map((s) => s.sessionId));
+  ledger.sessions = [...ledger.sessions.filter((s) => !ids.has(s.sessionId)), ...added];
+  write(o.out, JSON.stringify(ledger, null, 1));
+  console.log(`${added.length} filed sessions merged -> ${o.out}`);
+}
+
+function report() {
+  const ledger = readJson(o.out, null);
+  if (!ledger) {
+    console.error(`No ledger at ${o.out}; run \`ledger build\` first.`);
+    process.exit(1);
+  }
+  const samples = readJson(o.samples, []);
+  const html = renderReport(ledger, {
+    title: o.title,
+    standalone: o.standalone,
+    budget: samples.length ? budgetStatus(samples, budgetConfig()) : undefined
+  });
+  write(o.html, html);
+  console.log(`report -> ${o.html}`);
+}
+
 switch (cmd) {
   case 'build': {
     const ledger = buildLedger(transcripts());
@@ -76,22 +109,9 @@ switch (cmd) {
     console.log(`${added.length} sessions from events (${added.reduce((a, s) => a + s.turns.length, 0)} turns) -> ${o.out}`);
     break;
   }
-  case 'collect': {
-    // Session files the harness plugin's Stop hook files in the Library, one per session.
-    const ledger = readJson(o.out, { generatedAt: new Date().toISOString(), version: 1, sessions: [], usage: [] });
-    const dirs = args.length ? args : ['/mnt/project-files/harness/ledger/sessions'];
-    const added = dirs.flatMap((d) =>
-      readdirSync(d)
-        .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
-        .map((f) => readJson(join(d, f), null)?.session)
-        .filter(Boolean)
-    );
-    const ids = new Set(added.map((s) => s.sessionId));
-    ledger.sessions = [...ledger.sessions.filter((s) => !ids.has(s.sessionId)), ...added];
-    write(o.out, JSON.stringify(ledger, null, 1));
-    console.log(`${added.length} filed sessions merged -> ${o.out}`);
+  case 'collect':
+    collect(args);
     break;
-  }
   case 'usage': {
     const added = args.flatMap((f) => samplesFromText(readFileSync(f, 'utf8')));
     const samples = mergeSamples(readJson(o.samples, []), added);
@@ -103,22 +123,14 @@ switch (cmd) {
   case 'budget':
     console.log(JSON.stringify(budgetStatus(readJson(o.samples, []), budgetConfig()), null, 2));
     break;
-  case 'report': {
-    const ledger = readJson(o.out, null);
-    if (!ledger) {
-      console.error(`No ledger at ${o.out}; run \`ledger build\` first.`);
-      process.exit(1);
-    }
-    const samples = readJson(o.samples, []);
-    const html = renderReport(ledger, {
-      title: o.title,
-      standalone: o.standalone,
-      budget: samples.length ? budgetStatus(samples, budgetConfig()) : undefined
-    });
-    write(o.html, html);
-    console.log(`report -> ${o.html}`);
+  case 'report':
+    report();
     break;
-  }
+  case 'refresh':
+    // After each orchestrator wake: merge the filed sessions, then rebuild the report.
+    collect(args);
+    report();
+    break;
   case 'turns': {
     for (const s of buildLedger(transcripts()).sessions)
       for (const t of s.turns)
