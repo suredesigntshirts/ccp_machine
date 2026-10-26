@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -49,6 +49,10 @@ const HELP = `harness <command> [options]
                                  decision (id standin-<subject>), ack the ask and log the precedent. The
                                  autonomy comes from the ladder unless --autonomy (only for standing
                                  authority quoted in --reason); an accept approve still needs a met check
+  issue-request FILE             file one backlog issue (gh api repos/O/R/issues/N JSON) as REQUEST_RECEIVED,
+                                 id req-issue<N>: item id and tier from its "Item id: \`x\`, tier N" line,
+                                 expect from its "Expect:" lines; refuses an issue without the item line
+  from-github FILE               turn one PR activity event (a wake's <event source="github"> text, or
   from-github FILE               turn each PR activity event in FILE, in order (wakes' <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
@@ -247,6 +251,14 @@ try {
     case 'from-github': {
       if (!args[0]) throw new Error('from-github needs a file holding one PR activity event');
       print(fromGithubText(store, readFileSync(args[0], 'utf8')));
+      break;
+    }
+    case 'issue-request': {
+      if (!args[0]) throw new Error('issue-request needs a file holding one issue as GitHub JSON');
+      const issue = JSON.parse(readFileSync(args[0], 'utf8'));
+      const request = requestFromIssue(issue);
+      const r = apply(store, { type: 'REQUEST_RECEIVED', request }, { id: `req-issue${issue.number}` });
+      print({ request, duplicate: r.duplicate, effects: r.effects.map((e) => e.name) });
       break;
     }
     case 'intake': {

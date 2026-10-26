@@ -20,6 +20,7 @@ export { intakeRows, requestFor, rowsOf, readRows, REQUESTS } from './intake.js'
 export { expectLines, checkTemplate, parseCheck, checkVerdict, readCheck, initCheck, acceptBlocked, requestOf } from './expect-check.js';
 export { auditPicks, auditCard, recordAudit, dayAudit, answerAudit, untestedRuns, auditLine, reverseOf, AUDIT_MAX, UNTESTED_WARN } from './audit.js';
 export { standinAnswer } from './standin.js';
+export { requestFromIssue } from './issue-request.js';
 export { acceptance, acceptanceText, peakInFlight, touchesByTier } from './acceptance.js';
 export { handoffNote, writeHandoff, NOTES as HANDOFF_NOTES } from './handoff.js';
 export { parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, splitWakes, prMap, prKey } from './github.js';
