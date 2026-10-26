@@ -56,10 +56,6 @@ v() { command -v "$1" >/dev/null 2>&1 && echo "$1: $("$@" 2>&1 | head -1)" || ec
   echo "~/.claude: $(ls -A "$H/.claude" 2>&1 | tr '\n' ' ')"
   echo "~/.claude/skills: $(ls -A "$H/.claude/skills" 2>&1 | tr '\n' ' ')"
   echo "settings.json env keys: $(jq -r '.env // {} | keys | join(" ")' "$H/.claude/settings.json" 2>&1)"
-  echo "## network (HTTP status, 5 s timeout)"
-  for u in https://github.com https://api.github.com https://registry.npmjs.org https://api.anthropic.com; do
-    curl -s -o /dev/null -m 5 -w "$u %{http_code}\n" "$u" 2>&1 &
-  done; wait
   echo "## environment variable names (values never recorded)"
   compgen -e | sort | tr '\n' ' '; echo
 } > "$audit" 2>&1
