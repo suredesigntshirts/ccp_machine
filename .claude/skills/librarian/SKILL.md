@@ -1,6 +1,6 @@
 ---
 name: librarian
-description: Run the librarian - the agent that organizes the project Library (/mnt/project-files), keeps its map and catalog current, files stray content, moves files without leaving dangling references, and reflects on and improves its own rules, skills and agent. Use when a thread is briefed as the librarian, asked to tidy, reorganize or audit the Library, or asked to change how the Library is organized.
+description: Run the librarian, the agent that organizes the project Library (/mnt/project-files). It keeps the map and catalog current, files stray and dropped content, answers requests, moves files without leaving dangling references, warms the slow mount's cache, and reflects on and improves its own rules, skills and agent. Use it when a thread is briefed as the librarian, on a scheduled Library pass, or whenever someone asks to tidy, reorganize, audit, clean up, fix broken links in, or change the structure of the Library, even if they only say "the shared files are a mess".
 ---
 
 # The librarian
@@ -23,9 +23,9 @@ L="/home/user/ccp_machine/.claude/skills/library/scripts/library.mjs"      # rep
 
 ## Rules that hold in every step
 
-- Every move is `node "$L" mv <from> <to>`: never `git mv`, `cp` and `rm`, or a hand rename. `mv`
+- Every move is `node "$L" mv <from> <to>`, not `git mv`, `cp` and `rm`, or a hand rename. Only `mv`
   rewrites every link to what moved (from the catalog's link index) and logs the move so old paths
-  still resolve.
+  still resolve; any other move leaves dangling links that nobody can trace.
 - `mv` without `--apply` is a dry run. Run it, read the plan, then run it again with `--apply`.
 - A file is **settled** when it has been unchanged for `settle_minutes` (10, in `policy.json`). `mv`
   refuses unsettled files. Edit a file's links or frontmatter by hand only if it is settled: check
@@ -33,7 +33,9 @@ L="/home/user/ccp_machine/.claude/skills/library/scripts/library.mjs"      # rep
   rename it over the old one.
 - Paths given to the tool are relative to `/mnt/project-files` (or full paths; inside the Library,
   relative to your current folder).
-- Never use `--force` on `mv`.
+- Do not use `--force` on `mv`. It skips the settle and ownership checks, which are what stop you from
+  moving a file a researcher is still writing or a folder a tool reads at a fixed path. If `mv`
+  refuses, wait for the next run or write the case in the journal.
 - Ask the person only before deleting content, retiring an area, or a change they would see in how
   they work; recommend an answer. Routine work needs no message to the person.
 - Every `node "$L" audit --journal "<text>"` call writes its own journal entry in
@@ -72,17 +74,18 @@ on every exit path, including after an error.
    - `error dangling-link`: find where the target went (`resolve`, `find`) and fix the link if the file
      is settled. If the target is gone, note it in the journal.
    - `drop-waiting` and requests: file each into its area with `mv`. Then `mv` the request into
-     `~librarian/requests/done/` and say in the journal what you did for it. Never edit the request
-     itself: its writer may still be adding to it.
-   - `stray-root`: a new top-level name pushes the map out of view. Move its files into an area; if it
-     is a new kind of content, register an area in `policy.json` ("Changing yourself") and move the
-     files under it.
+     `~librarian/requests/done/` and say in the journal what you did for it. Leave the request's text
+     as it is: its writer may still be adding to it, and the journal is where your answer goes.
+   - `stray-root`: a new top-level name pushes the map out of view. If its files belong together, move
+     the whole folder with one `mv` into an area (`mv meeting-notes notes/meetings`): one move, one
+     log entry, and its internal links stay valid. If it is a new kind of content, register an area
+     in `policy.json` ("Changing yourself") and move it under that.
    - `fanout`: shard the folder (for example by year-month or by first letter) with one `mv` per shard.
    - `topic-no-sources`, `no-frontmatter`: add the missing frontmatter (`title`, `summary`, `kind`
      from report, notes, sources, brief, reference, memo, review, index, data, request; `author:
      unknown` if you cannot tell) or a sources stub to settled files. A folder holding a `SKILL.md` or a
      `.bundle` file is a copied package and is exempt; so are paths in `frontmatter_exempt` in
-     `policy.json`. Never edit inside a bundle. Leave unsettled files for the next run and list them in the journal; tell the topic's lead
+     `policy.json`. Leave a bundle's insides alone: the tool that copied it may copy it again over your edit. Leave unsettled files for the next run and list them in the journal; tell the topic's lead
      (the `author` in its frontmatter) if it is a thread you can message.
 5. **Rebuild the map.** `node "$L" build`, then `node "$L" window | tail -1`: it must start with
    `-- OK` (`00-START-HERE.md` first, every signpost inside the window); `-- PROBLEM` names what is
@@ -126,9 +129,11 @@ evidence. Retiring an area needs the person's answer first.
 You change by pull request, on the repository at `/home/user/ccp_machine`: this skill and its
 references, the `library` skill, the agent `.claude/agents/librarian.md`, and `library.mjs`. Run the
 tests first (`node --test .claude/skills/library/scripts/test/library.test.mjs`) and add a test for
-any behaviour you change. A change to how other agents must write (the `library` skill) changes their
+any behaviour you change. For a change to a skill's instructions, also run the skill's `evals/`
+cases old against new with the skill-creator skill (each case folder has the task, a fixture Library
+and the checks), and link the result in the PR. A change to how other agents must write (the `library` skill) changes their
 contract: say in the PR who it affects. Follow the repository's CLAUDE.md for the branch name (for
-example `docs/librarian-<slug>`). Open the PR yourself and never merge it; the person merges. After the
+example `docs/librarian-<slug>`). Open the PR yourself and leave the merge to the person: a kit change reaches every session, so a person reviews it. After the
 merge, from a checkout of main (`git pull`), run `node .claude/skills/library/scripts/library.mjs
 install`, which copies the kit to `~librarian/kit/` and writes `~librarian/kit/VERSION`; note that
 version in the journal.

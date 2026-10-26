@@ -1,0 +1,3 @@
+{"p":"notes/README.md","size":536,"mtime":1793021838551,"fm":1,"title":"notes/: Notes, reviews and memos from threads that are not a research topic","summary":"Notes, reviews and memos from threads that are not a research topic","kind":"index"}
+{"p":"notes/index-of-meetings.md","size":233,"mtime":1792918800000,"fm":1,"title":"Meetings","summary":"Links to every meeting's notes","kind":"index","links":["meeting-notes/2026-10-21-kickoff.md","meeting-notes/2026-10-23-review.md"]}
+{"p":"notes/mount-timing.md","size":262,"mtime":1792918800000,"fm":1,"title":"Library mount timing","summary":"Cold opens cost about 100 ms each on the Library mount; warm opens under 1 ms","kind":"notes"}

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "window": 150,
+  "reserve": 12,
+  "fanout_max": 400,
+  "settle_minutes": 10,
+  "lease_minutes": 90,
+  "dynamic_topics": 80,
+  "dynamic_uploads": 20,
+  "areas": {
+    "research": {
+      "owner": "librarian",
+      "catalog": "full",
+      "purpose": "Research the person asked for: one folder per topic, a cited report, its sources, and each researcher's notes",
+      "layout": "research/<topic>/{README.md, brief.md, sources.md, notes/<writer>--<subquestion>.md}",
+      "rules": "Start a topic with `library.mjs new-topic <slug>`. Each researcher writes only its own files in notes/. One synthesizer writes README.md and sources.md. Every claim in README.md cites a source id like [S3] defined in sources.md."
+    },
+    "docs": {
+      "owner": "tool:documentation-downloader",
+      "catalog": "full",
+      "purpose": "External documentation downloaded as markdown, one folder per domain",
+      "layout": "docs/<domain>/<url path>.md, indexed by docs/llms.txt",
+      "rules": "Written only by the documentation-downloader skill (v2+: run with --root /mnt/project-files/docs; older versions --output-dir). The librarian catalogues it and never moves it."
+    },
+    "notes": {
+      "owner": "librarian",
+      "catalog": "full",
+      "purpose": "Notes, reviews and memos from threads that are not a research topic",
+      "layout": "notes/<slug>.md (sharded into notes/<yyyy-mm>/ once it nears the fan-out limit)",
+      "rules": "Name the file for its subject, lowercase-kebab. Give it frontmatter."
+    },
+    "drop": {
+      "owner": "any",
+      "catalog": "full",
+      "purpose": "Anything whose place is unclear: the librarian files it on its next run",
+      "layout": "drop/<writer>--<slug>.<ext>",
+      "rules": "Write here instead of guessing a new top-level folder. Add a line of frontmatter saying what it is and who asked for it."
+    },
+    "ccp": {
+      "owner": "ccp",
+      "catalog": "names",
+      "purpose": "The ccp harness: worklog, usage, conformance, items. Written by the ccp plugin's CLI",
+      "layout": "ccp/<area>/... (see the ccp skill)",
+      "rules": "Never moved, renamed or edited by the librarian: entries carry sha256 footers and the CLI reads fixed paths."
+    },
+    "uploads": {
+      "owner": "platform",
+      "catalog": "full",
+      "listed": false,
+      "purpose": "Files the person uploaded in a thread, named by id. Their names are not in the session file list, so the map signposts them",
+      "layout": "uploads/hearth/<id>",
+      "rules": "Never moved: threads refer to them by id. The librarian catalogues their type and first line."
+    }
+  },
+  "map": [
+    { "rank": 0, "label": "names-here-are-paths--double-dash-means-slash--read-00-START-HERE", "target": "00-START-HERE.md", "summary": "How to read this map, and what every Library folder is for" },
+    { "rank": 10, "label": "research--INDEX--every-research-topic-with-cited-reports", "target": "research/INDEX.md", "summary": "Every research topic: title, status, last change, sources" },
+    { "rank": 20, "label": "docs--downloaded-documentation-by-domain--index-docs--llms.txt", "target": "docs/llms.txt", "summary": "Downloaded external documentation, indexed by docs/llms.txt" },
+    { "rank": 30, "label": "notes--thread-notes-reviews-memos", "target": "notes/README.md", "summary": "Notes and reviews that are not a research topic" },
+    { "rank": 40, "label": "drop--unsure-where-a-file-goes--write-it-here", "target": "drop/README.md", "summary": "The librarian files whatever lands here" },
+    { "rank": 80, "label": "ccp--harness-worklog-and-usage--managed-by-the-ccp-plugin", "target": "ccp/", "summary": "The ccp harness's own folder" },
+    { "rank": 85, "label": "uploads--files-the-person-uploaded--named-by-id", "target": "uploads/", "summary": "Uploads; recent ones are signposted with what they are" },
+    { "rank": 95, "label": "librarian--catalog-moves-journal-kit--in--~librarian", "target": "~librarian/", "summary": "The librarian's catalog (search with library.mjs find), move log, run journal and installed kit" }
+  ]
+}

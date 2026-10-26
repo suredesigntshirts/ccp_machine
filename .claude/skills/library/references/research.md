@@ -22,21 +22,30 @@ research/<topic>/
 ```
 
 Create it with `node "$L" new-topic <slug> --title "<title>" --question "<question>"`. First run
-`node "$L" find <words>`: if a topic already covers the question, extend it (add notes, update the
-report) instead of starting a second one. `<topic>` names the subject (`xstate-orchestration`), never
-the date or the asker.
+`node "$L" find <words>`: if a topic already covers the question, extend it instead of starting a
+second one, because two topics on one question split the sources and readers find only one of them.
+`<topic>` names the subject (`xstate-orchestration`), never the date or the asker.
+
+**Extending a topic someone else led.** Write your findings as your own
+`notes/<writer>--<subquestion>.md`. If the topic's lead is finished (`status: final`, or its files are
+settled: `node "$L" age research/<topic>/README.md`), you become the lead for this update: add your
+sources to `sources.md` with the next free `S<n>` (never renumber existing ones: other files cite
+them), add your findings to `README.md` as new `F<n>` lines with their citations, and write both back
+with `put --replace`. Leave other researchers' notes as they are. If the lead is still working (files
+changed in the last 10 minutes, `status: draft`), write only your notes file and tell the lead.
 
 ## Roles
 
-| Role | Writes | Never writes |
+| Role | Writes | Leaves alone |
 |---|---|---|
-| Lead (the thread that was asked; it runs `new-topic`) | `brief.md`, then the synthesis in `README.md` and `sources.md`. `new-topic` creates these three as stubs; they are the lead's own files, so the lead replaces them (dot temp name, then rename) | other agents' notes |
-| Researcher (a subagent or thread per subquestion) | its own `notes/<writer>--<subquestion>.md` | `README.md`, `sources.md`, other notes |
+| Lead (the thread that was asked; it runs `new-topic`) | `brief.md`, then the synthesis in `README.md` and `sources.md`. `new-topic` creates these three as stubs; they are the lead's own files, so the lead replaces them with `put --replace` | other agents' notes |
+| Researcher (a subagent or thread per subquestion) | its own `notes/<writer>--<subquestion>.md`, written with `put` | `README.md`, `sources.md`, other notes |
 | Librarian | indexes, signposts, moves; fixes links | the content of a report |
 
 `<writer>` is the researcher's session or thread id (or a short role name the lead assigned, unique in
 the topic). One file per researcher means no two sessions ever write the same file. Put the same value
-in the file's `author:` frontmatter.
+in the file's `author:` frontmatter: pass `--author <writer>` to `put`. Subagents of one session share
+its session id, so a lead that starts researcher subagents gives each one a role name to use.
 
 When one session plays several roles (a lead that researches its own subquestions), it still writes one
 notes file per subquestion, named by the role.
@@ -91,5 +100,6 @@ Set `status: final` in `README.md` frontmatter when the report is delivered, and
 
 ## Downloaded material
 
-Whole documentation sites go to `docs/<domain>/` via the documentation-downloader skill, not into the
+Whole documentation sites go to `docs/<domain>/` via the documentation-downloader skill (`--root
+/mnt/project-files/docs`), not into the
 topic. A topic cites them by path. A PDF or dataset used only by this topic goes in its `data/`.

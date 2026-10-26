@@ -55,7 +55,7 @@ opens. The catalog is a cache: losing it costs one full scan, nothing else.
 **Links are indexed at scan time, so moves never grep (C1, C8).** Each catalog entry keeps its
 outbound Library links; `mv` finds every file that links to what moves from the catalog and rewrites
 only those, and rewrites the moved files' own relative links. Foreign files (folders another tool owns, and uploads) and files
-changed in the last 10 minutes are not edited; the moves log (`~librarian/moves/`) lets `resolve` and
+changed in the last 10 minutes are not edited (a link rewrite by `mv` or `relink` keeps the file's age, because it is the librarian's own edit and must not block the next move in the same run); the moves log (`~librarian/moves/`) lets `resolve` and
 `audit` map old paths to new ones instead. No stubs are left behind: links are unsupported (C9), and a
 stub file would cost a window slot and a listing entry forever.
 
@@ -79,6 +79,14 @@ every session has the mount. So `install` copies the reviewed skills, agent and 
 (tests, review, history); changes to data and policy (`policy.json`) the librarian makes directly.
 That split keeps it autonomous where a mistake is cheap and reviewed where a mistake would mislead every
 other agent.
+
+**One write command for everyone (`put`).** Test runs showed every agent hand-rolling the same
+steps (frontmatter, dot temp name, rename, lint). Each hand-rolled copy is a chance to skip one, so the
+tool does them; replacing a file keeps its original `author` and `created` and adds `updated`.
+
+**Tested like any other code.** `evals/` in each skill holds realistic tasks on small fixture
+Libraries, in the layout `claude plugin eval` reads; skill-creator runs them old against new before a
+change to the skills merges.
 
 **Simple first (Gall's Law).** Per-topic `sources.md` instead of a global source registry; one shard per
 area instead of a database; `find` as substring scoring instead of an index. Each has a known limit;

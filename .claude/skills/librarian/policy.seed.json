@@ -20,7 +20,7 @@
       "catalog": "full",
       "purpose": "External documentation downloaded as markdown, one folder per domain",
       "layout": "docs/<domain>/<url path>.md, indexed by docs/llms.txt",
-      "rules": "Written only by the documentation-downloader skill (run with --output-dir pointing here). The librarian catalogues it and never moves it."
+      "rules": "Written only by the documentation-downloader skill (v2+: run with --root /mnt/project-files/docs; older versions --output-dir). The librarian catalogues it and never moves it."
     },
     "notes": {
       "owner": "librarian",

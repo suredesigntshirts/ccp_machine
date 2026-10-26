@@ -1,6 +1,6 @@
 ---
 name: library
-description: How to find, read, write and cite files in the project Library (/mnt/project-files). Use before any session reads more than 5 Library files, writes a file there, or does research whose results should be kept; the librarian maintains it.
+description: How to find, read, write and cite files in the project Library (/mnt/project-files), the folder every thread shares. Use it whenever a session will search the Library, read more than a few files there, save anything there (research, notes, reports, data, a hand-off for another thread), run multi-agent research with citations, or cannot find a file it expected, even if the person never says "Library". It gives the fast search command, where each kind of file goes, the frontmatter every file needs, and one command (put) that writes a file safely.
 ---
 
 # The Library
@@ -33,10 +33,11 @@ Your id (`<your-id>` below) is your session or thread id, or the role name your 
 2. **Sessions see only the first names of the Library** in their prompt, sorted by full path. Those
    names are `00-START-HERE.md` and the signposts in `01-map/`. Never create a top-level file or
    folder: it would push the map out of that view. Write inside an existing area.
-3. **Other sessions see your writes about 40 seconds late, and there are no locks.** Write only new
-   files with your id in the name, never edit a file someone else may be writing, and write to a
-   dot-prefixed temp name and rename it into place. Do not expect a peer's new file to show up in the
-   first minute.
+3. **Other sessions see your writes about 40 seconds late, and there are no locks.** Two sessions
+   editing one file both think they won, and one loses its work. So write only new files with your id
+   in the name, leave files that someone else may be writing alone, and write through `put` (below),
+   which writes a dot-prefixed temp file and renames it into place so no reader sees half a file. Do
+   not expect a peer's new file to show up in the first minute.
 
 ## Finding things
 
@@ -55,7 +56,7 @@ needed something and found nothing, write a request (below).
 | Content | Place | Notes |
 |---|---|---|
 | Research the person asked for | `research/<topic>/` | First `find`: if a topic covers the question, extend it. Otherwise `node "$L" new-topic <slug> --title "<title>" --question "<question>"`. Each researcher writes only its own `notes/<your-id>--<subquestion>.md`; only the lead writes `README.md` and `sources.md`; every claim in the report cites `[S<n>]` defined in `sources.md`. Full rules: [references/research.md](references/research.md) |
-| External docs (libraries, APIs) | `docs/<domain>/...` | Only via the documentation-downloader skill, `--output-dir /mnt/project-files/docs/` |
+| External docs (libraries, APIs) | `docs/<domain>/...` | Only via the documentation-downloader skill, with `--root /mnt/project-files/docs` (its own default, `external-docs/`, would be a stray top-level folder; versions before 2.0 used `--output-dir`) |
 | A note, review or memo that is not a research topic | `notes/<slug>.md` | |
 | Anything a tool keeps for itself | the tool's own folder (its Owner in `00-START-HERE.md`) | Only through that tool |
 | You are not sure | `drop/<your-id>--<slug>.md` | The librarian files it |
@@ -85,16 +86,30 @@ frontmatter). Link to other Library files with relative markdown links (`[report
 full `/mnt/project-files/...` paths; links must point to files that exist. The librarian rewrites both
 forms when it moves a file.
 
-Before you finish, run `node "$L" lint <your files>` and fix what it reports. A clean lint also
-announces each file, so `find` shows it before the librarian's next catalog scan.
+**Write with `put`.** It adds the frontmatter (with your id as `author` and today as `created`),
+writes safely, lints the file and announces it, so `find` shows it to other sessions before the
+librarian's next catalog scan:
+
+```
+node "$L" put notes/mount-cache.md --title "How long the mount cache lasts" \
+  --summary "Measured warm-cache lifetime on the Library mount" --kind notes --tags cache,mount <<'EOF'
+# How long the mount cache lasts
+...
+EOF
+```
+
+It refuses a top-level path, a folder another tool owns, and an existing file (pass `--replace` only
+for your own file, such as a stub `new-topic` made for you). If you wrote files another way, run
+`node "$L" lint <your files>` before you finish and fix what it reports; a clean lint announces them
+too.
 
 ## Asking the librarian
 
 - For a small thing (file this, this name is confusing, I could not find X), write
   `~librarian/requests/<your-id>--<slug>.md` with frontmatter `kind: request` and what you need. The
   librarian reads requests on every run.
-- Never move, rename or edit files you did not create in this session; inside a folder you created,
-  you may. For any other move, rename or reorganization, write a request and then ask for a librarian:
+- Move, rename or edit only files you created in this session (inside a folder you created, anything).
+  A move by hand leaves every link to the old path dangling; the librarian's `mv` fixes them. For any other move, rename or reorganization, write a request and then ask for a librarian:
   a Project thread asks the coordinator (`message_coordinator`), or messages the running librarian
   thread (`message_thread`) if there is one; a subagent says so in its report to the session that
   started it.

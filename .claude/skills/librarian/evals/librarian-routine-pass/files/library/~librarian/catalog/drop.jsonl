@@ -1,0 +1,2 @@
+{"p":"drop/README.md","size":548,"mtime":1793021838551,"fm":1,"title":"drop/: Anything whose place is unclear: the librarian files it on its next run","summary":"Anything whose place is unclear: the librarian files it on its next run","kind":"index"}
+{"p":"drop/thread-91--cache-warming-idea.md","size":226,"mtime":1792918800000,"fm":1,"title":"Idea for warming the cache at thread start","summary":"Warm the hot set in the first command of every thread","kind":"memo"}

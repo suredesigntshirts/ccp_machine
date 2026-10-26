@@ -840,6 +840,14 @@ function rewriteLinks(text, p, newSelf, mapPath) {
   return { text: out, count };
 }
 
+// A link rewrite is the librarian's own edit, not a writer's activity: keep the file's age, so the
+// next move in the same run does not find it unsettled. The mtime moves 1 ms so scan still re-reads it.
+async function writeKeepingAge(rel, text, mtimeMs) {
+  await writeAtomic(rel, text);
+  const t = new Date(mtimeMs + 1);
+  await fsp.utimes(abs(rel), t, t);
+}
+
 // Fixes links that still point at paths the moves log has moved (left by mv because the file was
 // unsettled or written after the move). Only settled files in librarian-owned areas are edited.
 async function relink({ apply = false } = {}) {
@@ -862,7 +870,7 @@ async function relink({ apply = false } = {}) {
     const { text, count } = rewriteLinks(await readText(e.p), e.p, e.p, mapPath);
     if (!count) continue;
     plan.rewrite.push({ p: e.p, links: count });
-    if (apply) await writeAtomic(e.p, text);
+    if (apply) await writeKeepingAge(e.p, text, e.mtime);
   }
   if (apply && plan.rewrite.length) await scan({ write: true, quiet: true });
   return { ...plan, applied: apply };
@@ -924,7 +932,7 @@ async function mv(fromArg, toArg, { apply = false, force = false } = {}) {
   // 1. move on disk  2. rewrite links (at their new paths)  3. log the move  4. rescan
   await fsp.mkdir(path.dirname(abs(to)), { recursive: true });
   await fsp.rename(abs(from), abs(to));
-  for (const [p, text] of rewrites) await writeAtomic(mapPath(p) ?? p, text);
+  for (const [p, text] of rewrites) await writeKeepingAge(mapPath(p) ?? p, text, catalog.get(p).mtime);
   const month = iso().slice(0, 7);
   const line = JSON.stringify({ at: iso(), from, to, folder: fromIsDir, files: moved.filter((e) => !e.d).length, by: WRITER, rewrote: plan.rewrite.length, deferred: deferred.length }) + '\n';
   await fsp.mkdir(abs(`${SYS}/moves`), { recursive: true });
@@ -999,6 +1007,51 @@ async function lint(paths) {
   return problems;
 }
 
+// ---------- put: the one safe way to write a Library file ----------
+// Every writer otherwise repeats the same steps by hand (frontmatter, dot temp + rename, lint,
+// announce), and the test runs showed agents doing exactly that. put does them in one call.
+
+async function readStdin() {
+  if (process.stdin.isTTY) return '';
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function put(target, opt) {
+  const policy = await loadPolicy();
+  const rel = toRel(target || die('put <path> [--title t --summary s --kind k] < body'));
+  if (!rel.includes('/') || !policy.areas[areaOf(rel)]) die(`${rel}: write inside a registered area (${Object.keys(policy.areas).join(', ')}); unsure where, use drop/`);
+  if (isForeign(rel, policy)) die(`${rel}: ${areaOf(rel)}/ is owned by ${policy.areas[areaOf(rel)].owner}; only that tool writes there`);
+  if ((await exists(rel)) && !opt.replace) die(`${rel} exists; pass --replace only for your own file (such as a new-topic stub) or a settled file of a topic you now lead`);
+  let body = await readStdin();
+  if (rel.endsWith('.md')) {
+    const given = parseFrontmatter(body) || {};
+    if (Object.keys(given).length) body = body.slice(body.indexOf('\n---', 4) + 4).replace(/^\r?\n/, '');
+    // Replacing keeps the old file's frontmatter (author, created, tags) unless the new body or flags change it.
+    const old = opt.replace && (await exists(rel)) ? parseFrontmatter(await fsp.readFile(abs(rel), 'utf8')) || {} : {};
+    const fm = { ...old, ...given };
+    if (Object.keys(old).length) fm.updated = iso().slice(0, 10);
+    for (const k of ['title', 'summary', 'kind', 'topic', 'status']) if (opt[k] && opt[k] !== true) fm[k] = opt[k];
+    if (opt.tags && opt.tags !== true) fm.tags = String(opt.tags).split(',').map((t) => t.trim()).filter(Boolean);
+    fm.author = (opt.author !== true && opt.author) || fm.author || WRITER;
+    fm.created = fm.created || iso().slice(0, 10);
+    const missing = ['title', 'summary', 'kind'].filter((k) => !fm[k]);
+    if (missing.length) die(`${rel}: give --${missing.join(', --')} (or put them in the body's frontmatter)`);
+    const ordered = {};
+    for (const k of ['title', 'summary', 'kind', 'topic', 'status', 'author', 'created', 'updated', 'tags']) if (fm[k] !== undefined) ordered[k] = fm[k];
+    for (const [k, v] of Object.entries(fm)) if (!(k in ordered)) ordered[k] = v;
+    body = fmBlock(ordered) + (body.startsWith('\n') ? '' : '\n') + body;
+  }
+  await writeAtomic(rel, body);
+  const problems = rel.endsWith('.md') ? await lint([rel]) : [];
+  if (!problems.length && rel.endsWith('.md')) {
+    const fm = parseFrontmatter(body) || {};
+    await signal('wrote', { p: rel, title: fm.title, summary: fm.summary, doc_kind: fm.kind, tags: fm.tags });
+  }
+  return { wrote: rel, bytes: Buffer.byteLength(body), lint: problems.length ? problems.map(([p, m]) => `${p}: ${m}`) : 'ok' };
+}
+
 // ---------- new-topic ----------
 
 async function newTopic(slug, { title, question, by } = {}) {
@@ -1065,7 +1118,7 @@ async function install({ repo } = {}) {
     while (stack.length) {
       const d = stack.pop();
       for (const ent of await fsp.readdir(path.join(base, d), { withFileTypes: true })) {
-        if (ent.name === 'node_modules' || ent.name === 'test' || ent.name.startsWith('.')) continue;
+        if (ent.name === 'node_modules' || ent.name === 'test' || ent.name === 'evals' || ent.name.startsWith('.')) continue;
         const rel = `${d}/${ent.name}`;
         if (ent.isDirectory()) stack.push(rel);
         else pick.push(rel);
@@ -1092,6 +1145,8 @@ For every agent:
   warm [--hot] [path...]                                open files 16 at a time so later reads are warm
   resolve <path>                                        follow the moves log to a path's current place
   refs <path>                                           files that link to a path (or into a folder)
+  put <path> --title t --summary s --kind k [--topic --status --author --tags a,b] [--replace] < body
+                                                        write a file safely: frontmatter, temp+rename, lint, announce
   lint <path...>                                        check files you wrote: area, name, frontmatter, links
   age <path...>                                         minutes since a file changed, and whether it is settled
   new-topic <slug> [--title t] [--question q]           scaffold research/<slug>/
@@ -1185,6 +1240,9 @@ async function main() {
       process.exitCode = probs.length ? 1 : 0;
       break;
     }
+    case 'put':
+      console.log(JSON.stringify(await put(pos[0], opt)));
+      break;
     case 'new-topic':
       console.log(JSON.stringify(await newTopic(pos[0], { title: opt.title, question: opt.question, by: opt.by })));
       break;
