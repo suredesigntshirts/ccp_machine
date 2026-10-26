@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, dayAudit, answerAudit, auditCard } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -30,6 +30,9 @@ const HELP = `harness <command> [options]
   canary [--day D] [--check]     file the day's tier-0 canary item once (canary-<day>); with --check, report
                                  each stage's time and exit 1 with one attention line if it failed or is
                                  not merged 2 hours after the request
+  audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
+                                 once a day (audits/<day>.json); prints request_decision arguments for one
+                                 card. --answer records the tap: 0 confirms all, N reverses pick N
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -90,6 +93,7 @@ try {
       sessions: { type: 'string' },
       rebuild: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
+      answer: { type: 'string' },
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
       out: { type: 'string' },
@@ -161,6 +165,16 @@ try {
       if (!args[0]) throw new Error('standin needs a decision class, such as plan or accept');
       print(ladder(readDecisionLog(store), args[0]));
       break;
+    case 'audit': {
+      const day = o.day ?? new Date().toISOString().slice(0, 10);
+      if (o.answer != null) {
+        print(answerAudit(store, day, Number(o.answer)));
+        break;
+      }
+      const a = dayAudit(store, day);
+      print({ day, picks: a.picks.map((r) => r.effectId), answered: a.answered, card: a.picks.length && !a.answered ? auditCard(a.picks) : null });
+      break;
+    }
     case 'intake': {
       if (!args[0]) throw new Error('intake needs a file holding the requests rows');
       print(intakeRows(store, JSON.parse(readFileSync(args[0], 'utf8'))));

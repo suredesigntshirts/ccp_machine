@@ -7,6 +7,7 @@ import { apply, ack, status } from './runtime.js';
 import { readDecisionLog } from './decision-log.js';
 import { canaryReport } from './canary.js';
 import { touchesTrend } from './attention.js';
+import { auditLine } from './audit.js';
 
 const pct = (x) => (x == null ? 'unknown' : `${Math.round(x * 100)}%`);
 const leaf = (state) => state.split('.').pop();
@@ -15,7 +16,7 @@ const leaf = (state) => state.split('.').pop();
  * @param {object} st from status()
  * @param {{events?: object[], outbox?: object[], decisions?: object[], day: string}} opts day is YYYY-MM-DD (UTC)
  */
-export function renderDigest(st, { events = [], outbox = [], decisions = [], day }) {
+export function renderDigest(st, { events = [], outbox = [], decisions = [], day, audit = null }) {
   const onDay = (at) => at?.slice(0, 10) === day;
   const mergedToday = new Set(events.filter((e) => e.event.type === 'MERGED' && onDay(e.at)).map((e) => e.to.replace(/^item:/, '').split('/')[0]));
   const finished = st.items.filter((i) => i.done && mergedToday.has(i.id));
@@ -44,7 +45,7 @@ ${list(waiting, 'nothing')}
 
 **Your touches:** ${per(trend.today)} today, ${per(trend.before)} the day before.
 
-**Decisions today:** ${today.length}, ${byPerson} by you, ${today.length - byPerson} by the stand-in.
+**Decisions today:** ${today.length}, ${byPerson} by you, ${today.length - byPerson} by the stand-in.${audit ? `\n\n**Stand-in audit:** ${audit}.` : ''}
 
 ${canaryAlarm ? '' : `**Canary:** ${canary.line}\n\n`}**Budget:** ${b ? `${b.mode}, 7-day window at ${pct(b.sevenDay)}, 5-hour at ${pct(b.fiveHour)}` : 'no usage samples yet'}; scheduler ${st.state.scheduler}.
 `;
@@ -53,7 +54,7 @@ ${canaryAlarm ? '' : `**Canary:** ${canary.line}\n\n`}**Budget:** ${b ? `${b.mod
 /** Send today's DIGEST_DUE (once per day), write the digest and ack its publishDigest effects. */
 export function writeDigest(store, { day = new Date().toISOString().slice(0, 10) } = {}) {
   apply(store, { type: 'DIGEST_DUE', day }, { id: `digest-${day}` });
-  const text = renderDigest(status(store), { events: store.events(), outbox: store.outbox(), decisions: readDecisionLog(store), day });
+  const text = renderDigest(status(store), { events: store.events(), outbox: store.outbox(), decisions: readDecisionLog(store), day, audit: auditLine(store, day) });
   const dir = join(store.dir, 'digests');
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${day}.md`);

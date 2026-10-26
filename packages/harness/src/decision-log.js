@@ -11,9 +11,15 @@ export const EARN_ACT = { decisions: 20, agreement: 0.9 };
 
 const logFile = (store) => join(store.dir, 'decisions.jsonl');
 
-export function readDecisionLog(store) {
+const readRaw = (store) => {
   const f = logFile(store);
   return existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+};
+
+/** The log's decisions. The earliest rows (before effects carried detail) record no choice and no
+ * decider, so they say nothing about the stand-in and are left out. */
+export function readDecisionLog(store) {
+  return readRaw(store).filter((r) => r.choice != null || r.decidedBy != null);
 }
 
 function row(e) {
@@ -40,7 +46,7 @@ function row(e) {
  * @returns {{added: number, acked: number}}
  */
 export function logPrecedents(store) {
-  const have = new Set(readDecisionLog(store).map((r) => r.effectId));
+  const have = new Set(readRaw(store).map((r) => r.effectId));
   const rows = store.outbox().filter((e) => e.name === 'logPrecedent' && !have.has(e.id)).map(row);
   if (rows.length) appendFileSync(logFile(store), rows.map((r) => JSON.stringify(r) + '\n').join(''));
   const pending = store.pending().filter((e) => e.name === 'logPrecedent').map((e) => e.id);

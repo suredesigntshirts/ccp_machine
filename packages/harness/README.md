@@ -65,6 +65,10 @@ The harness spec and the runtime that drives it.
 - `src/intake.js`: the request box. `harness page --request-box` adds an "Ask for work" form to mission
   control that saves to the Artifact `db` collection `requests`; `harness intake FILE` files each new row
   as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken.
+- `src/audit.js`: `harness audit` picks up to 3 decisions the stand-in made alone (untested classes, low
+  confidence and old ones first) for one daily card; `--answer N` logs the tap as the person's decisions
+  (0 confirms all, N reverses pick N), so calibration and the ladder get tested decisions. Doctor warns
+  when a class goes over 20 stand-in decisions unchecked.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.

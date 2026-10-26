@@ -4,11 +4,14 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tryRestore } from './runtime.js';
 import { replay } from './replay.js';
+import { readDecisionLog } from './decision-log.js';
+import { untestedRuns, UNTESTED_WARN } from './audit.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
 
-/** @returns {{ok: boolean, problems: string[], checked: object}} */
+/** Problems make the store unsafe to build on; warnings (`ok` stays true) are things to act on soon.
+ * @returns {{ok: boolean, problems: string[], warnings: string[], checked: object}} */
 export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) {
   const problems = [];
   const events = store.events();
@@ -39,5 +42,8 @@ export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) 
     if (r.firstDivergence) problems.push(`replay diverges at ${r.firstDivergence}`);
     for (const d of r.differences) problems.push(`replay: ${d}`);
   }
-  return { ok: problems.length === 0, problems, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null } };
+  const warnings = untestedRuns(readDecisionLog(store)).map(
+    (w) => `${w.decisionClass}: ${w.untested} stand-in decisions in a row with none checked by the person (over ${UNTESTED_WARN}); run harness audit`
+  );
+  return { ok: problems.length === 0, problems, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null } };
 }
