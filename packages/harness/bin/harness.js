@@ -52,7 +52,7 @@ const HELP = `harness <command> [options]
   from-github FILE               turn one PR activity event (a wake's <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
-                                 the merge effect); ids ci-<sha7> and merge-pr<N> dedupe replays
+                                 the merge effect); ids ci-<sha7>-passed|failed and merge-pr<N> dedupe replays
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]

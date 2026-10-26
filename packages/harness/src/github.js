@@ -44,10 +44,10 @@ export function mapGithubEvent({ kind, data }) {
   const sha = String(data?.head_sha ?? '').slice(0, 7);
   if (!pr) return { ignore: `no PR in ${kind}` };
   const url = `https://github.com/${pr.replace('#', '/pull/')}`;
-  if (kind === 'check_suite.completed') return { pr, id: `ci-${sha}`, event: { type: 'CHECKS_PASSED', pr: url, sha }, state: 'verifying' };
+  if (kind === 'check_suite.completed') return { pr, id: `ci-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha }, state: 'verifying' };
   if (kind === 'check_run.completed') {
     if (!FAILED.includes(data.conclusion)) return { ignore: `check ${data.check ?? ''} ${data.conclusion}: the suite reports the result` };
-    return { pr, id: `ci-${sha}`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion }, state: 'verifying' };
+    return { pr, id: `ci-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion }, state: 'verifying' };
   }
   if (kind === 'pull_request.closed')
     return data.outcome === 'merged'

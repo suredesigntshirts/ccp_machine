@@ -33,7 +33,7 @@ test('a wake\'s event text and plain JSON both parse; PR refs normalise', () => 
 });
 
 test('each kind maps to its event; successes and other kinds are ignored', () => {
-  assert.equal(mapGithubEvent({ kind: 'check_suite.completed', data: { pr: PR, head_sha: 'abcdef123' } }).id, 'ci-abcdef1');
+  assert.equal(mapGithubEvent({ kind: 'check_suite.completed', data: { pr: PR, head_sha: 'abcdef123' } }).id, 'ci-abcdef1-passed');
   assert.equal(mapGithubEvent({ kind: 'check_run.completed', data: { pr: PR, head_sha: 'abcdef123', conclusion: 'failure', check: 'test' } }).event.type, 'CHECKS_FAILED');
   assert.ok(mapGithubEvent({ kind: 'check_run.completed', data: { pr: PR, conclusion: 'success' } }).ignore);
   assert.equal(mapGithubEvent({ kind: 'pull_request.closed', data: { pr: PR, outcome: 'merged' } }).id, 'merge-pr7');
@@ -45,7 +45,7 @@ test('a failed check, then a green suite, then the merge drive the item to done'
   const { store } = storeAtVerify();
   assert.deepEqual(prMap(store.events()), { [PR]: 'x' });
   const fail = fromGithub(store, wake('check_run.completed', { check: 'test', conclusion: 'failure', head_sha: '1111111aaa', pr: PR }));
-  assert.deepEqual([fail.result, fail.event, fail.id], ['sent', 'CHECKS_FAILED', 'ci-1111111']);
+  assert.deepEqual([fail.result, fail.event, fail.id], ['sent', 'CHECKS_FAILED', 'ci-1111111-failed']);
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '1111111aaa', pr: PR })).result, 'stale', 'building again, not verifying');
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x' });
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'sent');
@@ -73,4 +73,14 @@ test('a wake\'s current-time is stamped on the event as observedAt', () => {
   assert.equal(parseGithubEvent(text).at, '2026-10-26T20:45:55Z');
   assert.equal(fromGithub(store, text).result, 'sent');
   assert.equal(store.events().at(-1).event.observedAt, '2026-10-26T20:45:55.000Z');
+});
+
+test('a failed check, then a passing re-run on the same commit, both reach the item', () => {
+  const { store } = storeAtVerify();
+  assert.equal(fromGithub(store, wake('check_run.completed', { check: 'test', conclusion: 'failure', head_sha: '1111111aaa', pr: PR })).result, 'sent');
+  // The host re-ran the job instead of pushing: the same build goes back to verify.
+  apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x', id: 'run-pr7-rerun' });
+  const pass = fromGithub(store, wake('check_suite.completed', { head_sha: '1111111aaa', pr: PR }));
+  assert.deepEqual([pass.result, pass.id], ['sent', 'ci-1111111-passed']);
+  assert.match(state(store), /merging/);
 });
