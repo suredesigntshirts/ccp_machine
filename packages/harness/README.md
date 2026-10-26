@@ -43,6 +43,11 @@ The harness spec and the runtime that drives it.
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.
   `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, duplicates,
   torn lines and a slow mount.
+- `src/calibration.js`: `harness calibration [class]` asks, per decision class, whether the person can trust the
+  stand-in there. It counts only the person's decisions made against a stand-in lean (agreement and
+  reversals), gives a confidence-versus-outcome table with the Brier score, and shows time on each ladder rung.
+  The verdict is one of: not yet (under 10 tested), overconfident (stays at recommend), calibrated (the
+  threshold could drop), or partly. The decision log page shows the same answer per class.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.

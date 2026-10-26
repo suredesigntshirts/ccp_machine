@@ -5,6 +5,7 @@ import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ack } from './runtime.js';
 import { esc, time, pct, wrapPage, CSS } from './page.js';
+import { calibration } from './calibration.js';
 
 export const EARN_ACT = { decisions: 20, agreement: 0.9 };
 
@@ -126,6 +127,20 @@ export function renderDecisionLog(rows, { title = 'Decision log', back } = {}) {
         )
       : '<div class="empty">No decisions logged yet.</div>'
   }</section>
+<section><h2>Can I trust the stand-in here?</h2>${
+    stats.length
+      ? calibration(rows)
+          .map(
+            (c) => `<div class="card trust-${esc(c.trust)}"><b>${esc(c.decisionClass)}: ${esc({ yes: 'yes', no: 'no', partly: 'partly', unknown: 'not yet' }[c.trust])}</b><span>${esc(c.advice)}</span><span class="m">${c.tested} tested · agreement ${esc(pct(c.agreement))} · mean confidence ${esc(pct(c.meanConfidence))} · Brier ${c.brier == null ? '—' : c.brier.toFixed(3)} · ${esc(
+              Object.entries(c.msOnRung)
+                .filter(([, ms]) => ms)
+                .map(([r, ms]) => `${r} ${(ms / 36e5).toFixed(1)}h`)
+                .join(', ') || 'no time on the ladder yet'
+            )}</span><span class="m">${c.bins.filter((b) => b.n).map((b) => `${esc(b.bin)}: ${b.n} at ${esc(pct(b.agreement))}`).join(' · ') || 'no confidence recorded'}</span></div>`
+          )
+          .join('')
+      : '<div class="empty">No decisions logged yet.</div>'
+  }</section>
 <section><h2>Every decision</h2>${
     rows.length
       ? table(
@@ -143,5 +158,5 @@ export function renderDecisionLog(rows, { title = 'Decision log', back } = {}) {
       : '<div class="empty">No decisions logged yet.</div>'
   }</section>
 </div>`;
-  return wrapPage(title, body, { standalone: true, css: CSS });
+  return wrapPage(title, body, { standalone: true, css: CSS + '.trust-yes{border-left-color:var(--ok)}.trust-no{border-left-color:var(--bad)}.trust-unknown{border-left-color:var(--line)}' });
 }

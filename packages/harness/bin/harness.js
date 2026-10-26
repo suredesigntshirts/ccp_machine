@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , calibration } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   init [--wip N]                 create a harness in --dir
@@ -22,6 +22,8 @@ const HELP = `harness <command> [options]
   decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
                                  worked out from decisions.jsonl; use it as STAND_IN_ANSWERED's autonomy
+  calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
+                                 Brier score), time on each rung, and whether to trust the stand-in there
   digest [--day YYYY-MM-DD]      send DIGEST_DUE once per UTC day, write digests/<day>.md in the store
                                  and ack publishDigest; the host posts the text
   replay                         rebuild the harness from events.jsonl on a scratch copy and compare state
@@ -117,6 +119,9 @@ try {
       break;
     case 'decisions':
       print(logPrecedents(store));
+      break;
+    case 'calibration':
+      print(calibration(readDecisionLog(store), { decisionClass: args[0] }));
       break;
     case 'standin':
       if (!args[0]) throw new Error('standin needs a decision class, such as plan or accept');
