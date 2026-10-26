@@ -75,10 +75,14 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   const asks = live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => decisionCard(i, d)));
   const scheduler = st.state.scheduler;
   const budget = st.budget;
+  const links = (i) => {
+    const pr = prOf(events, i.id);
+    return [pr && `<a href="${esc(pr)}">PR</a>`, i.url && i.url !== pr && `<a href="${esc(i.url)}">issue</a>`].filter(Boolean).join(' · ');
+  };
   const rows = (items, withAttention = false) =>
     items
       .map(
-        (i) => `<tr><td><b>${itemLinks ? `<a href="${esc(itemHref(i.id))}">${esc(i.id)}</a>` : esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${i.retries} retry)` : ''}${!i.done && lastMoved(events, i.id) ? `<br>moved ${esc(ago(st.updatedAt, lastMoved(events, i.id)))} ago` : ''}</td>${withAttention ? `<td class="m">${esc(metrics[i.id] ?? "")}</td>` : ''}<td>${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`
+        (i) => `<tr><td><b>${itemLinks ? `<a href="${esc(itemHref(i.id))}">${esc(i.id)}</a>` : esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${i.retries} retry)` : ''}${!i.done && lastMoved(events, i.id) ? `<br>moved ${esc(ago(st.updatedAt, lastMoved(events, i.id)))} ago` : ''}</td>${withAttention ? `<td class="m">${esc(metrics[i.id] ?? "")}</td>` : ''}<td class="m">${links(i)}</td></tr>`
       )
       .join('');
   const head = '<thead><tr><th>Item</th><th>Project</th><th>Tier</th><th>Stage</th><th>Runs</th><th></th></tr></thead>';
@@ -94,7 +98,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   <div class="tile"><span class="eyebrow">Host to-do</span><b>${pending.length}</b><small>effects not yet acknowledged</small></div>
 </div>
 ${requestBox ? REQUEST_BOX : ''}
-<section><h2>Needs you</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>
+<section><h2>Needs you${itemLinks ? ' <a class="m" href="decisions.html">decision log</a>' : ''}</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>
 <section><h2>In flight</h2>${live.length ? `<div class="tablewrap"><table>${head}<tbody>${rows(live)}</tbody></table></div>` : '<div class="empty">Nothing in flight.</div>'}</section>
 ${finished.length ? `<section><h2>Finished</h2><div class="tablewrap"><table>${finishedHead}<tbody>${rows(finished, true)}</tbody></table></div></section>` : ''}
 <section><h2>Host to-do</h2>${
@@ -154,6 +158,15 @@ const REQUEST_BOX = `<section id="rb"><h2>Ask for work</h2>
     btn.disabled = false;
   });
 })();</script>`;
+
+/** The item's PR: the newest event to it that carries `pr` (the build's RUN_SUCCEEDED, CI, MERGED). */
+export function prOf(events, id) {
+  for (let k = events.length - 1; k >= 0; k--) {
+    const e = events[k];
+    if (/^https?:\/\//.test(e.event?.pr ?? '') && e.to?.replace(/^item:/, '').split('/')[0] === id) return String(e.event.pr);
+  }
+  return null;
+}
 
 export const itemHref = (id) => `items/${encodeURIComponent(id)}.html`;
 

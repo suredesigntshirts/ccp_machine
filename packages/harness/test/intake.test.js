@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { openStore, init, status, intakeRows, requestFor, rowsOf, readRows, renderPage } from '../src/index.js';
+import { openStore, init, status, intakeRows, requestFor, rowsOf, readRows, renderPage, prOf } from '../src/index.js';
 
 const fresh = () => {
   const dir = mkdtempSync(join(tmpdir(), 'harness-'));
@@ -83,4 +83,22 @@ test('mission control carries the request box only when asked', () => {
   assert.match(page, /<h2>Ask for work<\/h2>/);
   assert.match(page, /claude\?\.use\?\.\('db'\)/);
   new Function(page.slice(page.indexOf('<script>') + 8, page.indexOf('</script>')));
+});
+
+test('mission control rows link the PR and the issue; Needs you links the decision log', () => {
+  const pr = 'https://github.com/o/r/pull/7';
+  const issue = 'https://github.com/o/r/issues/3';
+  const events = [
+    { to: 'item:a', event: { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/6' } },
+    { to: 'item:a', event: { type: 'CHECKS_PASSED', pr } },
+    { to: 'item:b', event: { type: 'RUN_SUCCEEDED', pr: 'javascript:alert(1)' } }
+  ];
+  assert.equal(prOf(events, 'a'), pr, 'the newest PR wins');
+  assert.equal(prOf(events, 'b'), null, 'only http(s) links');
+  const item = (id, done) => ({ id, title: id, tier: 0, state: done ? 'done' : 'active.verifying', done, runs: 1, decisions: [], url: issue });
+  const st = { version: 1, updatedAt: '2026-10-26T12:00:00Z', state: { scheduler: 'accepting' }, context: { inFlight: ['a'], queued: [], wipLimit: 3 }, budget: null, items: [item('a', false), item('b', true)] };
+  const page = renderPage(st, { events, itemLinks: true });
+  assert.match(page, new RegExp(`<a href="${pr}">PR</a> · <a href="${issue}">issue</a>`));
+  assert.doesNotMatch(page, /javascript:/);
+  assert.match(page, /<h2>Needs you <a class="m" href="decisions.html">decision log<\/a><\/h2>/);
 });
