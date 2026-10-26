@@ -274,3 +274,21 @@ test('a link rewrite by mv keeps the file settled, so a folder can be filed one 
   assert.match(fs.readFileSync(path.join(root, 'notes/x/a.md'), 'utf8'), /\[b\]\(b\.md\)/);
   assert.match(fs.readFileSync(path.join(root, 'notes/x/b.md'), 'utf8'), /\[a\]\(a\.md\)/);
 });
+
+test('find searches the description of downloaded pages', () => {
+  const root = seeded();
+  put(root, 'external-docs/stately.ai/docs/actors.md', '---\nSource: https://stately.ai/docs/actors\ntitle: Actors\ndescription: "When you run a state machine, it becomes an actor"\n---\n\n# Actors\n');
+  lib(root, ['scan', '--write']);
+  assert.match(lib(root, ['find', 'state', 'machine']), /external-docs\/stately\.ai\/docs\/actors\.md/);
+});
+
+test('window counts dot entries, which the file list shows, and audit names them', () => {
+  const root = seeded();
+  put(root, 'external-docs/.cache/index.sqlite', 'x');
+  put(root, 'external-docs/catalog.md', '# c\n');
+  lib(root, ['scan', '--write']);
+  const w = lib(root, ['window', '--all']);
+  assert.match(w, /external-docs\/\.cache\/\n/);
+  assert.match(w, /external-docs\/\.cache\/index\.sqlite\n/);
+  assert.match(lib(root, ['audit']), /window-dot/);
+});
