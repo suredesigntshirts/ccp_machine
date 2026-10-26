@@ -25,7 +25,7 @@ const ROOT = path.resolve(process.env.LIBRARY_ROOT || MOUNT);
 const SYS = '~librarian';
 const START = '00-START-HERE.md';
 const MAP = '01-map';
-const WRITER = (process.env.LIBRARY_WRITER || os.hostname() || 'unknown').replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 40);
+const WRITER = (process.env.LIBRARY_WRITER || (process.env.CLAUDE_CODE_SESSION_ID || '').slice(0, 8) || `${os.hostname()}-${process.pid}`).replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 40);
 const MD_READ_LIMIT = 1 << 20;
 const KIT_CLI = `${MOUNT}/${SYS}/kit/skills/library/scripts/library.mjs`;
 

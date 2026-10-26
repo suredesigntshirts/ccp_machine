@@ -24,6 +24,7 @@ then the row (keep the old value as `(was ..., <date>)`).
 | C7 | Repository skills | `.claude/skills/` in the repo does not load in Project threads | another thread's finding, 2026-10-26 10:43 UTC (worklog), and this thread's skill list |
 | C8 | Scale | up to 50k files | the person's brief |
 | C9 | Hard and symbolic links | unsupported on the mount | platform-facts |
+| C10 | Session identity | every container's hostname is `vm`; `CLAUDE_CODE_SESSION_ID` differs per session; `/mnt/project-files` is a symlink to `/mnt/attach/project-files` | 2026-10-26 11:03 UTC, `hostname`, `env`, `process.cwd()` in a thread |
 
 Sort order in practice (C5): `!` `#` `.` < digits < uppercase < `_` < lowercase < `~`; a space sorts
 before `-`, and `-` before `.` before `/`. So `00-…` sorts first and `~…` last.
@@ -58,7 +59,7 @@ changed in the last 10 minutes are not edited; the moves log (`~librarian/moves/
 `audit` map old paths to new ones instead. No stubs are left behind: links are unsupported (C9), and a
 stub file would cost a window slot and a listing entry forever.
 
-**One librarian at a time, by lease (C4).** Moves race; derived files do not (two builds write the
+**One librarian at a time, by lease (C4, C10).** The lease names the writer by the first 8 characters of the session id (or `LIBRARY_WRITER`), never the hostname, which is the same in every container. Moves race; derived files do not (two builds write the
 same content). So only writers that move or restructure take the lease, and acquiring waits 45 s and
 re-reads, because a competing write is invisible for ~40 s. A lease expires (90 min) so a dead run
 cannot block the next.
