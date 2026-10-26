@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -35,6 +35,9 @@ const HELP = `harness <command> [options]
                                  expect, one line each; mark each [met], [unmet] or [unclear] with
                                  evidence. Prints the verdict; exits 1 unless every line is met. send
                                  refuses a stand-in approve on an accept gate until it is
+  handoff                        write handoff.md in the store: items in flight with stage, PR and plan,
+                                 cards waiting on the person, pending effects, budget, doctor, the host's
+                                 own handoff-notes.md, and the next actions; run at the end of each wake
   audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
                                  once a day (audits/<day>.json); prints request_decision arguments for one
                                  card. --answer records the tap: 0 confirms all, N reverses pick N
@@ -196,6 +199,9 @@ try {
       if (!v.allMet) process.exitCode = 1;
       break;
     }
+    case 'handoff':
+      print({ file: writeHandoff(store) });
+      break;
     case 'audit': {
       const day = o.day ?? new Date().toISOString().slice(0, 10);
       if (o.answer != null) {
