@@ -71,7 +71,7 @@ for reports and notes:
 ---
 title: XState v5 actors for long-running agent workflows
 summary: One sentence that says what a reader learns here
-kind: report        # report | notes | sources | brief | reference | memo | index | data
+kind: report        # report | notes | sources | brief | reference | memo | review | index | data | request
 topic: xstate-orchestration
 status: draft       # draft | final | superseded
 author: <your-id>

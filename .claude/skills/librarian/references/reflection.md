@@ -16,11 +16,11 @@ only the mess).
 | Source | Command | What it tells you |
 |---|---|---|
 | Audit findings | `audit` | Where the Library breaks its own rules now |
-| Trend | `trend --n 10` | Whether findings, files and signposts are growing, shrinking or stuck |
+| Trend | `trend --n 10` (empty on a first run) | Whether findings, files and signposts are growing, shrinking or stuck |
 | Signals | `signals --days 7` | What sessions searched for and did not find, paths they could not resolve, lint failures |
 | Requests | `~librarian/requests/` | What sessions asked for in words |
 | Drop zone | `audit` (`drop-waiting`) | What sessions could not place, which means an area is missing or unclear |
-| The window | `window | tail -3` | Whether the map still fits and starts first |
+| The window | `window | tail -1` | Whether the map still fits and starts first |
 | Scan cost | `scan --write` JSON (`opened`, `walk_ms`, `total_ms`) | Whether the catalog keeps reads cheap as the Library grows |
 
 ## The questions
@@ -66,5 +66,6 @@ it in the same pull request.
 
 ## Housekeeping of the evidence
 
-`~librarian/signals/` keeps 30 days: delete older files in a run. The journal is kept; when a day's
+`scan --write` deletes signal files older than 30 days. `trend` is empty until the first journal
+entry exists and says little until there are several. The journal is kept; when a day's
 folder holds more than about 50 entries, the runs are too frequent for what they find.

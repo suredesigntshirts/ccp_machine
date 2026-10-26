@@ -28,8 +28,11 @@ L="/home/user/ccp_machine/.claude/skills/library/scripts/library.mjs"      # rep
   still resolve.
 - `mv` without `--apply` is a dry run. Run it, read the plan, then run it again with `--apply`.
 - A file is **settled** when it has been unchanged for `settle_minutes` (10, in `policy.json`). `mv`
-  refuses unsettled files. Edit a file's links or frontmatter by hand only if it is settled; check its
-  age yourself, since a hand edit has no guard.
+  refuses unsettled files. Edit a file's links or frontmatter by hand only if it is settled: check
+  with `node "$L" age <path>`, then write the new version to a dot-prefixed temp name beside it and
+  rename it over the old one.
+- Paths given to the tool are relative to `/mnt/project-files` (or full paths; inside the Library,
+  relative to your current folder).
 - Never use `--force` on `mv`.
 - Ask the person only before deleting content, retiring an area, or a change they would see in how
   they work; recommend an answer. Routine work needs no message to the person.
@@ -64,6 +67,8 @@ on every exit path, including after an error.
    (searches that found nothing, failed resolves, lint failures) and every file in
    `~librarian/requests/`.
 4. **Act**, highest value first, all reversible:
+   - `warn moved-link`: `node "$L" relink` (dry run), then `relink --apply`: it fixes settled links that
+     still point at a path the moves log has moved.
    - `error dangling-link`: find where the target went (`resolve`, `find`) and fix the link if the file
      is settled. If the target is gone, note it in the journal.
    - `drop-waiting` and requests: file each into its area with `mv`. Then `mv` the request into
@@ -73,11 +78,15 @@ on every exit path, including after an error.
      is a new kind of content, register an area in `policy.json` ("Changing yourself") and move the
      files under it.
    - `fanout`: shard the folder (for example by year-month or by first letter) with one `mv` per shard.
-   - `topic-no-sources`, `no-frontmatter`: add the missing frontmatter or a sources stub to settled
-     files. Leave unsettled files for the next run and list them in the journal; tell the topic's lead
+   - `topic-no-sources`, `no-frontmatter`: add the missing frontmatter (`title`, `summary`, `kind`
+     from report, notes, sources, brief, reference, memo, review, index, data, request; `author:
+     unknown` if you cannot tell) or a sources stub to settled files. A folder holding a `SKILL.md` or a
+     `.bundle` file is a copied package and is exempt; so are paths in `frontmatter_exempt` in
+     `policy.json`. Never edit inside a bundle. Leave unsettled files for the next run and list them in the journal; tell the topic's lead
      (the `author` in its frontmatter) if it is a thread you can message.
-5. **Rebuild the map.** `node "$L" build`, then `node "$L" window | tail -3`: `00-START-HERE.md`
-   must be first and every signpost inside the window.
+5. **Rebuild the map.** `node "$L" build`, then `node "$L" window | tail -1`: it must start with
+   `-- OK` (`00-START-HERE.md` first, every signpost inside the window); `-- PROBLEM` names what is
+   wrong.
 6. **Reflect and adjust** (references/reflection.md). Change `policy.json` directly when the evidence
    supports it; change the skills, the agent or the tool by pull request. Record the run:
    `node "$L" audit --journal "<what you did, what you saw, what you changed and why>"`.

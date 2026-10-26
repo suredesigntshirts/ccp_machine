@@ -196,3 +196,20 @@ test('journal and trend', () => {
   assert.match(lib(root, ['audit', '--journal', 'first run']), /journal: ~librarian\/journal\//);
   assert.match(lib(root, ['trend']), /errors=0/);
 });
+
+test('relink fixes links that mv deferred because the linking file was unsettled', () => {
+  const root = seeded();
+  put(root, 'notes/target.md', md('Target'));
+  put(root, 'notes/busy.md', md('Busy', '[t](target.md)'), 0);
+  lib(root, ['scan', '--write']);
+  const res = JSON.parse(lib(root, ['mv', 'notes/target.md', 'notes/archive/target.md', '--apply']));
+  assert.equal(res.deferred.length, 1);
+  assert.match(fs.readFileSync(path.join(root, 'notes/busy.md'), 'utf8'), /\[t\]\(target\.md\)/);
+  const t = new Date(Date.now() - 60 * 60e3);
+  fs.utimesSync(path.join(root, 'notes/busy.md'), t, t);
+  const fix = JSON.parse(lib(root, ['relink', '--apply']));
+  assert.equal(fix.rewrite.length, 1);
+  assert.match(fs.readFileSync(path.join(root, 'notes/busy.md'), 'utf8'), /\[t\]\(archive\/target\.md\)/);
+  assert.match(lib(root, ['find', 'target']), /notes\/archive\/target\.md/);
+  assert.doesNotMatch(lib(root, ['find', 'target']), /01-map/);
+});

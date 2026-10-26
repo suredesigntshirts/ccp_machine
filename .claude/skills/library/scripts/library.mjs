@@ -113,13 +113,33 @@ function parseArgs(argv) {
 
 // Accepts a Library path in any of the forms agents write: root-relative, /mnt/project-files/...,
 // or an absolute path under LIBRARY_ROOT. Returns root-relative posix, '' for the root.
-function toRel(p) {
+// /mnt/project-files can be a symlink (to /mnt/attach/project-files), so a cwd or an absolute
+// path may use either spelling.
+const real = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+const BASES = [...new Set([ROOT, MOUNT, real(ROOT), real(MOUNT)])];
+
+function toRel(p, { cwd = true } = {}) {
   let s = String(p).trim();
-  for (const base of [ROOT, MOUNT]) {
+  for (const base of BASES) {
     if (s === base) return '';
     if (s.startsWith(base + '/')) {
       s = s.slice(base.length + 1);
       break;
+    }
+  }
+  if (cwd && !s.startsWith('/')) {
+    const here = process.cwd();
+    for (const base of BASES) {
+      if (here === base || here.startsWith(base + '/')) {
+        s = path.posix.join(posix(here).slice(base.length + 1), s);
+        break;
+      }
     }
   }
   s = s.replace(/^\.\//, '').replace(/^\/+/, '');
@@ -197,13 +217,13 @@ function extractLinks(text, fromRel) {
       target = decodeURIComponent(target);
     } catch {}
     if (!target) continue;
-    const rel = target.startsWith('/') ? toRel(target) : toRel(path.posix.join(dir === '.' ? '' : dir, target));
+    const rel = toRel(target.startsWith('/') ? target : path.posix.join(dir === '.' ? '' : dir, target), { cwd: false });
     if (rel.startsWith('..')) continue;
     out.push({ raw, target: rel });
   }
   for (const m of text.matchAll(MOUNT_MENTION)) {
     const raw = m[0].replace(/[.,;:]+$/, '');
-    out.push({ raw, target: toRel(raw) });
+    out.push({ raw, target: toRel(raw, { cwd: false }) });
   }
   return out;
 }
@@ -549,9 +569,14 @@ async function audit(catalog, policy) {
       else add(isForeign(e.p, policy) ? 'info' : 'error', 'dangling-link', e.p, t);
     }
   }
-  // markdown without frontmatter in librarian-owned areas
+  // markdown without frontmatter in librarian-owned areas. Exempt: paths in policy
+  // frontmatter_exempt, and bundles (a folder holding a SKILL.md or a .bundle file is a copied
+  // package whose files must stay byte-identical).
+  const bundles = files.filter((e) => /(^|\/)(SKILL\.md|\.bundle)$/.test(e.p)).map((e) => e.p.slice(0, e.p.lastIndexOf('/') + 1));
+  const exempt = (p) => (policy.frontmatter_exempt || []).some((x) => p.startsWith(x)) || bundles.some((b) => p.startsWith(b));
   for (const e of files) {
     if (!e.p.endsWith('.md') || isForeign(e.p, policy) || e.p.startsWith(SYS + '/') || !e.p.includes('/')) continue;
+    if (exempt(e.p)) continue;
     if (!e.fm) add('warn', 'no-frontmatter', e.p, 'add title, summary, kind');
     else if (!e.summary) add('info', 'no-summary', e.p, 'frontmatter has no summary');
   }
@@ -576,8 +601,8 @@ async function audit(catalog, policy) {
   const { visible, all } = windowList(catalog, { n: policy.window, policy });
   const startIdx = visible.indexOf(START);
   if (startIdx !== 0) add('error', 'window-start', START, startIdx < 0 ? 'missing from the window' : `at position ${startIdx + 1}, not first`);
-  const mapVisible = visible.filter((k) => k.startsWith(MAP + '/')).length;
-  const mapTotal = all.filter((k) => k.startsWith(MAP + '/')).length;
+  const mapVisible = visible.filter((k) => k.startsWith(MAP + '/') && k !== MAP + '/').length;
+  const mapTotal = all.filter((k) => k.startsWith(MAP + '/') && k !== MAP + '/').length;
   if (mapVisible < mapTotal) add('error', 'window-map-cut', MAP, `${mapTotal - mapVisible} signposts fall past the ${policy.window} cut`);
   if (mapTotal + 2 > policy.window - policy.reserve) add('warn', 'window-tight', MAP, `${mapTotal} signposts leave less than the ${policy.reserve}-slot reserve`);
   const sysVisible = visible.filter((k) => k.startsWith(SYS)).length;
@@ -623,22 +648,26 @@ function signpostName(rank, label) {
 }
 
 function topicsOf(catalog) {
-  const topics = [];
+  const agg = new Map();
   for (const e of catalog.values()) {
-    if (!e.d) continue;
     const parts = e.p.split('/');
-    if (parts[0] !== 'research' || parts.length !== 2) continue;
-    const readme = catalog.get(`${e.p}/README.md`) || {};
-    let latest = 0;
-    let nfiles = 0;
-    for (const f of catalog.values()) {
-      if (!f.d && f.p.startsWith(e.p + '/')) {
-        nfiles++;
-        latest = Math.max(latest, f.mtime || 0);
-      }
+    if (parts[0] !== 'research' || parts.length < 2) continue;
+    const key = `research/${parts[1]}`;
+    if (!agg.has(key)) agg.set(key, { latest: 0, nfiles: 0, isDir: false });
+    const a = agg.get(key);
+    if (parts.length === 2) a.isDir = !!e.d;
+    else if (!e.d) {
+      a.nfiles++;
+      a.latest = Math.max(a.latest, e.mtime || 0);
     }
-    const sources = catalog.get(`${e.p}/sources.md`);
-    topics.push({ slug: parts[1], p: e.p, title: readme.title || parts[1], summary: readme.summary || '', status: readme.status || '', latest, nfiles, sources: sources ? sources.urls || 0 : 0 });
+  }
+  const topics = [];
+  for (const [p, a] of agg) {
+    if (!a.isDir) continue;
+    const slug = p.slice('research/'.length);
+    const readme = catalog.get(`${p}/README.md`) || {};
+    const sources = catalog.get(`${p}/sources.md`);
+    topics.push({ slug, p, title: readme.title || slug, summary: readme.summary || '', status: readme.status || '', latest: a.latest, nfiles: a.nfiles, sources: sources ? sources.urls || 0 : 0 });
   }
   return topics;
 }
@@ -784,6 +813,60 @@ function relLink(fromFile, target, originalRaw) {
   return r;
 }
 
+// Rewrites the Library links in a file at `p` that will live at `newSelf`: each link target t
+// becomes mapPath(t) when that is not null; relative links are recomputed from newSelf.
+function rewriteLinks(text, p, newSelf, mapPath) {
+  let count = 0;
+  let out = text.replace(MD_LINK, (whole, raw) => {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#')) return whole;
+    const [pathPart, anchor] = raw.split(/#(.*)/s);
+    const l = extractLinks(`[x](${pathPart})`, p)[0];
+    if (!l) return whole;
+    const newTarget = mapPath(l.target) ?? l.target;
+    if (newTarget === l.target && newSelf === p) return whole;
+    const rel = relLink(newSelf, newTarget, pathPart);
+    if (rel === pathPart) return whole;
+    count++;
+    return whole.replace(raw, rel + (anchor !== undefined ? '#' + anchor : ''));
+  });
+  out = out.replace(MOUNT_MENTION, (whole) => {
+    const raw = whole.replace(/[.,;:]+$/, '');
+    const nt = mapPath(toRel(raw, { cwd: false }));
+    if (nt === null) return whole;
+    count++;
+    return `${MOUNT}/${nt}${whole.slice(raw.length)}`;
+  });
+  return { text: out, count };
+}
+
+// Fixes links that still point at paths the moves log has moved (left by mv because the file was
+// unsettled or written after the move). Only settled files in librarian-owned areas are edited.
+async function relink({ apply = false } = {}) {
+  const policy = await loadPolicy();
+  const catalog = (await scan({ quiet: true })).catalog;
+  const moves = await loadMoves();
+  const present = (t) => catalog.has(t) || t === '';
+  const settleMs = policy.settle_minutes * 60e3;
+  const plan = { rewrite: [], deferred: [] };
+  for (const e of catalog.values()) {
+    if (e.d || !e.p.endsWith('.md')) continue;
+    const stale = (e.links || []).filter((t) => !present(t) && resolvePath(t, moves) !== t && present(resolvePath(t, moves)));
+    if (!stale.length) continue;
+    if (isForeign(e.p, policy) || e.p.startsWith(SYS + '/')) continue;
+    if (Date.now() - e.mtime < settleMs) {
+      plan.deferred.push({ p: e.p, why: 'changed recently' });
+      continue;
+    }
+    const mapPath = (t) => (stale.includes(t) ? resolvePath(t, moves) : null);
+    const { text, count } = rewriteLinks(await readText(e.p), e.p, e.p, mapPath);
+    if (!count) continue;
+    plan.rewrite.push({ p: e.p, links: count });
+    if (apply) await writeAtomic(e.p, text);
+  }
+  if (apply && plan.rewrite.length) await scan({ write: true, quiet: true });
+  return { ...plan, applied: apply };
+}
+
 async function mv(fromArg, toArg, { apply = false, force = false } = {}) {
   const policy = await loadPolicy();
   const from = toRel(fromArg);
@@ -827,37 +910,10 @@ async function mv(fromArg, toArg, { apply = false, force = false } = {}) {
   const plan = { from, to, folder: fromIsDir, moved: moved.length, rewrite: [], deferred };
   const rewrites = new Map();
   for (const p of edits) {
-    const text = await readText(p);
     const newSelf = mapPath(p) ?? p;
-    let changed = text;
-    let count = 0;
-    const repl = (raw, target) => {
-      const newTarget = mapPath(target) ?? target;
-      if (newTarget === target && newSelf === p) return null;
-      const out = relLink(newSelf, newTarget, raw);
-      return out === raw ? null : out;
-    };
-    changed = changed.replace(MD_LINK, (whole, raw) => {
-      if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#')) return whole;
-      const [pathPart, anchor] = raw.split(/#(.*)/s);
-      const l = extractLinks(`[x](${pathPart})`, p)[0];
-      if (!l) return whole;
-      const out = repl(pathPart, l.target);
-      if (!out) return whole;
-      count++;
-      return whole.replace(raw, out + (anchor !== undefined ? '#' + anchor : ''));
-    });
-    changed = changed.replace(MOUNT_MENTION, (whole) => {
-      const raw = whole.replace(/[.,;:]+$/, '');
-      const tail = whole.slice(raw.length);
-      const target = toRel(raw);
-      const nt = mapPath(target);
-      if (nt === null) return whole;
-      count++;
-      return `${MOUNT}/${nt}${tail}`;
-    });
+    const { text, count } = rewriteLinks(await readText(p), p, newSelf, mapPath);
     if (count) {
-      rewrites.set(p, changed);
+      rewrites.set(p, text);
       plan.rewrite.push({ p, newPath: newSelf, links: count });
     }
   }
@@ -922,7 +978,7 @@ async function lint(paths) {
   for (const p0 of paths) {
     const p = toRel(p0);
     if (!(await exists(p))) {
-      problems.push([p, 'missing']);
+      problems.push([p, 'no such Library path (give it relative to /mnt/project-files or in full)']);
       continue;
     }
     const area = areaOf(p);
@@ -1036,6 +1092,7 @@ For every agent:
   resolve <path>                                        follow the moves log to a path's current place
   refs <path>                                           files that link to a path (or into a folder)
   lint <path...>                                        check files you wrote: area, name, frontmatter, links
+  age <path...>                                         minutes since a file changed, and whether it is settled
   new-topic <slug> [--title t] [--question q]           scaffold research/<slug>/
   window [--n 150] [--all] [--live]                     the coordinator's view: the first N entries
 
@@ -1045,6 +1102,7 @@ For the librarian (hold the lease for the writing ones):
   audit [--json] [--journal "<reflection text>"]        health findings and metrics
   build [--dry]                                         regenerate ${START}, ${MAP}/, research/INDEX.md, hot set
   mv <from> <to> [--apply] [--force]                    move, rewrite links, log the move (dry run by default)
+  relink [--apply]                                      fix settled links that still point at moved paths
   trend [--n 5]                                         metrics of the last N journal entries
   signals [--days 7]                                    what readers searched for and missed, lint failures
   init [--seed policy.json]                             first run: policy.json and ${SYS}/ folders
@@ -1064,6 +1122,7 @@ async function main() {
       for (const e of cat.values()) {
         if (opt.area && areaOf(e.p) !== opt.area) continue;
         if (opt.kind && e.kind !== opt.kind) continue;
+        if (!opt.all && (e.kind === 'signpost' || e.p.startsWith(SYS + '/'))) continue;
         const fields = [
           [String(e.title || '').toLowerCase(), 3],
           [[].concat(e.tags || []).join(' ').toLowerCase(), 2],
@@ -1127,7 +1186,9 @@ async function main() {
       const { all, visible } = windowList(cat, { n, policy });
       const list = opt.all ? all : visible;
       list.forEach((k, i) => console.log(`${String(i + 1).padStart(4)}  ${k}`));
-      console.log(`-- ${visible.length} of ${all.length} entries visible; signposts ${visible.filter((k) => k.startsWith(MAP + '/')).length}; the cut falls after: ${visible[visible.length - 1] || '-'}`);
+      const isPost = (k) => k.startsWith(MAP + '/') && k !== MAP + '/';
+      const ok = visible[0] === START && all.filter(isPost).length === visible.filter(isPost).length;
+      console.log(`-- ${ok ? 'OK' : 'PROBLEM'}: first entry ${visible[0] || '-'}; signposts visible ${visible.filter(isPost).length} of ${all.filter(isPost).length}; ${visible.length} of ${all.length} entries visible; the cut falls after: ${visible[visible.length - 1] || '-'}`);
       break;
     }
     case 'scan':
@@ -1155,6 +1216,24 @@ async function main() {
       console.log(JSON.stringify(r, null, 2));
       break;
     }
+    case 'age': {
+      const policy = await loadPolicy();
+      for (const a of pos) {
+        const rel = toRel(a);
+        try {
+          const st = await fsp.stat(abs(rel));
+          const min = (Date.now() - st.mtimeMs) / 60e3;
+          console.log(`${rel}: changed ${min.toFixed(1)} min ago; ${min >= policy.settle_minutes ? 'settled' : 'NOT settled'} (settle_minutes ${policy.settle_minutes})`);
+        } catch {
+          console.log(`${rel}: no such Library path`);
+        }
+      }
+      break;
+    }
+    case 'relink':
+      if (opt.apply) await requireLease();
+      console.log(JSON.stringify(await relink({ apply: !!opt.apply }), null, 2));
+      break;
     case 'mv':
       console.log(JSON.stringify(await mv(pos[0], pos[1], { apply: !!opt.apply, force: !!opt.force }), null, 2));
       break;
