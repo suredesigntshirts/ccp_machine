@@ -29,22 +29,38 @@ const HELP = `ledger <command> [options]
 Options: --out <path> --samples <path> --html <path> --title <text> --standalone
          --daily-share 0.1 --soft-at 0.8 --five-hour-stop 0.95 --utc-offset <minutes>`;
 
-const { values: o, positionals } = parseArgs({
-  allowPositionals: true,
-  options: {
-    out: { type: 'string', default: '.ledger/ledger.json' },
-    sessions: { type: 'string' },
-    samples: { type: 'string', default: '.ledger/usage.json' },
-    html: { type: 'string', default: '.ledger/report.html' },
-    title: { type: 'string' },
-    standalone: { type: 'boolean', default: false },
-    'daily-share': { type: 'string' },
-    'soft-at': { type: 'string' },
-    'five-hour-stop': { type: 'string' },
-    'utc-offset': { type: 'string' }
-  }
-});
+const usageError = (msg) => {
+  console.error(`ledger: ${msg}\n\n${HELP}`);
+  process.exit(2);
+};
+const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'help'];
+if (process.argv.slice(2).some((a) => a === '--help' || a === '-h')) {
+  console.log(HELP);
+  process.exit(0);
+}
+let parsed;
+try {
+  parsed = parseArgs({
+    allowPositionals: true,
+    options: {
+      out: { type: 'string', default: '.ledger/ledger.json' },
+      sessions: { type: 'string' },
+      samples: { type: 'string', default: '.ledger/usage.json' },
+      html: { type: 'string', default: '.ledger/report.html' },
+      title: { type: 'string' },
+      standalone: { type: 'boolean', default: false },
+      'daily-share': { type: 'string' },
+      'soft-at': { type: 'string' },
+      'five-hour-stop': { type: 'string' },
+      'utc-offset': { type: 'string' }
+    }
+  });
+} catch (e) {
+  usageError(e.message.split('. ')[0]);
+}
+const { values: o, positionals } = parsed;
 const [cmd = 'help', ...args] = positionals;
+if (!COMMANDS.includes(cmd)) usageError(`unknown command ${cmd}`);
 const write = (path, data) => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, data);
