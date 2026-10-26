@@ -162,8 +162,11 @@ export function estimateSample(samples, ledger, now = new Date().toISOString()) 
  * @param {{filedAt?: string, remoteSessionId?: string|null}[]} records filed session files
  * @param {string|null} own this session's CLAUDE_CODE_REMOTE_SESSION_ID, always first
  */
-export function usageSources(records, own = null) {
+export function usageSources(records, own = null, peers = []) {
   const id = (r) => (r ? `session_${String(r).replace(/^(cse|session)_/, '')}` : null);
   const filed = [...records].sort((a, b) => String(b.filedAt ?? '').localeCompare(String(a.filedAt ?? ''))).map((r) => id(r.remoteSessionId));
-  return [...new Set([id(own), ...filed].filter(Boolean))];
+  return [...new Set([id(own), ...filed, ...peers.map(id)].filter(Boolean))];
 }
+
+/** Session ids a thread named once in a notes file, on lines like `- usage source: session_01ab…`. */
+export const peerSources = (text) => [...String(text ?? '').matchAll(/usage source:\s*((?:cse|session)_[A-Za-z0-9]+)/gi)].map((m) => m[1]);

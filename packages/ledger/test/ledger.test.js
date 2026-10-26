@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildLedger, requestCost, samplesFromText, mergeSamples, budgetStatus, estimateSample, liveSamples, usageSources, renderReport } from '../src/index.js';
+import { spawnSync } from 'node:child_process';
+import { buildLedger, requestCost, samplesFromText, mergeSamples, budgetStatus, estimateSample, liveSamples, usageSources, peerSources, renderReport } from '../src/index.js';
+
+const bin = new URL('../bin/ledger.js', import.meta.url).pathname;
 
 const usage = (o) => ({
   input_tokens: 10,
@@ -220,4 +223,15 @@ test('usage comes from any session in the project: sources list this one first, 
   const design = samplesFromText(reading('2026-10-26T20:42:19Z', 0.09, 0.12));
   const s = budgetStatus(mergeSamples(design, mine));
   assert.deepEqual([s.latest.at, s.latest.sevenDay, s.latest.fiveHour], ['2026-10-26T20:42:19Z', 0.09, 0.12]);
+});
+
+test('usage-sources lists ids named in handoff-notes after the filed ones', () => {
+  const notes = '- audit card cmsg_9\n- usage source: session_01Rxhjs6ExuyzZoJnr6E5BpT (design thread)\n- Usage source: cse_me\n';
+  assert.deepEqual(peerSources(notes), ['session_01Rxhjs6ExuyzZoJnr6E5BpT', 'cse_me']);
+  assert.deepEqual(usageSources([{ filedAt: '2026-10-26T20:00:00Z', remoteSessionId: 'cse_old' }], 'cse_me', peerSources(notes)), ['session_me', 'session_old', 'session_01Rxhjs6ExuyzZoJnr6E5BpT']);
+  const dir = mkdtempSync(join(tmpdir(), 'ledger-'));
+  const f = join(dir, 'notes.md');
+  writeFileSync(f, notes);
+  const r = spawnSync(process.execPath, [bin, 'usage-sources', join(dir, 'none'), '--notes', f], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_REMOTE_SESSION_ID: '' } });
+  assert.deepEqual(r.stdout.trim().split('\n'), ['session_01Rxhjs6ExuyzZoJnr6E5BpT', 'session_me']);
 });
