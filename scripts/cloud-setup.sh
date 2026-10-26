@@ -2,7 +2,7 @@
 # ccp_machine cloud setup script. Paste into Project settings > Cloud environment > gear > Setup
 # script. It runs when the container is built, after the repo clone and before Claude Code starts;
 # the environment then caches the container, so edits here take effect only on the next cache build.
-# 1. Sets user-level Claude Code settings (~/.claude/settings.json): the subagent nesting depth.
+# 1. Merges the repo's .claude/settings.json into the user-level ~/.claude/settings.json.
 # 2. Links the repo's .claude/skills into ~/.claude/skills, because a cloud thread does not load
 #    the repo's own .claude/ (untrusted workspace).
 # 3. Links every plugin in the repo (a folder with .claude-plugin/plugin.json) the same way.
@@ -16,16 +16,19 @@ repo=/home/user/ccp_machine
 {
   echo "== setup start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  # 1. Subagent depth. Threads launch with CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1, and the repo's
-  # .claude/settings.json env is ignored in threads (PR #6), so set it in the user settings file.
+  # 1. Settings. A thread ignores the repo's .claude/settings.json (untrusted workspace), so merge
+  # it into the user settings file, the repo's values winning. Logs key names only.
   settings="$H/.claude/settings.json"
+  src="$repo/.claude/settings.json"
   mkdir -p "$H/.claude"
   [ -s "$settings" ] || echo '{}' > "$settings"
-  if tmp=$(jq '.env = ((.env // {}) + {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3"})' "$settings"); then
+  if [ ! -f "$src" ]; then
+    echo "settings: no $src; $settings left as it was"
+  elif tmp=$(jq -s '.[0] * .[1]' "$settings" "$src"); then
     printf '%s\n' "$tmp" > "$settings"
-    echo "settings $settings env keys: $(jq -r '.env | keys | join(" ")' "$settings")"
+    echo "settings merged from $src: keys $(jq -r 'keys | join(" ")' "$settings"); env keys $(jq -r '.env // {} | keys | join(" ")' "$settings")"
   else
-    echo "settings: jq failed; $settings left as it was"
+    echo "settings: jq failed on $src; $settings left as it was"
   fi
 
   # 2. Repo skills. Link, not copy: the clone is fresh every session while this container is cached.
