@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   init [--wip N]                 create a harness in --dir
@@ -28,6 +28,8 @@ const HELP = `harness <command> [options]
                                  and effects with the store; exits 1 on a difference
   doctor                         check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore); exits 1 on a problem
+  scenarios [FILE...]            play golden event stories (default packages/harness/scenarios/*.json) on
+                                 scratch stores and check each step; exits 1 on a failure
   card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
                                  option i is PERSON_DECIDED {choice: choices[i]} to address, --id <card id>
   page [--html FILE] [--title T] [--standalone]
@@ -133,6 +135,15 @@ try {
       const report = doctor(store);
       print(report);
       if (!report.ok) process.exitCode = 1;
+      break;
+    }
+    case 'scenarios': {
+      const results = runScenarios(...(args.length ? [args] : []));
+      for (const r of results) {
+        console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name} (${r.steps} steps)`);
+        for (const f of r.failures) console.log(`     step ${f.step}: ${f.key} expected ${JSON.stringify(f.expected)}, got ${JSON.stringify(f.actual)}`);
+      }
+      if (results.some((r) => !r.ok)) process.exitCode = 1;
       break;
     }
     case 'card': {

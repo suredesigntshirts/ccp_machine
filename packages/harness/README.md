@@ -36,6 +36,10 @@ The harness spec and the runtime that drives it.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.
+- `src/scenario.js` and `scenarios/*.json`: golden event stories. Each step is an event (with `to`, `id`,
+  `now`) and an `expect` of `effects` (exact, `dispatchRun:<step>`), `items` `{id: state}`, `scheduler`,
+  `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate` or `standin` `{class: autonomy}`.
+  `npm run scenarios` (`harness scenarios [FILE...]`) plays each on a scratch store; CI runs it.
 
 ## Use
 

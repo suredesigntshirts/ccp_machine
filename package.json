@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
-    "build:plugin": "node scripts/build-plugin.mjs"
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "scenarios": "npm run scenarios -w @ccp/harness"
   }
 }

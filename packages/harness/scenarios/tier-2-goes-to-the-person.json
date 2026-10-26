@@ -1,0 +1,10 @@
+{
+  "name": "tier-2-goes-to-the-person",
+  "description": "At tier 2 the stand-in only recommends: the plan waits on a card until the person decides.",
+  "steps": [
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"p","tier":2}},"expect":{"effects":["dispatchRun:triage"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:p","expect":{"effects":["askStandIn"],"items":{"p":"active.awaitingPlanDecision"},"needsPerson":false}},
+    {"event":{"type":"STAND_IN_ANSWERED","answer":{"choice":"approve","confidence":0.95,"threshold":0.9,"autonomy":"act"}},"to":"item:p/decision:p:plan:1","expect":{"effects":["postDecisionCard"],"inbox":["decision:p:plan:1"],"needsPerson":true}},
+    {"event":{"type":"PERSON_DECIDED","choice":"approve"},"to":"item:p/decision:p:plan:1","expect":{"effects":["logPrecedent","dispatchRun:build"],"items":{"p":"active.building"},"inbox":[],"needsPerson":false}}
+  ]
+}

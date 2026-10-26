@@ -1,0 +1,11 @@
+{
+  "name": "blocked-then-unblocked",
+  "description": "A blocked item keeps its slot and resumes the step it stopped at.",
+  "steps": [
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"b","tier":0}},"expect":{"effects":["dispatchRun:triage"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:b","expect":{"effects":["dispatchRun:build"],"items":{"b":"active.building"}}},
+    {"event":{"type":"BLOCK"},"to":"item:b","expect":{"effects":["reportBlocked"],"items":{"b":"blocked"},"inFlight":["b"]}},
+    {"event":{"type":"UNBLOCKED"},"to":"item:b","expect":{"effects":["dispatchRun:build"],"items":{"b":"active.building"}}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:b","expect":{"effects":["dispatchRun:verify"],"items":{"b":"active.verifying"}}}
+  ]
+}
