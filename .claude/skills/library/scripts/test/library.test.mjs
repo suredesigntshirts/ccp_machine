@@ -137,11 +137,11 @@ test('mv of a folder keeps the moved files\' own relative links pointing at the 
 
 test('mv refuses foreign areas, recently changed files, and writing without the lease', () => {
   const root = seeded();
-  put(root, 'docs/example.com/x.md', 'x');
+  put(root, 'external-docs/example.com/x.md', 'x');
   put(root, 'notes/fresh.md', md('Fresh'), 0);
   put(root, 'notes/old.md', md('Old'));
   lib(root, ['scan', '--write']);
-  assert.match(lib(root, ['mv', 'docs/example.com/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by tool:documentation-downloader/);
+  assert.match(lib(root, ['mv', 'external-docs/example.com/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by tool:documentation-downloader/);
   assert.match(lib(root, ['mv', 'notes/fresh.md', 'notes/f2.md', '--apply'], { ok: false }).stderr, /changed in the last/);
   assert.match(lib(root, ['mv', 'notes/old.md', 'notes/o2.md', '--apply'], { ok: false, writer: 'w2' }).stderr, /does not hold the librarian lease/);
 });
@@ -249,7 +249,7 @@ test('put writes with frontmatter, refuses top level, foreign areas and overwrit
   assert.match(text, /^---\ntitle: Cache notes\nsummary: What warms the cache\nkind: notes\nauthor: w1\ncreated: \d{4}-\d\d-\d\d\ntags: \[cache, mount\]\n---\n/);
   assert.match(text, /# Cache notes\n\nbody\n$/);
   assert.match(run(['put', 'top.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /registered area/);
-  assert.match(run(['put', 'docs/x.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /owned by/);
+  assert.match(run(['put', 'external-docs/x.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /owned by/);
   assert.match(run(['put', 'notes/cache-notes.md', '--title', 'x', '--summary', 'x', '--kind', 'notes'], 'x').err, /exists/);
   assert.match(run(['put', 'notes/no-title.md', '--summary', 'x', '--kind', 'notes'], 'x').err, /--title/);
   assert.match(lib(root, ['find', 'warms'], { writer: 'w2' }), /notes\/cache-notes\.md/);

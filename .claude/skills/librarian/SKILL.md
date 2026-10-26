@@ -48,7 +48,7 @@ L="/home/user/ccp_machine/.claude/skills/library/scripts/library.mjs"      # rep
 |---|---|
 | `00-START-HERE.md`, `01-map/`, every area `INDEX.md`, `~librarian/` | Any folder another tool owns (its `owner` in `policy.json` names the tool): the tool reads its own fixed paths |
 | Where files live in `owner: librarian` areas, and their links | `uploads/` (threads refer to uploads by id) |
-| `~librarian/policy.json`: areas, map pins, limits | `docs/` internals (the documentation-downloader's layout) |
+| `~librarian/policy.json`: areas, map pins, limits | `external-docs/` internals (the documentation-downloader's cache, including its `.cache/` and `_profiles/`) |
 | Filing `drop/` and answering `~librarian/requests/` | The content of a report: you fix its links and frontmatter, not its claims |
 
 Areas and owners are in `~librarian/policy.json`. `mv` refuses any area whose owner is not

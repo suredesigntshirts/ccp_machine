@@ -2,12 +2,12 @@
 title: "Library map: start here"
 summary: What is in the Library, where each kind of content goes, and how to find anything
 kind: index
-built: "2026-10-26T13:37:18Z"
+built: "2026-10-26T13:49:25Z"
 ---
 
 # Library map: start here
 
-This Library is organized and kept tidy by the **librarian**. Its kit (agent, skills, tool) is installed at `~librarian/kit/` and its source is the repository's `.claude/` folder. It holds 18 files. Built 2026-10-26T13:37:18Z.
+This Library is organized and kept tidy by the **librarian**. Its kit (agent, skills, tool) is installed at `~librarian/kit/` and its source is the repository's `.claude/` folder. It holds 19 files. Built 2026-10-26T13:49:25Z.
 
 **Coordinator and threads:** a session's prompt lists only the first names of the Library (a thread's list held 199 entries; plan on 150), sorted by full path. Those first names are this file and the signposts in `01-map/`: each signpost's name is the path it points to, with `--` standing for `/`. You have no file tools, so to read anything ask a thread or a worker to open it. To have the Library reorganized, cleaned up or searched, start a thread that loads the **librarian** skill.
 
@@ -23,7 +23,7 @@ This Library is organized and kept tidy by the **librarian**. Its kit (agent, sk
 | Folder | What goes there | Layout | Owner | Files |
 |---|---|---|---|---|
 | `research/` | Research the person asked for: one folder per topic, a cited report, its sources, and each researcher's notes | `research/<topic>/{README.md, brief.md, sources.md, notes/<writer>--<subquestion>.md}` | librarian | 1 |
-| `docs/` | External documentation downloaded as markdown, one folder per domain | `docs/<domain>/<url path>.md, indexed by docs/llms.txt` | tool:documentation-downloader | 2 |
+| `external-docs/` | External documentation downloaded word for word as markdown, one folder per site | `external-docs/<host>/<url path>.md, one line per site in external-docs/catalog.md, one line per page in external-docs/<host>/_outline.md` | tool:documentation-downloader | 3 |
 | `notes/` | Notes, reviews and memos from threads that are not a research topic | `notes/<slug>.md (sharded into notes/<yyyy-mm>/ once it nears the fan-out limit)` | librarian | 2 |
 | `drop/` | Anything whose place is unclear: the librarian files it on its next run | `drop/<writer>--<slug>.<ext>` | any | 1 |
 | `ccp/` | The ccp harness: worklog, usage, conformance, items. Written by the ccp plugin's CLI | `ccp/<area>/... (see the ccp skill)` | ccp | 0 |

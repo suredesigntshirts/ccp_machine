@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: librarian-routine-pass
 expected_outcome: |
-  The pass takes and releases the lease, files the stray top-level meeting-notes/ folder into a registered area with mv so every link to it (relative and absolute) is rewritten, files the drop/ memo, answers the request (moving it to requests/done/ unedited), leaves the tool-owned docs/ folder alone, rebuilds the map so the window check is OK, and records the run in the journal.
+  The pass takes and releases the lease, files the stray top-level meeting-notes/ folder into a registered area with mv so every link to it (relative and absolute) is rewritten, files the drop/ memo, answers the request (moving it to requests/done/ unedited), leaves the tool-owned external-docs/ folder alone, rebuilds the map so the window check is OK, and records the run in the journal.
 context:
   scaffold_script: place-files.sh
