@@ -4,7 +4,7 @@ Generated from `packages/harness/spec/*.machine.json` by `npm run spec:render`. 
 
 ## budget (v0.1.0)
 
-Spends a daily slice of the person's 7-day Claude usage window and watches the 5-hour window. Utilization values are 0..1 shares of each window.
+Spends a daily slice of the person's 7-day Claude usage window and watches the 5-hour window. Utilization values are 0..1 shares of each window. Today's spend (spentToday) accumulates per sample; when the 7-day window resets mid-day (sevenDayResetsAt changes or utilization drops) it counts on from 0.
 
 ```mermaid
 stateDiagram-v2

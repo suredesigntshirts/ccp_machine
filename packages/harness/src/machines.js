@@ -45,8 +45,17 @@ const external = (sink, ...names) =>
 // transition() returns it by name, like every other effect, and a standalone actor does not throw.
 const toParent = (make) => ({ self, ...args }, params) => self._parent?.send(make({ self, ...args }, params));
 
-const spentShare = (c, sevenDay) => (sevenDay - c.dayStartSevenDay) / c.dailyShare;
-const usage = (c, e) => ({ sevenDay: e.sevenDay ?? c.sevenDay, fiveHour: e.fiveHour ?? c.fiveHour });
+// Today's spend accumulates sample by sample, so a 7-day window that resets mid-day (its resetsAt
+// changes, or its utilization drops) restarts from 0 instead of going negative.
+const usage = (c, e) => {
+  const sevenDay = e.sevenDay ?? c.sevenDay;
+  const resetsAt = e.sevenDayResetsAt ?? c.sevenDayResetsAt ?? null;
+  const reset = (c.sevenDayResetsAt != null && resetsAt != null && resetsAt !== c.sevenDayResetsAt) || sevenDay < c.sevenDay;
+  // A snapshot from before spentToday existed starts from its day-start difference.
+  const spentToday = (c.spentToday ?? Math.max(0, c.sevenDay - c.dayStartSevenDay)) + Math.max(0, sevenDay - (reset ? 0 : c.sevenDay));
+  return { sevenDay, fiveHour: e.fiveHour ?? c.fiveHour, sevenDayResetsAt: resetsAt, spentToday };
+};
+const spentShare = (c, u) => u.spentToday / c.dailyShare;
 
 // One set of machines per sink, so a host can collect the effects of the events it applies.
 export function createMachines(sink = () => {}) {
@@ -55,23 +64,26 @@ export function createMachines(sink = () => {}) {
       fiveHourExhausted: ({ context, event }) => usage(context, event).fiveHour >= context.fiveHourStopAt,
       mustPause: ({ context, event }) => {
         const u = usage(context, event);
-        return u.fiveHour >= context.fiveHourStopAt || spentShare(context, u.sevenDay) >= 1;
+        return u.fiveHour >= context.fiveHourStopAt || spentShare(context, u) >= 1;
       },
       mustWrapUp: ({ context, event }) => {
         const u = usage(context, event);
-        const s = spentShare(context, u.sevenDay);
+        const s = spentShare(context, u);
         return u.fiveHour < context.fiveHourStopAt && s >= context.softAt && s < 1;
       },
       mayRun: ({ context, event }) => {
         const u = usage(context, event);
-        return u.fiveHour < context.fiveHourStopAt && spentShare(context, u.sevenDay) < context.softAt;
+        return u.fiveHour < context.fiveHourStopAt && spentShare(context, u) < context.softAt;
       }
     },
     actions: {
       recordUsage: assign(({ context, event }) => usage(context, event)),
       startDay: assign(({ context, event }) => ({
-        ...usage(context, event),
-        dayStartSevenDay: event.sevenDay ?? context.sevenDay
+        sevenDay: event.sevenDay ?? context.sevenDay,
+        fiveHour: event.fiveHour ?? context.fiveHour,
+        sevenDayResetsAt: event.sevenDayResetsAt ?? context.sevenDayResetsAt ?? null,
+        dayStartSevenDay: event.sevenDay ?? context.sevenDay,
+        spentToday: 0
       })),
       applyConfig: assign(({ event }) => event.config ?? {}),
       reportMode: toParent((_, params) => ({ type: 'BUDGET_MODE', mode: params.mode }))

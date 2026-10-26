@@ -129,6 +129,21 @@ test('budget: 10% of the 7-day window per day, wrap up at 80% of it, stop at 100
   assert.equal(at(0.31, 0.96), 'paused');
 });
 
+test('budget: a 7-day window that resets mid-day keeps counting today\'s spend from 0', () => {
+  const [s0] = initialTransition(machines.budget);
+  let [s] = transition(machines.budget, s0, { type: 'DAY_STARTED', sevenDay: 0.9, fiveHour: 0, sevenDayResetsAt: 100 });
+  const sample = (sevenDay, sevenDayResetsAt) => ([s] = transition(machines.budget, s, { type: 'USAGE_SAMPLED', sevenDay, fiveHour: 0.1, sevenDayResetsAt }));
+  sample(0.94, 100);
+  assert.equal(s.value, 'normal');
+  sample(0.02, 200); // reset: 0.04 before it, 0.02 after
+  assert.equal(s.value, 'normal');
+  assert.ok(Math.abs(s.context.spentToday - 0.06) < 1e-9);
+  sample(0.05, 200);
+  assert.equal(s.value, 'wrappingUp', '0.09 of a 0.1 slice is past the soft limit');
+  sample(0.07, 200);
+  assert.equal(s.value, 'paused', 'the slice is spent, though the 7-day reading is only 7%');
+});
+
 test('the harness keeps at most wipLimit items in flight and pauses starts on a budget stop', () => {
   const root = createActor(machines.harness, { systemId: 'harness', input: { wipLimit: 2 } }).start();
   for (const id of ['a', 'b', 'c']) root.send({ type: 'REQUEST_RECEIVED', request: { id, project: 'web', tier: 1 } });
