@@ -14,3 +14,4 @@ export { stalled, lastMoved, parseAfter } from './stalled.js';
 export { repair } from './repair.js';
 export { attention, attentionText, touchesTrend } from './attention.js';
 export { calibration, calibrateClass, MIN_TESTED } from './calibration.js';
+export { retro, writeRetro, retroDue, lastRetro, renderRetro, windowMetrics, RETRO_EVERY } from './retro.js';
