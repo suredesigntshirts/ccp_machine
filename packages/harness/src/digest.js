@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { apply, ack, status } from './runtime.js';
 import { readDecisionLog } from './decision-log.js';
+import { canaryReport } from './canary.js';
 import { touchesTrend } from './attention.js';
 
 const pct = (x) => (x == null ? 'unknown' : `${Math.round(x * 100)}%`);
@@ -24,10 +25,14 @@ export function renderDigest(st, { events = [], outbox = [], decisions = [], day
   const byPerson = today.filter((d) => d.decidedBy === 'person').length;
   const list = (rows, empty) => (rows.length ? rows.map((r) => `- ${r}`).join('\n') : `- ${empty}`);
   const b = st.budget;
+  // Judge the canary as of the store's last write, capped at the end of the digest's day.
+  const endOfDay = `${day}T23:59:59Z`;
+  const canary = canaryReport(events, day, st.updatedAt && st.updatedAt < endOfDay ? st.updatedAt : endOfDay);
+  const canaryAlarm = ['failed', 'late'].includes(canary.status) || canary.stages.some((x) => x.slow);
   const trend = touchesTrend(st.items, { events, outbox, decisions }, day);
   const per = (t) => (t.perItem == null ? 'no items' : `${t.perItem.toFixed(1)} per item (${t.items})`);
   return `# Harness digest, ${day}
-
+${canaryAlarm ? `\n**Look here first:** ${canary.line}\n` : ''}
 **Finished today (${finished.length})**
 ${list(finished.map((i) => `${i.id}: ${i.title ?? ''}${i.url ? ` (${i.url})` : ''}`), 'nothing')}
 
@@ -41,7 +46,7 @@ ${list(waiting, 'nothing')}
 
 **Decisions today:** ${today.length}, ${byPerson} by you, ${today.length - byPerson} by the stand-in.
 
-**Budget:** ${b ? `${b.mode}, 7-day window at ${pct(b.sevenDay)}, 5-hour at ${pct(b.fiveHour)}` : 'no usage samples yet'}; scheduler ${st.state.scheduler}.
+${canaryAlarm ? '' : `**Canary:** ${canary.line}\n\n`}**Budget:** ${b ? `${b.mode}, 7-day window at ${pct(b.sevenDay)}, 5-hour at ${pct(b.fiveHour)}` : 'no usage samples yet'}; scheduler ${st.state.scheduler}.
 `;
 }
 
