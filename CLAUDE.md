@@ -34,3 +34,7 @@ Give every agent its own worktree and branch; git refuses to check out one branc
 ```
 git worktree add ../feat-42-retry-failed-jobs--tests -b feat/42-retry-failed-jobs--tests origin/feat/42-retry-failed-jobs
 ```
+
+## The project Library
+
+The Library (`/mnt/project-files`) is shared by every session and kept organized by the librarian. Repository skills do not load in Project threads by themselves, so before you read more than 5 Library files, write a file there, or keep research results, read `.claude/skills/library/SKILL.md` (installed copy: `/mnt/project-files/~librarian/kit/skills/library/SKILL.md`). If you are briefed as the librarian or asked to tidy or reorganize the Library, read `.claude/skills/librarian/SKILL.md` instead.
