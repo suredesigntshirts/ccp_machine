@@ -189,3 +189,19 @@ test('with no fresh reading, the ledger estimates one from the cost of turns sin
   assert.deepEqual(liveSamples([...real, est, later]).map((s) => s.at), [real[0].at, real[1].at, later.at]);
   assert.equal(budgetStatus([...real, est, later]).latest.estimated, undefined);
 });
+
+test('whole-percent readings with a flat 7-day window still estimate from the 5-hour window', () => {
+  const r = (at, sevenDay, fiveHour) => ({ at, sevenDay, fiveHour, sevenDayResetsAt: 9, fiveHourResetsAt: 5 });
+  const turn = (start, cost) => ({ start, all: { cost } });
+  const ledger = { sessions: [{ turns: [turn('2026-10-26T18:30:00Z', 4), turn('2026-10-26T19:30:00Z', 2)] }] };
+  // The live shape at 20:05: 7-day stuck at 8%, 5-hour 5% to 9%.
+  const flat = [r('2026-10-26T18:14:00Z', 0.08, 0.05), r('2026-10-26T18:49:00Z', 0.08, 0.08), r('2026-10-26T19:11:00Z', 0.08, 0.09)];
+  const est = estimateSample(flat, ledger, '2026-10-26T20:05:00Z');
+  assert.deepEqual([est.fiveHour, est.sevenDay, est.basis.fiveHour, est.basis.sevenDay], [0.11, 0.08, 'measured since 2026-10-26T18:14:00Z', 'last reading (too coarse to measure)']);
+  // An older, lower 7-day reading in the same window widens the span until a rise shows.
+  const both = [r('2026-10-26T17:00:00Z', 0.07, 0.01), ...flat];
+  const ledger2 = { sessions: [{ turns: [turn('2026-10-26T17:30:00Z', 4), ...ledger.sessions[0].turns] }] };
+  const e2 = estimateSample(both, ledger2, '2026-10-26T20:05:00Z');
+  assert.equal(e2.basis.sevenDay, 'measured since 2026-10-26T17:00:00Z');
+  assert.equal(e2.basis.sessions, 1);
+});

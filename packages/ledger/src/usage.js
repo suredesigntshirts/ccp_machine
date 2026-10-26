@@ -110,34 +110,48 @@ export function liveSamples(samples) {
 }
 
 /**
- * A usage sample estimated from the ledger, for when no real reading has arrived (they are rare).
- * From the newest real sample, it adds the cost of the turns that started since, at the utilization
- * per dollar seen between the oldest and newest real samples, window by window. Null when there is
- * no real sample, nothing was spent since, or no rate can be measured (no spend or no rise between
- * readings). Estimates are marked `estimated: true` and never feed the next estimate.
+ * A usage sample estimated from the ledger, for when no real reading has arrived (they are rare, and
+ * round to whole percent). For each window it takes the widest span of real readings inside one reset
+ * window that shows a rise, and the filed cost over that span: utilization per dollar. A window too
+ * coarse to have risen keeps its last reading (the two caps' ratio is not documented, so one window's
+ * rate is never lent to the other). Null when there is no real sample, nothing
+ * was spent since, or neither window can be measured. Estimates are marked `estimated: true`, say their
+ * `basis`, and never feed the next estimate. The ledger holds only filed sessions, while the windows
+ * count every session, so an estimate errs high until every thread files its turns.
  */
 export function estimateSample(samples, ledger, now = new Date().toISOString()) {
   const real = samples.filter((s) => !s.estimated && s.at).sort((a, b) => a.at.localeCompare(b.at));
   const last = real.at(-1);
   if (!last) return null;
-  const turns = (ledger?.sessions ?? []).flatMap((s) => s.turns ?? []);
+  const sessions = ledger?.sessions ?? [];
+  const turns = sessions.flatMap((s) => s.turns ?? []);
   const spent = (from, to) => turns.filter((t) => t.start > from && t.start <= to).reduce((a, t) => a + (t.all?.cost ?? 0), 0);
   const since = spent(last.at, now);
   if (!(since > 0)) return null;
-  const first = real.find((s) => s.at < last.at);
-  const between = first ? spent(first.at, last.at) : 0;
-  const rate = (k) => (between > 0 && last[k] != null && first[k] != null && last[k] >= first[k] && last.sevenDayResetsAt === first.sevenDayResetsAt ? (last[k] - first[k]) / between : null);
-  const r7 = rate('sevenDay');
-  if (!r7) return null;
-  const r5 = rate('fiveHour') ?? r7;
+  // The widest span ending at `to` within one reset window over which `k` rose: {rise, cost, from}.
+  const span = (k, resets, to = last) => {
+    const from = real.find((s) => s.at < to.at && s[resets] === to[resets] && s[k] != null && to[k] != null && s[k] < to[k]);
+    const cost = from ? spent(from.at, to.at) : 0;
+    return from && cost > 0 ? { rise: to[k] - from[k], cost, from: from.at } : null;
+  };
+  const five = span('fiveHour', 'fiveHourResetsAt');
+  const seven = span('sevenDay', 'sevenDayResetsAt');
+  const r5 = five ? five.rise / five.cost : null;
+  const r7 = seven ? seven.rise / seven.cost : null;
+  if (r5 == null && r7 == null) return null;
   const round = (x) => Math.round(x * 1e4) / 1e4;
   return {
     ...last,
     at: now,
-    sevenDay: round(Math.min(1, last.sevenDay + since * r7)),
-    fiveHour: last.fiveHour == null ? null : round(Math.min(1, last.fiveHour + since * r5)),
+    sevenDay: r7 == null ? last.sevenDay : round(Math.min(1, last.sevenDay + since * r7)),
+    fiveHour: last.fiveHour == null || r5 == null ? last.fiveHour : round(Math.min(1, last.fiveHour + since * r5)),
     estimated: true,
     estimatedFrom: last.at,
-    costSince: round(since)
+    costSince: round(since),
+    basis: {
+      sevenDay: seven ? `measured since ${seven.from}` : 'last reading (too coarse to measure)',
+      fiveHour: five ? `measured since ${five.from}` : 'last reading (too coarse to measure)',
+      sessions: sessions.length
+    }
   };
 }
