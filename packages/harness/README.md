@@ -65,6 +65,10 @@ The harness spec and the runtime that drives it.
 - `src/intake.js`: the request box. `harness page --request-box` adds an "Ask for work" form to mission
   control that saves to the Artifact `db` collection `requests`; `harness intake FILE` files each new row
   as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken.
+- `src/sim.js`: `npm run sim` drives 12 synthetic items (every tier, a failed run, failed checks, a block,
+  a person's revise) through a scratch store at WIP 3 and at WIP 12 with a scripted host. It checks the
+  WIP limit, the queue, the outbox, doctor, the page size and an apply at 500 events, and saves the
+  busiest mission control to `--out`.
 - `src/audit.js`: `harness audit` picks up to 3 decisions the stand-in made alone (untested classes, low
   confidence and old ones first) for one daily card; `--answer N` logs the tap as the person's decisions
   (0 confirms all, N reverses pick N), so calibration and the ladder get tested decisions. Doctor warns
