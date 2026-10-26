@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
-import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, renderReport, sessionsFromEvents } from '../src/index.js';
+import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
 
 const HELP = `ledger <command> [options]
 
@@ -18,6 +18,9 @@ const HELP = `ledger <command> [options]
                                  output, JSON or JSONL) to --samples (default .ledger/usage.json), then
                                  print today's budget status.
   budget                         Print today's budget status from --samples.
+  file [path ...]                File session ledgers in the Library (--sessions, default
+                                 /mnt/project-files/harness/ledger/sessions): transcripts (.jsonl, default
+                                 this machine's) and saved list_events output (.json); one file per session
   refresh [dir ...]              collect, then report: what the orchestrator runs after each wake
   report                         Render --out's ledger and --samples' budget as HTML to --html
                                  (default .ledger/report.html). --standalone writes a full document.
@@ -30,6 +33,7 @@ const { values: o, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     out: { type: 'string', default: '.ledger/ledger.json' },
+    sessions: { type: 'string' },
     samples: { type: 'string', default: '.ledger/usage.json' },
     html: { type: 'string', default: '.ledger/report.html' },
     title: { type: 'string' },
@@ -125,6 +129,9 @@ switch (cmd) {
     break;
   case 'report':
     report();
+    break;
+  case 'file':
+    for (const f of fileSessions(args.length ? args : transcripts(), { dir: o.sessions ?? SESSIONS_DIR })) console.log(`${f.sessionId}: ${f.turns} turns -> ${f.file}`);
     break;
   case 'refresh':
     // After each orchestrator wake: merge the filed sessions, then rebuild the report.

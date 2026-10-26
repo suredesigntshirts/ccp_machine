@@ -23,6 +23,18 @@ function gates(item, effects) {
   return [...logged, ...item.decisions.filter((d) => !seen.has(d.id))];
 }
 
+// The turns that worked on the item: the sessions the host named on its events (`"session": "<id>"`),
+// cut to the item's window, from its request to its last event (or now, while it runs).
+export function itemTurns(item, events, sessions = {}, now = new Date().toISOString()) {
+  const ids = [...new Set(events.map((e) => e.event.session).filter(Boolean))];
+  if (!ids.length || !events.length) return [];
+  const from = events[0].at;
+  const to = item.done ? events.at(-1).at : now;
+  return ids.flatMap((id) =>
+    (sessions[id]?.turns ?? []).filter((t) => (t.end ?? t.start) >= from && t.start <= to).map((t) => ({ session: id, ...t }))
+  );
+}
+
 function verdict(item, events, decided) {
   const last = (types) => [...events].reverse().find((e) => types.includes(e.event.type));
   const ci = last(['CHECKS_PASSED', 'CHECKS_FAILED']);
@@ -59,6 +71,13 @@ export function renderItemPage(item, records = {}) {
       }</td><td class="m">${esc(time(e.ack?.at ?? e.at))}</td></tr>`
     )
     .join('');
+  const turns = itemTurns(item, events, records.sessions)
+    .map(
+      (t) => `<tr><td class="m">${esc(t.session.slice(0, 8))} #${esc(t.index)}</td><td class="m">${esc(time(t.start))}</td><td>${esc(t.label ?? '')}</td><td class="m">${esc(
+        t.durationMs != null ? `${Math.round(t.durationMs / 60000)}m` : ''
+      )}</td><td class="m">${t.all?.cost != null ? `$${esc(t.all.cost.toFixed(2))}` : ''}</td></tr>`
+    )
+    .join('');
   const timeline = events
     .map((e) => `<tr><td class="m">${esc(time(e.at))}</td><td><b>${esc(e.event.type)}</b>${e.event.choice ? ` ${esc(e.event.choice)}` : ''}</td><td class="m">${esc(e.to)}</td><td class="m">${esc(e.id)}</td></tr>`)
     .join('');
@@ -75,6 +94,7 @@ export function renderItemPage(item, records = {}) {
     .join('')}${pr ? `<li><a href="${esc(pr)}">${esc(pr)}</a></li>` : ''}</ul></section>
 <section><h2>Decisions</h2>${table(['Gate', 'Choice', 'Decided by', 'Stand-in'], decisions, 'No gates yet.')}</section>
 <section><h2>What the host did</h2>${table(['Effect', 'Outcome', 'At'], done, 'Nothing asked of the host yet.')}</section>
+<section><h2>Turns that worked on it</h2>${table(['Turn', 'Started', 'Started by', 'Time', 'Cost'], turns, 'No session filed for this item yet.')}</section>
 <section><h2>Timeline</h2>${table(['At', 'Event', 'To', 'Id'], timeline, 'No events.')}</section>
 </div>`;
   return wrapPage(`${item.title ?? item.id}`, body, { standalone: true, css: CSS + ITEM_CSS });
