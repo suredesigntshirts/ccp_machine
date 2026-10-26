@@ -14,6 +14,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,7 +49,7 @@ function reportMissing(packageName) {
     '',
     '  That runs two steps, and BOTH are required:',
     '',
-    '    npm install              turndown + playwright (~28 MB)',
+    '    npm install              playwright, the HTML parser, filter lists (~30 MB)',
     '    npm run install-browsers the actual browser binary (~150 MB) —',
     '                             npm install does NOT download it',
     '',
@@ -65,8 +66,28 @@ function reportMissing(packageName) {
   console.error(lines.join('\n'));
 }
 
+/** The packages `docs fetch` needs at runtime. */
+export const FETCH_PACKAGES = ['playwright', '@mixmark-io/domino', 'proper-lockfile', 'yaml', '@ghostery/adblocker'];
+
 /**
- * Load the third-party packages `fetch-docs.js` needs.
+ * Check the runtime packages are installed by resolving them — a file lookup, not
+ * a load: importing Playwright just to check cost ~0.3 s on every command, and it
+ * is only loaded later if a page needs a browser. Exits with the setup command on
+ * a missing install.
+ */
+export function checkFetchDeps(packages = FETCH_PACKAGES) {
+  const req = createRequire(join(SKILL_ROOT, 'package.json'));
+  for (const name of packages) {
+    try { req.resolve(name); } catch {
+      reportMissing(name);
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Load the third-party packages the v1 fetcher needed (the frozen v1 baseline in
+ * eval/legacy still uses this; v2 code calls checkFetchDeps).
  *
  * Exits the process with an instruction on a missing install rather than
  * letting an unhandled module-resolution rejection reach the terminal.
