@@ -126,6 +126,7 @@ const BASES = [...new Set([ROOT, MOUNT, real(ROOT), real(MOUNT)])];
 
 function toRel(p, { cwd = true } = {}) {
   let s = String(p).trim();
+  const given = s.startsWith('/');
   for (const base of BASES) {
     if (s === base) return '';
     if (s.startsWith(base + '/')) {
@@ -133,7 +134,7 @@ function toRel(p, { cwd = true } = {}) {
       break;
     }
   }
-  if (cwd && !s.startsWith('/')) {
+  if (cwd && !given) {
     const here = process.cwd();
     for (const base of BASES) {
       if (here === base || here.startsWith(base + '/')) {
@@ -983,7 +984,7 @@ async function lint(paths) {
     }
     const area = areaOf(p);
     if (!policy.areas[area] && p !== START) problems.push([p, `not under a registered area (${Object.keys(policy.areas).join(', ')})`]);
-    if (/[A-Z ]/.test(path.posix.basename(p)) && !isForeign(p, policy) && area !== '_root') problems.push([p, 'name has uppercase or spaces; use lowercase-kebab']);
+    if (/[A-Z ]/.test(path.posix.basename(p).replace(/^(README|INDEX|SKILL|CHANGELOG|LICENSE)\.md$/, '')) && !isForeign(p, policy) && area !== '_root') problems.push([p, 'name has uppercase or spaces; use lowercase-kebab']);
     if (!p.endsWith('.md')) continue;
     const text = await readText(p);
     const fm = parseFrontmatter(text);
@@ -1010,7 +1011,7 @@ async function newTopic(slug, { title, question, by } = {}) {
   await writeAtomic(`${base}/README.md`, fmBlock({ title: title || slug, summary: 'Draft: findings not yet synthesized', kind: 'report', topic: slug, status: 'draft', created: d, author: who }) + `\n# ${title || slug}\n\n## Answer\n\n(Synthesis goes here. Cite every claim with a source id, like [S3], defined in [sources.md](sources.md).)\n\n## Findings\n\n## Open questions\n\n## Method\n\nNotes from each researcher are in [notes/](notes/).\n`);
   await writeAtomic(`${base}/sources.md`, fmBlock({ title: `Sources: ${title || slug}`, summary: 'Every source used, with ids cited from README.md', kind: 'sources', topic: slug, created: d }) + `\n# Sources\n\n| Id | Title | Author / publisher | Date | URL | Accessed | Reliability | Supports |\n|---|---|---|---|---|---|---|---|\n`);
   await fsp.mkdir(abs(`${base}/notes`), { recursive: true });
-  return { created: base };
+  return { created: base, files: [`${base}/brief.md`, `${base}/README.md`, `${base}/sources.md`, `${base}/notes/`], note: 'README.md, brief.md and sources.md are stubs for the lead (the session that ran new-topic) to fill in; researchers add notes/<id>--<subquestion>.md' };
 }
 
 // ---------- journal ----------
@@ -1142,7 +1143,7 @@ async function main() {
       scored.sort((a, b) => b[0] - a[0] || compareFlat(a[1].p, b[1].p));
       for (const [, e] of scored.slice(0, Number(opt.limit) || 20)) console.log(`${e.d ? e.p + '/' : e.p}${e.title ? `  | ${e.title}` : ''}${e.summary ? `  | ${e.summary}` : ''}`);
       if (!scored.length) {
-        console.log('(no match; try fewer or shorter words)');
+        console.log('(no match; try fewer or shorter words. The miss is logged for the librarian.)');
         await signal('find-miss', { q: pos.join(' '), area: opt.area, kind: opt.kind });
       }
       break;

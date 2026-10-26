@@ -213,3 +213,14 @@ test('relink fixes links that mv deferred because the linking file was unsettled
   assert.match(lib(root, ['find', 'target']), /notes\/archive\/target\.md/);
   assert.doesNotMatch(lib(root, ['find', 'target']), /01-map/);
 });
+
+test('lint accepts README.md and full /mnt/project-files paths from any folder', () => {
+  const root = seeded();
+  lib(root, ['new-topic', 'abc', '--title', 'ABC']);
+  put(root, 'research/abc/README.md', md('ABC'));
+  assert.match(lib(root, ['lint', 'research/abc/README.md']), /^ok/);
+  const out = execFileSync('node', [CLI, 'lint', `${root}/research/abc/README.md`], { cwd: path.join(root, 'research/abc'), env: { ...process.env, LIBRARY_ROOT: root }, encoding: 'utf8' });
+  assert.match(out, /^ok/);
+  const rel = execFileSync('node', [CLI, 'lint', 'README.md'], { cwd: path.join(root, 'research/abc'), env: { ...process.env, LIBRARY_ROOT: root }, encoding: 'utf8' });
+  assert.match(rel, /^ok/);
+});

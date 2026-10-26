@@ -30,12 +30,16 @@ the date or the asker.
 
 | Role | Writes | Never writes |
 |---|---|---|
-| Lead (the thread that was asked) | `brief.md`, then the synthesis in `README.md` and `sources.md` | other agents' notes |
+| Lead (the thread that was asked; it runs `new-topic`) | `brief.md`, then the synthesis in `README.md` and `sources.md`. `new-topic` creates these three as stubs; they are the lead's own files, so the lead replaces them (dot temp name, then rename) | other agents' notes |
 | Researcher (a subagent or thread per subquestion) | its own `notes/<writer>--<subquestion>.md` | `README.md`, `sources.md`, other notes |
 | Librarian | indexes, signposts, moves; fixes links | the content of a report |
 
 `<writer>` is the researcher's session or thread id (or a short role name the lead assigned, unique in
-the topic). One file per researcher means no two sessions ever write the same file.
+the topic). One file per researcher means no two sessions ever write the same file. Put the same value
+in the file's `author:` frontmatter.
+
+When one session plays several roles (a lead that researches its own subquestions), it still writes one
+notes file per subquestion, named by the role.
 
 ## A researcher's notes file
 
@@ -63,8 +67,9 @@ inferred rather than read ("inference:").
 
 ## The synthesis
 
-The lead merges the notes into `README.md`: the answer first, then findings, open questions and the
-method. Each claim cites a global id `[S<n>]`. `sources.md` holds one row per id:
+The lead merges the notes into `README.md`: the answer first, then findings numbered `F1`, `F2`, ...,
+open questions and the method. Each claim cites a global id `[S<n>]`. `sources.md` holds one row per
+id, and its Supports column names the findings it backs:
 
 ```
 | Id | Title | Author / publisher | Date | URL | Accessed | Reliability | Supports |
@@ -72,7 +77,12 @@ method. Each claim cites a global id `[S<n>]`. `sources.md` holds one row per id
 | S1 | Persistence | Stately | 2025 | https://stately.ai/docs/persistence | 2026-10-26 | primary docs | F2, F3 |
 ```
 
-Reliability is one of: primary docs, peer-reviewed, vendor blog, independent blog, forum, inference.
+Reliability is one of: primary docs (the maker's reference documentation), peer-reviewed, vendor blog
+(the maker's or a seller's own posts), independent blog, forum, inference.
+
+Mark what you could not check yourself: a quote returned by a summarizing fetch tool, or a claim seen
+only in search results, is "(unverified)" until you read the page itself.
+
 Keep every useful source, including ones that did not make it into the answer, under a "Further
 reading" heading in `sources.md`: the person asked for all the useful research found.
 
