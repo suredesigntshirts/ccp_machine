@@ -19,14 +19,19 @@ export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) 
   });
   const state = store.read();
   if (state && events.length && state.version !== events.at(-1).version)
-    problems.push(`state.json is version ${state.version}, the last event is ${events.at(-1).version}`);
+    problems.push(
+      `state.json is version ${state.version}, the last event is ${events.at(-1).version}` +
+        (state.version > events.at(-1).version ? ' (a write stopped before the log: fix with harness repair --rebuild, then resend the event)' : '')
+    );
+  for (const u of store.unreadable())
+    problems.push(`${u.file} line ${u.line} is not JSON${u.last ? ' (a torn last write: fix with harness repair)' : ' (not the last line: repair by hand)'}`);
   const outbox = store.outbox();
   const known = new Set(outbox.map((e) => e.id));
   for (const a of store.acks()) if (!known.has(a.effectId)) problems.push(`ack names unknown effect ${a.effectId}`);
   for (const e of store.pending())
     if (now - Date.parse(e.at) > pendingMaxMs) problems.push(`effect ${e.id} (${e.name}) pending since ${e.at}`);
   const lock = join(store.dir, 'lock');
-  if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s`);
+  if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s (fix with harness repair)`);
   const { error } = tryRestore(store);
   if (error) problems.push(`state.json does not restore: ${error}`);
   if (!error) {

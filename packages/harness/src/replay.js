@@ -31,7 +31,7 @@ function compare(stored, rebuilt, path = 'harness', out = { differences: [], not
   return out;
 }
 
-/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[]}} */
+/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], rebuilt: object}} rebuilt is the scratch state.json */
 export function replay(store) {
   const state = store.read();
   if (!state) return { ok: false, events: 0, firstDivergence: null, differences: ['no state.json'], notes: [] };
@@ -53,8 +53,9 @@ export function replay(store) {
       }
       if (!firstDivergence && !same(effects.map(effectKey), outbox.get(e.id) ?? [])) firstDivergence = `${e.id} (${e.event.type}): effects differ`;
     }
-    const { differences, notes } = compare(state.snapshot, scratch.read().snapshot);
-    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes };
+    const rebuilt = scratch.read();
+    const { differences, notes } = compare(state.snapshot, rebuilt.snapshot);
+    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, rebuilt };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

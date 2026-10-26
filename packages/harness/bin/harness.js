@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   init [--wip N]                 create a harness in --dir
@@ -28,6 +28,8 @@ const HELP = `harness <command> [options]
                                  and effects with the store; exits 1 on a difference
   doctor                         check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore); exits 1 on a problem
+  repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also
+                                 rebuilds a state.json that is ahead of events.jsonl; exits 1 if any is left
   scenarios [FILE...]            play golden event stories (default packages/harness/scenarios/*.json) on
                                  scratch stores and check each step; exits 1 on a failure
   card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
@@ -58,6 +60,7 @@ const { values: o, positionals: [cmd, ...args] } = parseArgs({
     url: { type: 'string' },
     after: { type: 'string', default: '60m' },
     sessions: { type: 'string' },
+    rebuild: { type: 'boolean', default: false },
     now: { type: 'string' }
   }
 });
@@ -126,9 +129,15 @@ try {
       break;
     }
     case 'replay': {
-      const r = replay(store);
+      const { rebuilt, ...r } = replay(store);
       print(r);
       if (!r.ok) process.exitCode = 1;
+      break;
+    }
+    case 'repair': {
+      const r = repair(store, { rebuild: o.rebuild });
+      print(r);
+      if (r.left.length) process.exitCode = 1;
       break;
     }
     case 'doctor': {

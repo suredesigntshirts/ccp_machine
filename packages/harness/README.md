@@ -38,6 +38,11 @@ The harness spec and the runtime that drives it.
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore) and exits 1 on a problem.
+- `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
+  log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
+  `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.
+  `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, duplicates,
+  torn lines and a slow mount.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.
