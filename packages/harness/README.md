@@ -20,6 +20,9 @@ The harness spec and the runtime that drives it.
   the store (once per effect, backfilling acknowledged ones) and acks it. `decisions.html` shows, per
   decision class, how often the stand-in's lean matched the final choice and whether the class has
   earned `act` (20 decisions at 90% agreement, `EARN_ACT`), then every decision.
+- `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
+  day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
+  flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.
 
 ## Use
 

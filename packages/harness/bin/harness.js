@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, writeDigest } from '../src/index.js';
 
 const HELP = `harness <command> [options]
 
@@ -19,6 +19,8 @@ const HELP = `harness <command> [options]
   effects                        print effects the host has not acknowledged
   ack <effect-id>... [--outcome done|failed] [--note TEXT]
   decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
+  digest [--day YYYY-MM-DD]      send DIGEST_DUE once per UTC day, write digests/<day>.md in the store
+                                 and ack publishDigest; the host posts the text
   page [--html FILE] [--title T] [--standalone]
                                  render mission control (default .harness/mission-control.html) and
                                  one page per item beside it (items/<id>.html), linked from its row,
@@ -40,7 +42,8 @@ const { values: o, positionals: [cmd, ...args] } = parseArgs({
     samples: { type: 'string', default: '.ledger/usage.json' },
     html: { type: 'string' },
     title: { type: 'string', default: 'Mission control' },
-    standalone: { type: 'boolean', default: false }
+    standalone: { type: 'boolean', default: false },
+    day: { type: 'string' }
   }
 });
 const store = openStore(o.dir);
@@ -74,6 +77,12 @@ try {
     case 'decisions':
       print(logPrecedents(store));
       break;
+    case 'digest': {
+      const { file, acked, text } = writeDigest(store, o.day ? { day: o.day } : {});
+      console.log(text);
+      console.error(`wrote ${file}, acked ${acked}`);
+      break;
+    }
     case 'page': {
       const st = status(store);
       if (!st) throw new Error(`no harness in ${o.dir}`);
