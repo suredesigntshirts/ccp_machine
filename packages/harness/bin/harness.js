@@ -7,6 +7,8 @@ import { parseArgs } from 'node:util';
 import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows } from '../src/index.js';
 const HELP = `harness <command> [options]
 
+  help, --help, -h               show this help
+
   init [--wip N]                 create a harness in --dir
   send <event-json> [--to ADDR] [--id ID]
                                  apply one event; ADDR is harness (default), a system id such as
@@ -56,31 +58,48 @@ const HELP = `harness <command> [options]
   --dir DIR                      store folder (default $HARNESS_DIR, else .harness); an orchestrator
                                  thread keeps it in the Library so the next thread can pick it up`;
 
-const { values: o, positionals: [cmd, ...args] } = parseArgs({
-  allowPositionals: true,
-  options: {
-    dir: { type: 'string', default: process.env.HARNESS_DIR ?? '.harness' },
-    wip: { type: 'string' },
-    to: { type: 'string' },
-    id: { type: 'string' },
-    outcome: { type: 'string', default: 'done' },
-    note: { type: 'string' },
-    samples: { type: 'string', default: '.ledger/usage.json' },
-    html: { type: 'string' },
-    title: { type: 'string', default: 'Mission control' },
-    standalone: { type: 'boolean', default: false },
-    day: { type: 'string' },
-    url: { type: 'string' },
-    after: { type: 'string', default: '60m' },
-    sessions: { type: 'string' },
-    rebuild: { type: 'boolean', default: false },
-    check: { type: 'boolean', default: false },
-    due: { type: 'boolean', default: false },
-    'request-box': { type: 'boolean', default: false },
-    out: { type: 'string' },
-    now: { type: 'string' }
-  }
-});
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(HELP);
+  process.exit(0);
+}
+// A bad option or command is a usage error: one line and the usage, exit 2, no stack trace.
+const usageError = (message) => {
+  console.error(`harness: ${message}\n\n${HELP}`);
+  process.exit(2);
+};
+let parsed;
+try {
+  parsed = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      dir: { type: 'string', default: process.env.HARNESS_DIR ?? '.harness' },
+      wip: { type: 'string' },
+      to: { type: 'string' },
+      id: { type: 'string' },
+      outcome: { type: 'string', default: 'done' },
+      note: { type: 'string' },
+      samples: { type: 'string', default: '.ledger/usage.json' },
+      html: { type: 'string' },
+      title: { type: 'string', default: 'Mission control' },
+      standalone: { type: 'boolean', default: false },
+      day: { type: 'string' },
+      url: { type: 'string' },
+      after: { type: 'string', default: '60m' },
+      sessions: { type: 'string' },
+      rebuild: { type: 'boolean', default: false },
+      check: { type: 'boolean', default: false },
+      due: { type: 'boolean', default: false },
+      'request-box': { type: 'boolean', default: false },
+      out: { type: 'string' },
+      now: { type: 'string' }
+    }
+  });
+} catch (e) {
+  usageError(e.message);
+}
+const { values: o, positionals: [cmd, ...args] } = parsed;
 const store = openStore(o.dir);
 const tick = (now) => apply(store, { type: 'TICK', now }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
 // Filed session ledgers, by id, for the item pages' turns (missing folder: none).
@@ -234,9 +253,12 @@ try {
       print({ page: file, files: [...items, 'decisions.html'] });
       break;
     }
-    default:
+    case undefined:
+    case 'help':
       console.log(HELP);
-      if (cmd && cmd !== 'help') process.exitCode = 1;
+      break;
+    default:
+      usageError(`unknown command "${cmd}"`);
   }
 } catch (e) {
   console.error(`harness: ${e.message}`);
