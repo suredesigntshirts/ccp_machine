@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildLedger, requestCost, samplesFromText, budgetStatus, estimateSample, liveSamples, renderReport } from '../src/index.js';
+import { buildLedger, requestCost, samplesFromText, mergeSamples, budgetStatus, estimateSample, liveSamples, usageSources, renderReport } from '../src/index.js';
 
 const usage = (o) => ({
   input_tokens: 10,
@@ -204,4 +204,20 @@ test('whole-percent readings with a flat 7-day window still estimate from the 5-
   const e2 = estimateSample(both, ledger2, '2026-10-26T20:05:00Z');
   assert.equal(e2.basis.sevenDay, 'measured since 2026-10-26T17:00:00Z');
   assert.equal(e2.basis.sessions, 1);
+});
+
+test('usage comes from any session in the project: sources list this one first, and the newest reading wins', () => {
+  const records = [
+    { filedAt: '2026-10-26T19:00:00Z', remoteSessionId: 'cse_old' },
+    { filedAt: '2026-10-26T20:40:00Z', remoteSessionId: 'cse_design' },
+    { filedAt: '2026-10-26T20:41:00Z', remoteSessionId: null },
+    { filedAt: '2026-10-26T20:00:00Z', remoteSessionId: 'cse_me' }
+  ];
+  assert.deepEqual(usageSources(records, 'cse_me'), ['session_me', 'session_design', 'session_old']);
+  // Readings saved from two sessions, of different ages: the budget runs on the newer one.
+  const reading = (at, sevenDay, fiveHour) => JSON.stringify({ data: [{ created_at: at, rate_limit_event: { rate_limit_info: { unifiedWindows: { five_hour: { utilization: fiveHour, resetsAt: 5 }, seven_day: { utilization: sevenDay, resetsAt: 9 } } } } }] });
+  const mine = samplesFromText(reading('2026-10-26T19:11:27Z', 0.08, 0.09));
+  const design = samplesFromText(reading('2026-10-26T20:42:19Z', 0.09, 0.12));
+  const s = budgetStatus(mergeSamples(design, mine));
+  assert.deepEqual([s.latest.at, s.latest.sevenDay, s.latest.fiveHour], ['2026-10-26T20:42:19Z', 0.09, 0.12]);
 });

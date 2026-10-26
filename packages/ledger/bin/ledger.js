@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
-import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, estimateSample, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
+import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, estimateSample, usageSources, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
 
 const HELP = `ledger <command> [options]
 
@@ -17,6 +17,9 @@ const HELP = `ledger <command> [options]
   usage <file ...>               Add usage-window samples from saved rate_limit_event JSON (list_events
                                  output, JSON or JSONL) to --samples (default .ledger/usage.json), then
                                  print today's budget status.
+  usage-sources [dir ...]        Print the cloud sessions to read usage from (this one first, then every
+                                 session filed in the Library, newest first), as list_events ids: the
+                                 windows are the account's, so the newest reading from any of them counts
   budget                         Print today's budget status from --samples.
   estimate                       When no reading is newer than the turns in --out's ledger, add a sample
                                  estimated from their cost (marked estimated) to --samples, then print
@@ -36,7 +39,7 @@ const usageError = (msg) => {
   console.error(`ledger: ${msg}\n\n${HELP}`);
   process.exit(2);
 };
-const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'estimate', 'help'];
+const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'estimate', 'usage-sources', 'help'];
 if (process.argv.slice(2).some((a) => a === '--help' || a === '-h')) {
   console.log(HELP);
   process.exit(0);
@@ -141,6 +144,14 @@ switch (cmd) {
     write(o.samples, JSON.stringify(samples, null, 1));
     console.log(`${added.length} samples read, ${samples.length} kept in ${o.samples}`);
     console.log(JSON.stringify(budgetStatus(samples, budgetConfig()), null, 2));
+    break;
+  }
+  case 'usage-sources': {
+    const dirs = args.length ? args : ['/mnt/project-files/harness/ledger/sessions'];
+    const records = dirs.flatMap((d) =>
+      existsSync(d) ? readdirSync(d).filter((f) => f.endsWith('.json') && !f.startsWith('.')).map((f) => readJson(join(d, f), {})) : []
+    );
+    console.log(usageSources(records, process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null).join('\n'));
     break;
   }
   case 'estimate': {

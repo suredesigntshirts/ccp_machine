@@ -32,11 +32,14 @@ export function mergeSessions(sessions) {
  * @param {string[]} paths transcripts (.jsonl) and saved list_events output (.json)
  * @returns {{sessionId: string, file: string, turns: number}[]}
  */
-export function fileSessions(paths, { dir = SESSIONS_DIR, now = new Date().toISOString() } = {}) {
+export function fileSessions(paths, { dir = SESSIONS_DIR, now = new Date().toISOString(), remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null } = {}) {
   const transcripts = paths.filter((p) => p.endsWith('.jsonl'));
   const saved = paths.filter((p) => !p.endsWith('.jsonl'));
+  const local = transcripts.length ? buildLedger(transcripts).sessions : [];
+  // This machine's transcripts belong to this cloud session, whose id list_events takes for usage readings.
+  const here = new Set(local.map((s) => s.sessionId));
   const sessions = mergeSessions([
-    ...(transcripts.length ? buildLedger(transcripts).sessions : []),
+    ...local,
     ...(saved.length ? sessionsFromEvents(saved.map((p) => readFileSync(p, 'utf8'))) : [])
   ]);
   mkdirSync(dir, { recursive: true });
@@ -44,7 +47,7 @@ export function fileSessions(paths, { dir = SESSIONS_DIR, now = new Date().toISO
     const id = String(session.sessionId).replace(/[^A-Za-z0-9_-]/g, '');
     const file = join(dir, `${id}.json`);
     const tmp = join(dir, `.${id}.${process.pid}.json.tmp`);
-    writeFileSync(tmp, JSON.stringify({ filedAt: now, cwd: null, session }));
+    writeFileSync(tmp, JSON.stringify({ filedAt: now, cwd: null, remoteSessionId: here.has(session.sessionId) ? remoteSessionId : null, session }));
     renameSync(tmp, file);
     return { sessionId: session.sessionId, file, turns: session.turns.length };
   });

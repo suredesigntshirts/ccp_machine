@@ -155,3 +155,15 @@ export function estimateSample(samples, ledger, now = new Date().toISOString()) 
     }
   };
 }
+
+/**
+ * The cloud sessions to read usage from, newest filed first, as list_events takes them (`session_…`).
+ * The usage windows are the account's, so a reading from any session in the project counts for all.
+ * @param {{filedAt?: string, remoteSessionId?: string|null}[]} records filed session files
+ * @param {string|null} own this session's CLAUDE_CODE_REMOTE_SESSION_ID, always first
+ */
+export function usageSources(records, own = null) {
+  const id = (r) => (r ? `session_${String(r).replace(/^(cse|session)_/, '')}` : null);
+  const filed = [...records].sort((a, b) => String(b.filedAt ?? '').localeCompare(String(a.filedAt ?? ''))).map((r) => id(r.remoteSessionId));
+  return [...new Set([id(own), ...filed].filter(Boolean))];
+}
