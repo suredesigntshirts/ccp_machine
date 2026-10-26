@@ -1,0 +1,32 @@
+# Dependencies. package-lock.json is deliberately NOT ignored — this repo is
+# distributed and cloned, so the lockfile is what makes an install reproducible.
+node_modules/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Not part of the skill. Everything below is working state from whatever machine
+# or project the skill was last run in — it is not code, and some of it carries
+# absolute home paths from other people's machines.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Cached documentation. The skill writes docs/ into the CONSUMING project, never
+# into itself; anything here is leftover from a run that happened in this folder.
+docs/
+plans/
+evals/
+scripts/benchmark-compare.js
+scripts/benchmark.js
+scripts/fetch-docs-effect.js
+
+*.swp
+
+# Eval / benchmark working directory: transcripts and snapshots from earlier
+# development, including absolute home paths from other machines.
+documentation-downloader-workspace/
+
+# Per-machine Claude Code settings; never shared.
+.claude/settings.local.json
+
+# Local noise
+.DS_Store
+*.log
+npm-debug.log*
