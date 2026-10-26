@@ -5,7 +5,8 @@
 # 1. Sets user-level Claude Code settings (~/.claude/settings.json): the subagent nesting depth.
 # 2. Links the repo's .claude/skills into ~/.claude/skills, because a cloud thread does not load
 #    the repo's own .claude/ (untrusted workspace).
-# 3. Audits the environment into /tmp/ccp-machine-env.txt (env var NAMES only, never values).
+# 3. Links every plugin in the repo (a folder with .claude-plugin/plugin.json) the same way.
+# 4. Audits the environment into /tmp/ccp-machine-env.txt (env var NAMES only, never values).
 # Log: /tmp/ccp-machine-setup.log. Never logs a value of an environment variable or setting.
 log=/tmp/ccp-machine-setup.log
 audit=/tmp/ccp-machine-env.txt
@@ -34,9 +35,19 @@ repo=/home/user/ccp_machine
     name=$(basename "$s")
     ln -sfn "${s%/}" "$H/.claude/skills/$name" && echo "linked skill $name"
   done
+
+  # 3. Repo plugins. A folder holding .claude-plugin/plugin.json, linked into ~/.claude/skills,
+  # loads as <name>@skills-dir. Named from its plugin.json, else its folder.
+  find "$repo" -maxdepth 4 \( -name node_modules -o -name .git \) -prune -o \
+    -path '*/.claude-plugin/plugin.json' -print 2>/dev/null | while read -r manifest; do
+    dir=$(dirname "$(dirname "$manifest")")
+    name=$(jq -r '.name // empty' "$manifest" 2>/dev/null)
+    name=${name:-$(basename "$dir")}
+    ln -sfn "$dir" "$H/.claude/skills/$name" && echo "linked plugin $name from ${dir#"$repo"}/"
+  done
 } >> "$log" 2>&1
 
-# 3. Audit. Names only for environment variables.
+# 4. Audit. Names only for environment variables.
 v() { command -v "$1" >/dev/null 2>&1 && echo "$1: $("$@" 2>&1 | head -1)" || echo "$1: missing"; }
 {
   echo "# ccp_machine environment audit $(date -u +%Y-%m-%dT%H:%M:%SZ)"
