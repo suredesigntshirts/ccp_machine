@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, dayAudit, answerAudit, auditCard } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, dayAudit, answerAudit, auditCard, fromGithub } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -33,6 +33,10 @@ const HELP = `harness <command> [options]
   audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
                                  once a day (audits/<day>.json); prints request_decision arguments for one
                                  card. --answer records the tap: 0 confirms all, N reverses pick N
+  from-github FILE               turn one PR activity event (a wake's <event source="github"> text, or
+                                 {kind, data} JSON) into its item event: a finished check suite is
+                                 CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
+                                 the merge effect); ids ci-<sha7> and merge-pr<N> dedupe replays
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -173,6 +177,11 @@ try {
       }
       const a = dayAudit(store, day);
       print({ day, picks: a.picks.map((r) => r.effectId), answered: a.answered, card: a.picks.length && !a.answered ? auditCard(a.picks) : null });
+      break;
+    }
+    case 'from-github': {
+      if (!args[0]) throw new Error('from-github needs a file holding one PR activity event');
+      print(fromGithub(store, readFileSync(args[0], 'utf8')));
       break;
     }
     case 'intake': {

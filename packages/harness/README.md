@@ -73,6 +73,9 @@ The harness spec and the runtime that drives it.
   confidence and old ones first) for one daily card; `--answer N` logs the tap as the person's decisions
   (0 confirms all, N reverses pick N), so calibration and the ladder get tested decisions. Doctor warns
   when a class goes over 20 stand-in decisions unchecked.
+- `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
+  text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
+  failed check `CHECKS_FAILED`, a merged PR `MERGED`. It finds the item from the `pr` URLs on its events.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.
