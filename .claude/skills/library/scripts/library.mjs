@@ -361,6 +361,8 @@ async function describe(e, policy) {
     if (fm) {
       out.fm = 1;
       for (const k of ['title', 'summary', 'kind', 'topic', 'status', 'tags', 'superseded_by']) if (fm[k] !== undefined && fm[k] !== '') out[k] = fm[k];
+      // Downloaded pages (documentation-downloader) say what they are in `description`; search it too.
+      if (!out.summary && typeof fm.description === 'string' && fm.description) out.summary = fm.description.replace(/^"|"$/g, '').slice(0, 300);
     }
     if (!out.title) out.title = firstHeading(text).slice(0, 160) || undefined;
     const links = [...new Set(extractLinks(text, e.p).map((l) => l.target))];

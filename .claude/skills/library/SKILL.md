@@ -44,6 +44,7 @@ Your id (`<your-id>` below) is your session or thread id, or the role name your 
 | You want | Do |
 |---|---|
 | Anything by subject | `node "$L" find <words> [--area research] [--kind report]` |
+| Inside downloaded docs | `find` matches their titles and descriptions; to search the page text, use the documentation-downloader's `docs search "<q>" --root /mnt/project-files/external-docs` |
 | What the Library holds | read `00-START-HERE.md`, then the area's `README.md` or `INDEX.md` |
 | A path that no longer exists | `node "$L" resolve <path>`: the librarian logs every move |
 | What links to a file | `node "$L" refs <path>` |

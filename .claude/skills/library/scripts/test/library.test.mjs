@@ -274,3 +274,10 @@ test('a link rewrite by mv keeps the file settled, so a folder can be filed one 
   assert.match(fs.readFileSync(path.join(root, 'notes/x/a.md'), 'utf8'), /\[b\]\(b\.md\)/);
   assert.match(fs.readFileSync(path.join(root, 'notes/x/b.md'), 'utf8'), /\[a\]\(a\.md\)/);
 });
+
+test('find searches the description of downloaded pages', () => {
+  const root = seeded();
+  put(root, 'external-docs/stately.ai/docs/actors.md', '---\nSource: https://stately.ai/docs/actors\ntitle: Actors\ndescription: "When you run a state machine, it becomes an actor"\n---\n\n# Actors\n');
+  lib(root, ['scan', '--write']);
+  assert.match(lib(root, ['find', 'state', 'machine']), /external-docs\/stately\.ai\/docs\/actors\.md/);
+});
