@@ -79,3 +79,12 @@ export function fromGithub(store, raw) {
   const r = apply(store, event, { to: `item:${item}`, id: m.id });
   return { result: r.duplicate ? 'duplicate' : 'sent', item, id: m.id, event: m.event.type, effects: r.effects.map((e) => e.name) };
 }
+
+/** Every `<wake>...</wake>` in the text, in order (a notification read can hold several). */
+export const splitWakes = (text) => String(text).match(/<wake\b[\s\S]*?<\/wake>/g) ?? [String(text)];
+
+/** Apply each wake in the text: one result for one wake, else one per wake in order. */
+export function fromGithubText(store, text) {
+  const wakes = splitWakes(text);
+  return wakes.length === 1 ? fromGithub(store, wakes[0]) : wakes.map((w) => fromGithub(store, w));
+}

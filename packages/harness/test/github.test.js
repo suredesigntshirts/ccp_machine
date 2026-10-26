@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, apply, status, parseGithubEvent, mapGithubEvent, fromGithub, prMap, prKey } from '../src/index.js';
+import { openStore, init, apply, status, parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, prMap, prKey } from '../src/index.js';
 
 const wake = (kind, data) => `<wake reason="external-event"><event source="github" kind="${kind}" from="system" trust="relay">
     <!-- harness guidance, with a {"brace"} in it -->
@@ -73,6 +73,18 @@ test('a wake\'s current-time is stamped on the event as observedAt', () => {
   assert.equal(parseGithubEvent(text).at, '2026-10-26T20:45:55Z');
   assert.equal(fromGithub(store, text).result, 'sent');
   assert.equal(store.events().at(-1).event.observedAt, '2026-10-26T20:45:55.000Z');
+});
+
+test('a file with three wakes applies all three in order and reports each', () => {
+  const { store } = storeAtVerify();
+  const text = [
+    wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR }),
+    'notification header text between wakes',
+    wake('pull_request.closed', { outcome: 'merged', pr: PR }),
+    wake('check_suite.completed', { head_sha: '3', pr: 'o/r#99' })
+  ].join('\n');
+  assert.deepEqual(fromGithubText(store, text).map((r) => r.result), ['sent', 'sent', 'unknown']);
+  assert.equal(state(store), 'done');
 });
 
 test('a failed check, then a passing re-run on the same commit, both reach the item', () => {

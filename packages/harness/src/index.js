@@ -22,4 +22,4 @@ export { auditPicks, auditCard, recordAudit, dayAudit, answerAudit, untestedRuns
 export { standinAnswer } from './standin.js';
 export { acceptance, acceptanceText, peakInFlight, touchesByTier } from './acceptance.js';
 export { handoffNote, writeHandoff, NOTES as HANDOFF_NOTES } from './handoff.js';
-export { parseGithubEvent, mapGithubEvent, fromGithub, prMap, prKey } from './github.js';
+export { parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, splitWakes, prMap, prKey } from './github.js';
