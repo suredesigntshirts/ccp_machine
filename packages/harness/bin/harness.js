@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -44,6 +44,11 @@ const HELP = `harness <command> [options]
   audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
                                  once a day (audits/<day>.json); prints request_decision arguments for one
                                  card. --answer records the tap: 0 confirms all, N reverses pick N
+  answer <item> --approve|--reject --reason TEXT [--confidence N] [--autonomy A]
+                                 answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
+                                 decision (id standin-<subject>), ack the ask and log the precedent. The
+                                 autonomy comes from the ladder unless --autonomy (only for standing
+                                 authority quoted in --reason); an accept approve still needs a met check
   from-github FILE               turn one PR activity event (a wake's <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
@@ -115,7 +120,12 @@ try {
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
       out: { type: 'string' },
-      now: { type: 'string' }
+      now: { type: 'string' },
+      approve: { type: 'boolean', default: false },
+      reject: { type: 'boolean', default: false },
+      reason: { type: 'string' },
+      confidence: { type: 'string' },
+      autonomy: { type: 'string' }
     }
   });
 } catch (e) {
@@ -177,6 +187,17 @@ try {
       break;
     case 'ack':
       print(ack(store, args, { outcome: o.outcome, note: o.note }));
+      break;
+    case 'answer':
+      if (!args[0] || o.approve === o.reject) throw new Error('answer needs an item and one of --approve or --reject');
+      print(
+        standinAnswer(store, args[0], {
+          choice: o.approve ? 'approve' : 'reject',
+          reason: o.reason,
+          ...(o.confidence && { confidence: Number(o.confidence) }),
+          ...(o.autonomy && { autonomy: o.autonomy })
+        })
+      );
       break;
     case 'decisions':
       print(logPrecedents(store));
