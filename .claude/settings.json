@@ -3,6 +3,12 @@
   "env": {
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3"
   },
+  "permissions": {
+    "ask": [
+      "Edit(/.claude/settings.json)",
+      "Write(/.claude/settings.json)"
+    ]
+  },
   "hooks": {
   "Stop": [
     { "hooks": [ { "type": "command", "command": "node",
