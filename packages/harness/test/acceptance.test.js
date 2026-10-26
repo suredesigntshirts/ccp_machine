@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, init, apply, ack, acceptance, peakInFlight, touchesByTier } from '../src/index.js';
@@ -34,11 +34,17 @@ test('harness acceptance reports each v1 criterion with a verdict and evidence',
     ack(store, store.pending().map((e) => e.id), { note: 'done' });
     apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}` });
   }
-  const rows = acceptance(store, { scenarios: () => [{ file: 'x/budget-soft-limit.json', ok: true }] });
+  const scenarios = () => [{ file: 'x/budget-soft-limit.json', ok: true }];
+  const none = mkdtempSync(join(tmpdir(), 'sessions-'));
+  const rows = acceptance(store, { sessionsDir: none, scenarios });
   assert.equal(rows.length, 6);
   assert.ok(rows.every((r) => ['met', 'not met', 'unknown'].includes(r.verdict) && r.evidence));
   assert.match(rows[0].evidence, /^peak 3 in flight/);
   assert.equal(rows[0].verdict, 'not met', 'none merged yet');
   assert.equal(rows[1].verdict, 'unknown', 'no ledger given');
   assert.equal(rows[2].verdict, 'met');
+  writeFileSync(join(none, 's1.json'), JSON.stringify({ session: { sessionId: 's1', turns: [{ all: { cost: 0.5 } }] } }));
+  const filed = acceptance(store, { sessionsDir: none, scenarios })[1];
+  assert.equal(filed.verdict, 'met', 'filed sessions are read without --ledger');
+  assert.match(filed.evidence, /1 sessions, 1 of 1 turns costed/);
 });

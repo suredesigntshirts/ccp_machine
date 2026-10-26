@@ -1,8 +1,17 @@
 // The PRD's v1 acceptance criteria, checked against a live store: each is met, not met or unknown, with
 // the evidence that decided it. Some can only be shown by tests or by the person; those say so.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { status } from './runtime.js';
 import { runScenarios } from './scenario.js';
+
+// Where session ledgers are filed (one <session>.json of {session} each); read when no --ledger is given.
+export const SESSIONS_DIR = '/mnt/project-files/harness/ledger/sessions';
+
+const filedLedger = (dir) => {
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('.')) : [];
+  return files.length ? { sessions: files.map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')).session).filter(Boolean) } : null;
+};
 
 const itemOf = (e) => (e.event.type === 'REQUEST_RECEIVED' ? e.event.request?.id : e.to?.replace(/^item:/, '').split('/')[0]);
 
@@ -39,7 +48,7 @@ export function touchesByTier(events) {
 }
 
 /** @returns {{criterion: string, verdict: 'met'|'not met'|'unknown', evidence: string}[]} */
-export function acceptance(store, { ledgerFile = null, scenarios = runScenarios } = {}) {
+export function acceptance(store, { ledgerFile = null, sessionsDir = SESSIONS_DIR, scenarios = runScenarios } = {}) {
   const events = store.events();
   const st = status(store);
   const peak = peakInFlight(events, store.outbox());
@@ -57,12 +66,13 @@ export function acceptance(store, { ledgerFile = null, scenarios = runScenarios 
     verdict: peak.peak >= 3 && merged >= 3 && nonTier2 === 0 ? 'met' : 'not met',
     evidence: `peak ${peak.peak} in flight at ${peak.at ?? 'n/a'} across ${peak.items} items; ${merged} merged; the person's touches: ${t.requests} requests, decisions by tier ${JSON.stringify(t.decisions)}, other ${JSON.stringify(t.other)}`
   });
-  if (ledgerFile && existsSync(ledgerFile)) {
-    const l = JSON.parse(readFileSync(ledgerFile, 'utf8'));
+  const l = ledgerFile && existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, 'utf8')) : ledgerFile ? null : filedLedger(sessionsDir);
+  const source = ledgerFile ?? sessionsDir;
+  if (l) {
     const turns = l.sessions.flatMap((s) => s.turns ?? []);
     const costed = turns.filter((x) => typeof x.all?.cost === 'number').length;
-    rows.push({ criterion: 'Every turn of every session appears in the ledger report with its cost', verdict: turns.length && costed === turns.length ? 'met' : 'not met', evidence: `${l.sessions.length} sessions, ${costed} of ${turns.length} turns costed in ${ledgerFile}; whether every session is filed needs the session list` });
-  } else rows.push({ criterion: 'Every turn of every session appears in the ledger report with its cost', verdict: 'unknown', evidence: 'pass --ledger <ledger.json> to check' });
+    rows.push({ criterion: 'Every turn of every session appears in the ledger report with its cost', verdict: turns.length && costed === turns.length ? 'met' : 'not met', evidence: `${l.sessions.length} sessions, ${costed} of ${turns.length} turns costed in ${source}; whether every session is filed needs the session list` });
+  } else rows.push({ criterion: 'Every turn of every session appears in the ledger report with its cost', verdict: 'unknown', evidence: `no ledger at ${source}; pass --ledger <ledger.json> to check` });
   rows.push({
     criterion: 'At a soft or hard budget limit the scheduler drains or halts on its own, and the gauge shows why',
     verdict: budgetScen?.ok ? 'met' : 'unknown',
