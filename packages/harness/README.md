@@ -44,3 +44,6 @@ harness page --standalone           # .harness/mission-control.html
 The host (an orchestrator thread) is the only writer. It runs each effect (dispatch a run, post a
 decision card, merge a PR), acknowledges it, and turns what comes back (CI result, a person's tap)
 into the next `send`.
+- `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
+  arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
+  and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.

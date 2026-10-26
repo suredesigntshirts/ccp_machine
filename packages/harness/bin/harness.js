@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, cardFor } from '../src/index.js';
 
 const HELP = `harness <command> [options]
 
@@ -23,6 +23,8 @@ const HELP = `harness <command> [options]
                                  worked out from decisions.jsonl; use it as STAND_IN_ANSWERED's autonomy
   digest [--day YYYY-MM-DD]      send DIGEST_DUE once per UTC day, write digests/<day>.md in the store
                                  and ack publishDigest; the host posts the text
+  card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
+                                 option i is PERSON_DECIDED {choice: choices[i]} to address, --id <card id>
   page [--html FILE] [--title T] [--standalone]
                                  render mission control (default .harness/mission-control.html) and
                                  one page per item beside it (items/<id>.html), linked from its row,
@@ -45,7 +47,8 @@ const { values: o, positionals: [cmd, ...args] } = parseArgs({
     html: { type: 'string' },
     title: { type: 'string', default: 'Mission control' },
     standalone: { type: 'boolean', default: false },
-    day: { type: 'string' }
+    day: { type: 'string' },
+    url: { type: 'string' }
   }
 });
 const store = openStore(o.dir);
@@ -87,6 +90,12 @@ try {
       const { file, acked, text } = writeDigest(store, o.day ? { day: o.day } : {});
       console.log(text);
       console.error(`wrote ${file}, acked ${acked}`);
+      break;
+    }
+    case 'card': {
+      const effect = store.outbox().find((e) => e.id === args[0]);
+      if (!effect) throw new Error(`no effect ${args[0]}`);
+      print(cardFor(effect, { itemUrl: o.url }));
       break;
     }
     case 'page': {

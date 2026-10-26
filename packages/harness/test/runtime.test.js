@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, cardFor } from '../src/index.js';
 
 const fresh = (input) => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
@@ -168,4 +168,20 @@ test('the digest goes out once per UTC day and says what finished, what runs and
   const again = writeDigest(store, { day: '2026-10-26' });
   assert.equal(again.acked, 0, 'a second run the same day queues no second digest');
   assert.equal(store.events().filter((e) => e.event.type === 'DIGEST_DUE').length, 1);
+});
+
+test('a postDecisionCard effect becomes a card whose tap maps back to PERSON_DECIDED', () => {
+  const store = fresh();
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 2, title: 'Ship it' } });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:p' });
+  const { effects } = apply(store, { type: 'STAND_IN_ANSWERED', answer: { ...sure, choice: 'revise', reason: 'too big' } }, { to: 'item:p/decision:p:plan:1' });
+  const card = cardFor(effects.find((e) => e.name === 'postDecisionCard'));
+  assert.equal(card.address, 'item:p/decision:p:plan:1');
+  assert.equal(card.choices[card.recommended], 'revise', 'the stand-in\'s lean is the recommendation');
+  assert.match(card.context, /leans revise \(95% sure\): too big/);
+  assert.ok(card.options.length >= 2 && card.options.every((o) => o.label.length <= 40 && o.consequence.length <= 200));
+  apply(store, { type: 'PERSON_DECIDED', choice: card.choices[0] }, { to: card.address, id: 'cmsg_tap' });
+  assert.equal(apply(store, { type: 'PERSON_DECIDED', choice: 'reject' }, { to: card.address, id: 'cmsg_tap' }).duplicate, true);
+  assert.equal(status(store).items[0].state, 'active.building');
+  assert.throws(() => cardFor(effects[0].name === 'postDecisionCard' ? { name: 'x' } : effects[0]), /not a postDecisionCard/);
 });
