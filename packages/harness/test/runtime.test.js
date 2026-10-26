@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
 const fresh = (input) => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, input, '2026-10-26T18:00:00Z');
@@ -199,6 +199,21 @@ test('a postDecisionCard effect becomes a card whose tap maps back to PERSON_DEC
   assert.equal(apply(store, { type: 'PERSON_DECIDED', choice: 'reject' }, { to: card.address, id: 'cmsg_tap' }).duplicate, true);
   assert.equal(status(store).items[0].state, 'active.building');
   assert.throws(() => cardFor(effects[0].name === 'postDecisionCard' ? { name: 'x' } : effects[0]), /not a postDecisionCard/);
+});
+
+test('replay rebuilds a store from its log and names a tampered state', () => {
+  const store = fresh({ wipLimit: 2 });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 2 } }, { id: 'req-p', now: '2026-10-26T10:00:00Z' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:p', id: 'run-1', now: '2026-10-26T10:05:00Z' });
+  apply(store, { type: 'STAND_IN_ANSWERED', answer: sure }, { to: 'item:p/decision:p:plan:1', id: 's-1', now: '2026-10-26T10:06:00Z' });
+  const good = replay(store);
+  assert.deepEqual([good.ok, good.events, good.firstDivergence, good.differences], [true, 3, null, []]);
+  const state = store.read();
+  state.snapshot.context.queued = ['ghost'];
+  store.write({ ...state, version: state.version + 1 }, state.version);
+  const bad = replay(store);
+  assert.equal(bad.ok, false);
+  assert.deepEqual(bad.differences, ['harness: context.queued differs']);
 });
 
 test('stalled lists in-flight items quiet for longer than the limit, and the page shows when each moved', () => {

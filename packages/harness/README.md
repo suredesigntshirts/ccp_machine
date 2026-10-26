@@ -26,6 +26,9 @@ The harness spec and the runtime that drives it.
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
   flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.
+- `src/replay.js`: `harness replay` rebuilds the harness from `events.jsonl` on a scratch copy and compares
+  state values, children and shared context keys with `state.json`, and regenerated effects with the outbox;
+  it names the first divergent event and exits 1. Context keys only one side has are notes (a spec change).
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects

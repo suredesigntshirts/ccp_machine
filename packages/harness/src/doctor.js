@@ -3,6 +3,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tryRestore } from './runtime.js';
+import { replay } from './replay.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
@@ -28,5 +29,10 @@ export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) 
   if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s`);
   const { error } = tryRestore(store);
   if (error) problems.push(`state.json does not restore: ${error}`);
+  if (!error) {
+    const r = replay(store);
+    if (r.firstDivergence) problems.push(`replay diverges at ${r.firstDivergence}`);
+    for (const d of r.differences) problems.push(`replay: ${d}`);
+  }
   return { ok: problems.length === 0, problems, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null } };
 }

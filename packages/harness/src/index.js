@@ -8,4 +8,5 @@ export { logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, 
 export { renderDigest, writeDigest } from './digest.js';
 export { doctor } from './doctor.js';
 export { cardFor } from './card.js';
+export { replay } from './replay.js';
 export { stalled, lastMoved, parseAfter } from './stalled.js';
