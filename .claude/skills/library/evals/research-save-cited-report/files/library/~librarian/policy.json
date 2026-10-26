@@ -20,7 +20,7 @@
       "catalog": "full",
       "purpose": "External documentation downloaded word for word as markdown, one folder per site",
       "layout": "external-docs/<host>/<url path>.md, one line per site in external-docs/catalog.md, one line per page in external-docs/<host>/_outline.md",
-      "rules": "Written only by the documentation-downloader skill (v2), run from /mnt/project-files so its default external-docs/ cache is this area. The librarian catalogues it and never moves it: the skill finds pages by their fixed paths."
+      "rules": "Written only by the documentation-downloader skill (v2): it fetches into a local external-docs/ (its writes use hard links, which the mount refuses) and the pages, catalog.md and _outline.md are copied here without .cache/. The librarian catalogues it and never moves it: the skill finds pages by their fixed paths."
     },
     "notes": {
       "owner": "librarian",
@@ -35,13 +35,6 @@
       "purpose": "Anything whose place is unclear: the librarian files it on its next run",
       "layout": "drop/<writer>--<slug>.<ext>",
       "rules": "Write here instead of guessing a new top-level folder. Add a line of frontmatter saying what it is and who asked for it."
-    },
-    "ccp": {
-      "owner": "ccp",
-      "catalog": "names",
-      "purpose": "The ccp harness: worklog, usage, conformance, items. Written by the ccp plugin's CLI",
-      "layout": "ccp/<area>/... (see the ccp skill)",
-      "rules": "Never moved, renamed or edited by the librarian: entries carry sha256 footers and the CLI reads fixed paths."
     },
     "uploads": {
       "owner": "platform",
@@ -58,7 +51,6 @@
     { "rank": 20, "label": "external-docs--downloaded-documentation-by-site--index-external-docs--catalog.md", "target": "external-docs/catalog.md", "summary": "Downloaded external documentation, one line per site in external-docs/catalog.md" },
     { "rank": 30, "label": "notes--thread-notes-reviews-memos", "target": "notes/README.md", "summary": "Notes and reviews that are not a research topic" },
     { "rank": 40, "label": "drop--unsure-where-a-file-goes--write-it-here", "target": "drop/README.md", "summary": "The librarian files whatever lands here" },
-    { "rank": 80, "label": "ccp--harness-worklog-and-usage--managed-by-the-ccp-plugin", "target": "ccp/", "summary": "The ccp harness's own folder" },
     { "rank": 85, "label": "uploads--files-the-person-uploaded--named-by-id", "target": "uploads/", "summary": "Uploads; recent ones are signposted with what they are" },
     { "rank": 95, "label": "librarian--catalog-moves-journal-kit--in--~librarian", "target": "~librarian/", "summary": "The librarian's catalog (search with library.mjs find), move log, run journal and installed kit" }
   ]

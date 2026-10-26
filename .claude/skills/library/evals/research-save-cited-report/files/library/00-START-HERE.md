@@ -2,12 +2,12 @@
 title: "Library map: start here"
 summary: What is in the Library, where each kind of content goes, and how to find anything
 kind: index
-built: "2026-10-26T13:49:24Z"
+built: "2026-10-26T14:36:20Z"
 ---
 
 # Library map: start here
 
-This Library is organized and kept tidy by the **librarian**. Its kit (agent, skills, tool) is installed at `~librarian/kit/` and its source is the repository's `.claude/` folder. It holds 6 files. Built 2026-10-26T13:49:24Z.
+This Library is organized and kept tidy by the **librarian**. Its kit (agent, skills, tool) is installed at `~librarian/kit/` and its source is the repository's `.claude/` folder. It holds 6 files. Built 2026-10-26T14:36:20Z.
 
 **Coordinator and threads:** a session's prompt lists only the first names of the Library (a thread's list held 199 entries; plan on 150), sorted by full path. Those first names are this file and the signposts in `01-map/`: each signpost's name is the path it points to, with `--` standing for `/`. You have no file tools, so to read anything ask a thread or a worker to open it. To have the Library reorganized, cleaned up or searched, start a thread that loads the **librarian** skill.
 
@@ -26,7 +26,6 @@ This Library is organized and kept tidy by the **librarian**. Its kit (agent, sk
 | `external-docs/` | External documentation downloaded word for word as markdown, one folder per site | `external-docs/<host>/<url path>.md, one line per site in external-docs/catalog.md, one line per page in external-docs/<host>/_outline.md` | tool:documentation-downloader | 0 |
 | `notes/` | Notes, reviews and memos from threads that are not a research topic | `notes/<slug>.md (sharded into notes/<yyyy-mm>/ once it nears the fan-out limit)` | librarian | 1 |
 | `drop/` | Anything whose place is unclear: the librarian files it on its next run | `drop/<writer>--<slug>.<ext>` | any | 0 |
-| `ccp/` | The ccp harness: worklog, usage, conformance, items. Written by the ccp plugin's CLI | `ccp/<area>/... (see the ccp skill)` | ccp | 0 |
 | `uploads/` | Files the person uploaded in a thread, named by id. Their names are not in the session file list, so the map signposts them | `uploads/hearth/<id>` | platform | 0 |
 
 Owner `librarian` areas are reorganized by the librarian; other owners' folders are catalogued but never moved or edited.
