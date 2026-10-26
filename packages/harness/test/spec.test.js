@@ -158,6 +158,18 @@ test('budget: a stale usage reading drains new work until a fresh one arrives', 
   assert.equal(never.value, 'wrappingUp', 'no reading at all also drains');
 });
 
+test('budget: an old reading is judged by the work since it, not by its age', () => {
+  const day = (sevenDay) => transition(machines.budget, initialTransition(machines.budget)[0], { type: 'DAY_STARTED', sevenDay, fiveHour: 0, at: '2026-10-26T10:00:00Z' })[0];
+  const tick = (s, now, costSince) => transition(machines.budget, s, { type: 'TICK', now, ...(costSince != null && { costSince }) })[0];
+  // Idle: nothing filed since the reading, so a 5-hour-old reading still bounds spend.
+  assert.equal(tick(day(0.1), '2026-10-26T15:00:00Z', 0).value, 'normal', 'an idle harness keeps accepting');
+  // Busy: $50 since the reading projects 0.1 of a 0.1 slice, past the 0.8 soft limit.
+  assert.equal(tick(day(0.1), '2026-10-26T15:00:00Z', 50).value, 'wrappingUp', 'a busy harness drains');
+  assert.equal(tick(day(0.1), '2026-10-26T15:00:00Z', 10).value, 'normal', 'a little work stays under the limit');
+  // The backstop: a day-old reading drains even when idle.
+  assert.equal(tick(day(0.1), '2026-10-27T10:01:00Z', 0).value, 'wrappingUp', 'over 24 hours drains');
+});
+
 test('the harness keeps at most wipLimit items in flight and pauses starts on a budget stop', () => {
   const root = createActor(machines.harness, { systemId: 'harness', input: { wipLimit: 2 } }).start();
   for (const id of ['a', 'b', 'c']) root.send({ type: 'REQUEST_RECEIVED', request: { id, project: 'web', tier: 1 } });

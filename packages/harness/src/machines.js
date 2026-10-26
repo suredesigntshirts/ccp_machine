@@ -61,8 +61,16 @@ const spentShare = (c, u) => u.spentToday / c.dailyShare;
 export function createMachines(sink = () => {}) {
   const budgetMachine = setup({
     guards: {
-      // No reading, or the newest is older than staleAfterMs at the tick's time: spend cannot be seen.
-      usageStale: ({ context, event }) => context.sampledAt == null || Date.parse(event.now) - Date.parse(context.sampledAt) > context.staleAfterMs,
+      // Judge an old reading by the work since it: an idle harness spends almost nothing, so its last
+      // reading stays a safe bound. With costSince the projected spend decides; without it, age alone.
+      usageStale: ({ context, event }) => {
+        if (context.sampledAt == null) return true;
+        const age = Date.parse(event.now) - Date.parse(context.sampledAt);
+        if (age > (context.backstopMs ?? 864e5)) return true;
+        if (typeof event.costSince !== 'number') return age > context.staleAfterMs;
+        const projected = (context.spentToday ?? 0) + event.costSince * (context.costRate ?? 0.002);
+        return projected / context.dailyShare >= context.softAt;
+      },
       fiveHourExhausted: ({ context, event }) => usage(context, event).fiveHour >= context.fiveHourStopAt,
       mustPause: ({ context, event }) => {
         const u = usage(context, event);

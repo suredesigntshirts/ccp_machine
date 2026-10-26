@@ -137,7 +137,15 @@ try {
 }
 const { values: o, positionals: [cmd, ...args] } = parsed;
 const store = openStore(o.dir);
-const tick = (now) => apply(store, { type: 'TICK', now }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
+// The TICK carries the cost of the filed turns since the newest reading, so the budget judges an old
+// reading by the work done since it (an idle harness keeps accepting).
+const tick = (now) => {
+  const since = status(store).budget?.sampledAt;
+  const costSince = since
+    ? Object.values(readSessions()).flatMap((s) => s.turns ?? []).filter((t) => t.start > since && t.start <= now).reduce((a, t) => a + (t.all?.cost ?? 0), 0)
+    : undefined;
+  return apply(store, { type: 'TICK', now, ...(costSince != null && { costSince }) }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
+};
 // Filed session ledgers, by id, for the item pages' turns (missing folder: none).
 const readSessions = (dir = '/mnt/project-files/harness/ledger/sessions') => {
   try {
