@@ -2,5 +2,11 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3"
-  }
+  },
+  "hooks": {
+  "Stop": [
+    { "hooks": [ { "type": "command", "command": "node",
+      "args": ["/home/user/ccp_machine/plugins/harness/scripts/file-turns.js"], "timeout": 30 } ] }
+  ]
+}
 }
