@@ -19,6 +19,7 @@
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
     "spec:render": "node spec/render.js",
-    "scenarios": "node bin/harness.js scenarios"
+    "scenarios": "node bin/harness.js scenarios",
+    "pages:check": "node scripts/pages-check.mjs"
   }
 }

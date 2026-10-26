@@ -3,9 +3,14 @@ on:
   push:
     branches: [main]
   pull_request:
+# A newer push to the same branch replaces the older run, so a hung run never holds the branch.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,3 +20,13 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run scenarios
+      # Browser only: ubuntu-latest already has Chromium's libraries, and --with-deps spent its whole
+      # timeout fetching fonts from a slow apt mirror. Fail fast if the download stalls.
+      - run: npx playwright install chromium
+        timeout-minutes: 6
+      - run: npm run pages:check -w @ccp/harness -- --shots shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: page-shots
+          path: packages/harness/shots

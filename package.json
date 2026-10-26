@@ -11,6 +11,10 @@
   "scripts": {
     "test": "npm test --workspaces --if-present",
     "build:plugin": "node scripts/build-plugin.mjs",
-    "scenarios": "npm run scenarios -w @ccp/harness"
+    "scenarios": "npm run scenarios -w @ccp/harness",
+    "pages:check": "npm run pages:check -w @ccp/harness"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }

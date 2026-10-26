@@ -38,6 +38,11 @@ The harness spec and the runtime that drives it.
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore) and exits 1 on a problem.
+- `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
+  log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
+  dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
+  file, an empty title or a page over 1 MB, and saves screenshots to `--shots` (default
+  `/mnt/project-files/harness/state/sim/shots` when the Library is mounted). CI runs it and uploads the shots.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
   log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.

@@ -2,3 +2,4 @@ node_modules/
 .ledger/
 .harness/
 dist/
+shots
