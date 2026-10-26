@@ -63,7 +63,8 @@ whom, how late timers fire, and how to wait cheaply.
 
 - Every request re-reads the whole context. A thread's prompt cache lives **1 hour** (threads write only
   1-hour caches, subagents only 5-minute ones). A wake within the hour is warm; one after it rewrites the
-  whole context (commonly 60k to 400k tokens), about 40 times the cost of a warm wake on Opus.
+  whole context (commonly 60k to 400k tokens), 40 times the cost of a warm wake on Opus 5.5 or Sonnet 5.5 (prices in
+  cost-and-sessions.md).
 - A fresh thread's first call reads about 37k tokens of shared system prompt from cache and writes about
   as much.
 - So end a planned wait within about 50 minutes, and keep long reading in subagents.
