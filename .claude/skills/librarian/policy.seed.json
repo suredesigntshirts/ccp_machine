@@ -20,7 +20,7 @@
       "catalog": "full",
       "purpose": "External documentation downloaded word for word as markdown, one folder per site",
       "layout": "external-docs/<host>/<url path>.md, one line per site in external-docs/catalog.md, one line per page in external-docs/<host>/_outline.md",
-      "rules": "Written only by the documentation-downloader skill (v2), run from /mnt/project-files so its default external-docs/ cache is this area. The librarian catalogues it and never moves it: the skill finds pages by their fixed paths."
+      "rules": "Written only by the documentation-downloader skill (v2): it fetches into a local external-docs/ (its writes use hard links, which the mount refuses) and the pages, catalog.md and _outline.md are copied here without .cache/. The librarian catalogues it and never moves it: the skill finds pages by their fixed paths."
     },
     "notes": {
       "owner": "librarian",

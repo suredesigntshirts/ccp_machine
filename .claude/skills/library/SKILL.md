@@ -56,7 +56,7 @@ needed something and found nothing, write a request (below).
 | Content | Place | Notes |
 |---|---|---|
 | Research the person asked for | `research/<topic>/` | First `find`: if a topic covers the question, extend it. Otherwise `node "$L" new-topic <slug> --title "<title>" --question "<question>"`. Each researcher writes only its own `notes/<your-id>--<subquestion>.md`; only the lead writes `README.md` and `sources.md`; every claim in the report cites `[S<n>]` defined in `sources.md`. Full rules: [references/research.md](references/research.md) |
-| External docs (libraries, APIs) | `external-docs/<host>/...` | Only via the documentation-downloader skill (v2), run from the Library root (`cd /mnt/project-files && docs fetch <url>`) so its default `external-docs/` cache is this area. Search it with `docs search`; `external-docs/catalog.md` lists the sites |
+| External docs (libraries, APIs) | `external-docs/<host>/...` | Only via the documentation-downloader skill (v2). Its writes use hard links, which the mount refuses, so fetch into a local `external-docs/` (for example in your checkout) and copy it in without `.cache/`: `mkdir -p /mnt/project-files/external-docs && tar -C external-docs --exclude=.cache -cf - . | tar -C /mnt/project-files/external-docs -xf -`. `external-docs/catalog.md` lists the sites; search with `docs search "<q>" --root /mnt/project-files/external-docs` |
 | A note, review or memo that is not a research topic | `notes/<slug>.md` | |
 | Anything a tool keeps for itself | the tool's own folder (its Owner in `00-START-HERE.md`) | Only through that tool |
 | You are not sure | `drop/<your-id>--<slug>.md` | The librarian files it |

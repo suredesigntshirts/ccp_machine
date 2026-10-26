@@ -100,6 +100,6 @@ Set `status: final` in `README.md` frontmatter when the report is delivered, and
 
 ## Downloaded material
 
-Whole documentation sites go to `external-docs/<host>/` via the documentation-downloader skill (run
-from `/mnt/project-files`, its default cache path), not into the
+Whole documentation sites go to `external-docs/<host>/` via the documentation-downloader skill (fetch
+locally, then copy in; see the `library` skill's where-to-write table), not into the
 topic. A topic cites them by path. A PDF or dataset used only by this topic goes in its `data/`.
