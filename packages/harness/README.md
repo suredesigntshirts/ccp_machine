@@ -18,8 +18,10 @@ The harness spec and the runtime that drives it.
   item's events. The host can put the PR link on any event it sends for the item (`"pr": "<url>"`).
 - `src/decision-log.js`: `harness decisions` appends each `logPrecedent` effect to `decisions.jsonl` in
   the store (once per effect, backfilling acknowledged ones) and acks it. `decisions.html` shows, per
-  decision class, how often the stand-in's lean matched the final choice and whether the class has
-  earned `act` (20 decisions at 90% agreement, `EARN_ACT`), then every decision.
+  decision class, how often the stand-in's lean matched the final choice and the class's rung, then every
+  decision. `harness standin <class>` prints the rung (`ladder()`): a class starts at `recommend`, climbs
+  one rung (to `act`) after 20 decisions since its last change at 90% agreement (`EARN_ACT`), and drops
+  one rung (to `shadow` at the floor) on each reversal, where the final choice differs from the lean.
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
   flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.

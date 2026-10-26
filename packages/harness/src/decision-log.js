@@ -1,6 +1,6 @@
 // The decision log: every logPrecedent effect becomes one row of decisions.jsonl in the store, so the
-// stand-in can learn from past choices and the person can see how often it agreed with them. A class
-// earns `act` autonomy after enough decisions with enough agreement; until then the stand-in recommends.
+// stand-in can learn from past choices and the person can see how often it agreed with them. Each class
+// sits on a ladder (shadow, recommend, act) worked out from its log: see ladder().
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ack } from './runtime.js';
@@ -47,6 +47,47 @@ export function logPrecedents(store) {
   return { added: rows.length, acked: pending.length };
 }
 
+export const RUNGS = ['shadow', 'recommend', 'act'];
+
+/**
+ * A class's stand-in autonomy, from its decisions in order. It starts at `recommend`. A reversal (the
+ * final choice differs from the stand-in's lean) drops it one rung, floor `shadow`; EARN_ACT.decisions
+ * decisions since the last change with at least EARN_ACT.agreement agreement climb it one rung, cap `act`.
+ * Either change restarts the count.
+ * @returns {{decisionClass: string, autonomy: string, decisions: number, sinceChange: number, agreement: number|null, reversals: number, why: string}}
+ */
+export function ladder(rows, decisionClass, earn = EARN_ACT) {
+  let rung = 1;
+  let count = 0;
+  let leaned = 0;
+  let agreed = 0;
+  let reversals = 0;
+  let why = 'starts at recommend';
+  const mine = rows.filter((r) => r.decisionClass === decisionClass);
+  for (const r of mine) {
+    const lean = r.standIn?.choice;
+    if (lean && r.choice && lean !== r.choice) {
+      reversals++;
+      rung = Math.max(0, rung - 1);
+      [count, leaned, agreed] = [0, 0, 0];
+      why = `reversed at ${r.decision ?? r.effectId}: the stand-in leaned ${lean}, the final choice was ${r.choice}`;
+      continue;
+    }
+    count++;
+    if (lean) {
+      leaned++;
+      agreed++;
+    }
+    if (rung < RUNGS.length - 1 && count >= earn.decisions && leaned && agreed / leaned >= earn.agreement) {
+      rung++;
+      why = `${count} decisions at ${pct(agreed / leaned)} agreement since the last change`;
+      [count, leaned, agreed] = [0, 0, 0];
+    }
+  }
+  const next = rung < RUNGS.length - 1 ? `; ${Math.max(0, earn.decisions - count)} more agreeing decisions to reach ${RUNGS[rung + 1]}` : '';
+  return { decisionClass, autonomy: RUNGS[rung], decisions: mine.length, sinceChange: count, agreement: leaned ? agreed / leaned : null, reversals, why: why + next };
+}
+
 /** Per decision class: how many, how often the stand-in's lean matched the final choice, and whether it has earned `act`. */
 export function classStats(rows, earn = EARN_ACT) {
   const by = new Map();
@@ -62,7 +103,8 @@ export function classStats(rows, earn = EARN_ACT) {
   }
   return [...by.values()].map((s) => {
     const agreement = s.leaned ? s.agreed / s.leaned : null;
-    return { ...s, agreement, earnedAct: s.decisions >= earn.decisions && agreement != null && agreement >= earn.agreement };
+    const { autonomy, why } = ladder(rows, s.decisionClass, earn);
+    return { ...s, agreement, autonomy, why, earnedAct: autonomy === 'act' };
   });
 }
 
@@ -78,9 +120,7 @@ export function renderDecisionLog(rows, { title = 'Decision log', back } = {}) {
           stats
             .map(
               (s) =>
-                `<tr><td><b>${esc(s.decisionClass)}</b></td><td>${s.decisions}</td><td>${s.byPerson}</td><td>${esc(pct(s.agreement))} <span class="m">(${s.agreed}/${s.leaned})</span></td><td><span class="pill ${s.earnedAct ? '' : 'draining'}">${
-                  s.earnedAct ? 'act' : 'recommend'
-                }</span> <span class="m">${s.earnedAct ? '' : `act needs ${EARN_ACT.decisions} decisions at ${pct(EARN_ACT.agreement)}`}</span></td></tr>`
+                `<tr><td><b>${esc(s.decisionClass)}</b></td><td>${s.decisions}</td><td>${s.byPerson}</td><td>${esc(pct(s.agreement))} <span class="m">(${s.agreed}/${s.leaned})</span></td><td><span class="pill ${s.autonomy === 'act' ? '' : s.autonomy === 'shadow' ? 'blocked' : 'draining'}">${esc(s.autonomy)}</span> <span class="m">${esc(s.why)}</span></td></tr>`
             )
             .join('')
         )

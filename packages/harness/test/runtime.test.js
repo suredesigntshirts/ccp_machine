@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, writeDigest } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest } from '../src/index.js';
 
 const fresh = (input) => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
@@ -134,6 +134,19 @@ test('logPrecedent effects become the decision log once, and the page shows agre
   const html = renderDecisionLog(rows);
   assert.match(html, /recommend/);
   assert.match(html, /&lt;why&gt;/);
+});
+
+test('the stand-in ladder climbs after 20 agreeing decisions and drops a rung on each reversal', () => {
+  const row = (choice, lean = 'approve') => ({ decisionClass: 'plan', choice, decidedBy: 'person', standIn: { choice: lean } });
+  const agree = (n) => Array.from({ length: n }, () => row('approve'));
+  assert.equal(ladder([], 'plan').autonomy, 'recommend');
+  assert.equal(ladder(agree(19), 'plan').autonomy, 'recommend');
+  assert.equal(ladder(agree(20), 'plan').autonomy, 'act');
+  const reversed = ladder([...agree(20), row('reject')], 'plan');
+  assert.deepEqual([reversed.autonomy, reversed.reversals], ['recommend', 1]);
+  assert.equal(ladder([row('reject'), row('reject')], 'plan').autonomy, 'shadow');
+  assert.equal(ladder([row('reject'), ...agree(20)], 'plan').autonomy, 'recommend', 'climbing back takes 20 more');
+  assert.equal(ladder(agree(20), 'accept').autonomy, 'recommend', 'classes are separate');
 });
 
 test('the digest goes out once per UTC day and says what finished, what runs and what waits', () => {

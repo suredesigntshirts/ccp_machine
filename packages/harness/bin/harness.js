@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, writeDigest } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest } from '../src/index.js';
 
 const HELP = `harness <command> [options]
 
@@ -19,6 +19,8 @@ const HELP = `harness <command> [options]
   effects                        print effects the host has not acknowledged
   ack <effect-id>... [--outcome done|failed] [--note TEXT]
   decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
+  standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
+                                 worked out from decisions.jsonl; use it as STAND_IN_ANSWERED's autonomy
   digest [--day YYYY-MM-DD]      send DIGEST_DUE once per UTC day, write digests/<day>.md in the store
                                  and ack publishDigest; the host posts the text
   page [--html FILE] [--title T] [--standalone]
@@ -76,6 +78,10 @@ try {
       break;
     case 'decisions':
       print(logPrecedents(store));
+      break;
+    case 'standin':
+      if (!args[0]) throw new Error('standin needs a decision class, such as plan or accept');
+      print(ladder(readDecisionLog(store), args[0]));
       break;
     case 'digest': {
       const { file, acked, text } = writeDigest(store, o.day ? { day: o.day } : {});
