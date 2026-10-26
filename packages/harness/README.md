@@ -63,7 +63,7 @@ The harness spec and the runtime that drives it.
   with (worker runs, stand-in, the person, CI, merging, blocked). Each comes as an issue draft with an expected
   change. It writes `<DIR>/<day>.md` and `.json`, and the next retro checks the last one's expectations.
 - `src/intake.js`: the request box. `harness page --request-box` adds an "Ask for work" form to mission
-  control that saves to the Artifact `db` collection `requests`; `harness intake FILE` files each new row
+  control that saves to the Artifact `db` collection `requests`; `harness intake PATH` (an ArtifactData `out_dir` folder, its inline list text, or JSON) files each new row
   as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken.
 - `src/expect-check.js`: `harness check <item> --init` writes `checks/<item>.md` from the request's `expect`, one
   line each, to mark `[met]`, `[unmet]` or `[unclear]` with evidence. `harness send` refuses a stand-in approve

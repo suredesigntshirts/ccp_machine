@@ -1,6 +1,8 @@
 // The request box: the person files work from mission control (an Artifact `db` collection, `requests`),
 // and on each tick the host hands the new rows here. Each row becomes REQUEST_RECEIVED with id
 // `req-<row id>`, so a row read twice files one item; the returned updates mark the rows taken.
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { apply } from './runtime.js';
 import { itemHref } from './page.js';
 
@@ -14,6 +16,29 @@ export function rowsOf(result) {
     const id = String(r.id ?? r.doc_id ?? r.path?.split('/').at(-1) ?? data.id ?? '');
     return { ...data, id };
   });
+}
+
+/**
+ * Rows from what ArtifactData leaves on disk: a folder (its `out_dir`) holds one `<doc_id>.json` per row
+ * with only the data, so the id is the filename; a file is JSON, or the inline list text, one
+ * {id, data, version} object per line between BEGIN and END lines.
+ */
+export function readRows(path) {
+  if (statSync(path).isDirectory())
+    return readdirSync(path)
+      .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+      .sort()
+      .map((f) => ({ id: basename(f, '.json'), data: JSON.parse(readFileSync(join(path, f), 'utf8')) }));
+  const text = readFileSync(path, 'utf8');
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('{'))
+      .map((l) => JSON.parse(l));
+  }
 }
 
 const slug = (s) =>

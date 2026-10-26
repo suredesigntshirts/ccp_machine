@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf } from '../src/index.js';
+import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, fromGithub, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -24,8 +24,9 @@ const HELP = `harness <command> [options]
   decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
                                  worked out from decisions.jsonl; use it as STAND_IN_ANSWERED's autonomy
-  intake FILE                    file each new request-box row in FILE (an ArtifactData list result of the
-                                 mission control \`requests\` collection) as REQUEST_RECEIVED req-<row id>,
+  intake PATH                    file each new request-box row in PATH (an ArtifactData read of the mission
+                                 control \`requests\` collection: its out_dir folder of <doc_id>.json files,
+                                 its inline list text, or JSON) as REQUEST_RECEIVED req-<row id>,
                                  and print the row updates to write back (status taken, item, href)
   canary [--day D] [--check]     file the day's tier-0 canary item once (canary-<day>); with --check, report
                                  each stage's time and exit 1 with one attention line if it failed or is
@@ -211,8 +212,8 @@ try {
       break;
     }
     case 'intake': {
-      if (!args[0]) throw new Error('intake needs a file holding the requests rows');
-      print(intakeRows(store, JSON.parse(readFileSync(args[0], 'utf8'))));
+      if (!args[0]) throw new Error('intake needs a file or folder holding the requests rows');
+      print(intakeRows(store, readRows(args[0])));
       break;
     }
     case 'canary': {
