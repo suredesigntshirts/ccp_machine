@@ -44,7 +44,7 @@ L="/home/user/ccp_machine/.claude/skills/library/scripts/library.mjs"      # rep
 
 | You own | You never move or edit |
 |---|---|
-| `00-START-HERE.md`, `01-map/`, every area `INDEX.md`, `~librarian/` | `ccp/` (the ccp CLI reads fixed paths; entries carry sha256 footers) |
+| `00-START-HERE.md`, `01-map/`, every area `INDEX.md`, `~librarian/` | Any folder another tool owns (its `owner` in `policy.json` names the tool): the tool reads its own fixed paths |
 | Where files live in `owner: librarian` areas, and their links | `uploads/` (threads refer to uploads by id) |
 | `~librarian/policy.json`: areas, map pins, limits | `docs/` internals (the documentation-downloader's layout) |
 | Filing `drop/` and answering `~librarian/requests/` | The content of a report: you fix its links and frontmatter, not its claims |

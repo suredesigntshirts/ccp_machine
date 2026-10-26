@@ -15,15 +15,15 @@ then the row (keep the old value as `(was ..., <date>)`).
 
 | # | Constraint | Value | Evidence |
 |---|---|---|---|
-| C1 | Cold file open on the mount | ~100 ms each serially; ~13 ms each at 16 in flight; ~85 opens/s for the whole mount | ccp platform-facts, "The Library mount" (2026-10-22, n=3 containers) |
-| C2 | Stat after a directory listing | under 0.5 ms (attributes come with the listing); a cold listing 100 to 170 ms for a small folder, up to ~490 ms for 430 entries | 2026-10-26 10:40 UTC, this design's probe on `ccp/usage`, `ccp/worklog`; platform-facts |
-| C3 | Warm cache lifetime | a read file stays warm ~45 to 60 min in its container; a resumed thread starts cold | platform-facts (2026-10-22) |
-| C4 | Cross-session visibility | ~40 s; no cross-session locks (`O_EXCL` does not exclude) | platform-facts (2026-10-21) |
+| C1 | Cold file open on the mount | ~105 ms each serially (median); reported ~13 ms each at 16 in flight and ~85 opens/s for the whole mount | serial: 2026-10-26 13:28 UTC, 20 cold files in a thread; parallel figures: reported from another project's probes, not yet re-measured here |
+| C2 | Stat after a directory listing | under 0.5 ms (attributes come with the listing); a cold listing 100 to 170 ms for a small folder | 2026-10-26 10:40 UTC, a probe on three small Library folders |
+| C3 | Warm cache lifetime | a read file stays warm ~45 to 60 min in its container; a resumed thread starts cold | reported from another project's probes; not yet re-measured here (see Open questions) |
+| C4 | Cross-session visibility | ~40 s; no cross-session locks (`O_EXCL` does not exclude) | reported from another project's probes; here, files written at 10:38:59 UTC were in a new thread's list by 10:43 |
 | C5 | Session file list | each session's prompt lists Library entries: full paths, folders included (trailing `/`), sorted as the bare path in code-unit order; dot files listed; children of `uploads/` not listed; a thread's list was cut after 199 entries with "… the list is cut here" | 2026-10-26 10:43 UTC, probe thread `cmsg_01CRqZ2YoFXkbgk5p24fe6Kk7g7zaeGawYS3vgCXhGxnyx`; the list is the test fixture `session-file-list-2026-10-26.md` |
 | C6 | The coordinator's list | the person reports the coordinator sees the first 150 names; on 2026-10-26 the coordinator (started ~10:04 UTC, as the first Library files appeared) had no file list or "Project files" section at all, and resumes after files existed added none; its only Library text is a note that the mount is slow | person's brief; coordinator relays 10:39 and 11:24 UTC. Open: whether a coordinator that starts fresh with files present gets a list |
 | C7 | Repository skills | `.claude/skills/` in the repo does not load in Project threads | another thread's finding, 2026-10-26 10:43 UTC (worklog), and this thread's skill list |
 | C8 | Scale | up to 50k files | the person's brief |
-| C9 | Hard and symbolic links | unsupported on the mount | platform-facts |
+| C9 | Hard and symbolic links | unsupported on the mount | reported from another project's probes |
 | C10 | Session identity | every container's hostname is `vm`; `CLAUDE_CODE_SESSION_ID` differs per session; `/mnt/project-files` is a symlink to `/mnt/attach/project-files` | 2026-10-26 11:03 UTC, `hostname`, `env`, `process.cwd()` in a thread |
 
 Sort order in practice (C5): `!` `#` `.` < digits < uppercase < `_` < lowercase < `~`; a space sorts
@@ -54,7 +54,7 @@ opens. The catalog is a cache: losing it costs one full scan, nothing else.
 
 **Links are indexed at scan time, so moves never grep (C1, C8).** Each catalog entry keeps its
 outbound Library links; `mv` finds every file that links to what moves from the catalog and rewrites
-only those, and rewrites the moved files' own relative links. Foreign files (ccp, uploads) and files
+only those, and rewrites the moved files' own relative links. Foreign files (folders another tool owns, and uploads) and files
 changed in the last 10 minutes are not edited; the moves log (`~librarian/moves/`) lets `resolve` and
 `audit` map old paths to new ones instead. No stubs are left behind: links are unsupported (C9), and a
 stub file would cost a window slot and a listing entry forever.
@@ -64,7 +64,7 @@ same content). So only writers that move or restructure take the lease, and acqu
 re-reads, because a competing write is invisible for ~40 s. A lease expires (90 min) so a dead run
 cannot block the next.
 
-**Everyone else writes only new files under their own name (C4).** This is the ccp harness's rule too.
+**Everyone else writes only new files under their own name (C4).**
 Research notes are one file per researcher (`notes/<writer>--<subquestion>.md`); requests and signals
 are files named by their writer. The librarian edits other sessions' files only to fix links, and only
 once they have been still for 10 minutes.
@@ -92,3 +92,4 @@ change it when the journal shows the limit being hit, not before.
 | Is a thread's list cut by count (199) or by size? | Repeat the C5 probe with 160 names of 120+ characters |
 | Does a warm read refresh the cache lifetime? | Read a file every 30 min for 2 h; time each read |
 | Does a folder `rename` on the mount cost per file inside it? | Time `mv` of a 400-file folder |
+| The reported figures in C1, C3, C4 and C9 | Re-measure each here; replace "reported" with the date and result |

@@ -137,11 +137,11 @@ test('mv of a folder keeps the moved files\' own relative links pointing at the 
 
 test('mv refuses foreign areas, recently changed files, and writing without the lease', () => {
   const root = seeded();
-  put(root, 'ccp/worklog/x.md', 'x');
+  put(root, 'docs/example.com/x.md', 'x');
   put(root, 'notes/fresh.md', md('Fresh'), 0);
   put(root, 'notes/old.md', md('Old'));
   lib(root, ['scan', '--write']);
-  assert.match(lib(root, ['mv', 'ccp/worklog/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by ccp/);
+  assert.match(lib(root, ['mv', 'docs/example.com/x.md', 'notes/x.md'], { ok: false }).stderr, /owned by tool:documentation-downloader/);
   assert.match(lib(root, ['mv', 'notes/fresh.md', 'notes/f2.md', '--apply'], { ok: false }).stderr, /changed in the last/);
   assert.match(lib(root, ['mv', 'notes/old.md', 'notes/o2.md', '--apply'], { ok: false, writer: 'w2' }).stderr, /does not hold the librarian lease/);
 });

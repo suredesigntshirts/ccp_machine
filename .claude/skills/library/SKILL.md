@@ -57,7 +57,7 @@ needed something and found nothing, write a request (below).
 | Research the person asked for | `research/<topic>/` | First `find`: if a topic covers the question, extend it. Otherwise `node "$L" new-topic <slug> --title "<title>" --question "<question>"`. Each researcher writes only its own `notes/<your-id>--<subquestion>.md`; only the lead writes `README.md` and `sources.md`; every claim in the report cites `[S<n>]` defined in `sources.md`. Full rules: [references/research.md](references/research.md) |
 | External docs (libraries, APIs) | `docs/<domain>/...` | Only via the documentation-downloader skill, `--output-dir /mnt/project-files/docs/` |
 | A note, review or memo that is not a research topic | `notes/<slug>.md` | |
-| ccp harness records | `ccp/` | Only through the ccp CLI (the ccp skill) |
+| Anything a tool keeps for itself | the tool's own folder (its Owner in `00-START-HERE.md`) | Only through that tool |
 | You are not sure | `drop/<your-id>--<slug>.md` | The librarian files it |
 
 `00-START-HERE.md` lists the current areas; the librarian adds areas as the Library grows, so trust
