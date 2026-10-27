@@ -27,6 +27,6 @@ node packages/ledger/bin/ledger.js turns <session.jsonl>  # one line per turn
 
 ## Budget rules
 
-They follow `budget.machine.json` in `suredesigntshirts/ccp_machine` (`harness/spec/`): a daily slice of
+They follow `budget.machine.json` in `packages/harness/spec/`: a daily slice of
 the 7-day window (default 10%), wrap up at 80% of it, pause at 100% or when the 5-hour window reaches 95%.
 Options: `--daily-share`, `--soft-at`, `--five-hour-stop`, `--utc-offset` (minutes; sets the day boundary).

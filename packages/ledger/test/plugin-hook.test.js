@@ -1,4 +1,5 @@
-// The harness plugin's Stop hook files this package's ledger; check it end to end on a built plugin.
+// The harness plugin's Stop hook files this package's ledger; check it end to end on the committed plugin,
+// after checking that its copy of this package is a fresh build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { join } from 'node:path';
 const repo = new URL('../../../', import.meta.url).pathname;
 
 test('the Stop hook files the session ledger only where the Library area exists, and never fails', () => {
-  execFileSync('node', ['scripts/build-plugin.mjs'], { cwd: repo });
+  execFileSync('node', ['scripts/build-plugin.mjs', '--check'], { cwd: repo });
   const tmp = mkdtempSync(join(tmpdir(), 'hook-'));
   const transcript = join(tmp, 's1.jsonl');
   const lines = [
@@ -18,7 +19,7 @@ test('the Stop hook files the session ledger only where the Library area exists,
   ];
   writeFileSync(transcript, lines.map((l) => JSON.stringify(l)).join('\n'));
   const run = (env, input) =>
-    execFileSync('node', [join(repo, 'dist/harness/scripts/file-turns.js')], { input, env: { ...process.env, ...env } });
+    execFileSync('node', [join(repo, 'plugins/harness/scripts/file-turns.js')], { input, env: { ...process.env, ...env } });
 
   const missing = join(tmp, 'no-area');
   run({ HARNESS_LIBRARY_DIR: missing }, JSON.stringify({ session_id: 's1', transcript_path: transcript }));

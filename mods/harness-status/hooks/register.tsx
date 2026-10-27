@@ -3,7 +3,7 @@ import type { Register, EngineInterface } from 'claude-code'
 
 import type { Item, Summary } from '../types'
 
-// The harness store the orchestrator thread writes (ccp_machine_test, packages/harness).
+// The harness store the orchestrator thread writes (packages/harness in this repo).
 const STORE = '/mnt/project-files/harness/state/main'
 const PANE = 'harness-status'
 const summary = atom({ plugin: 'harness-status', key: 'summary' } as const, null, { shape: 'summary-1' })

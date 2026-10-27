@@ -1,5 +1,5 @@
 {
-  "name": "ccp-machine-test",
+  "name": "ccp-machine",
   "private": true,
   "type": "module",
   "engines": {

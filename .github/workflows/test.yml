@@ -18,6 +18,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # plugins/harness/lib/ledger is committed build output; fail when it differs from a fresh build.
+      - run: npm run build:plugin -- --check
       - run: npm test
       - run: npm run scenarios
       # Browser only: ubuntu-latest already has Chromium's libraries, and --with-deps spent its whole
