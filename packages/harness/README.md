@@ -82,7 +82,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore), runs `verify-actors` and
-  `verify-facts` (`doctorAll`), reports each of their failures as a problem, and exits 1 on a problem.
+  `verify-facts` (one async `doctor()`), and exits 1 on a problem: a mismatch, or a session's missing ledger for
+  an event 10 minutes old or more. What cannot be checked yet (GitHub unreachable, a ledger not filed for a
+  session that acted under 10 minutes ago) is listed as `unverifiable`, exit 0.
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
@@ -121,7 +123,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   WIP limit, the queue, the outbox, doctor, the page size and an apply at 500 events, and saves the
   busiest mission control to `--out` (default a temp folder).
 - `src/audit.js` and `spec/audit.machine.json`: `harness audit` picks up to 3 decisions the stand-in made
-  alone (untested classes, low confidence and old ones first), once a day, by sending `AUDIT_PICKED` to the
+  alone (untested classes, low confidence and old ones first), once a day (today in UTC: the machine refuses a
+  day that is not the event's own), by sending `AUDIT_PICKED` to the
   harness, which opens the day's audit (`audit:<day>`) and queues `postAuditCard`. The host posts the card
   and acks the effect with its message id; the answer is the person's tap, `AUDIT_ANSWERED {option}` to
   `audit:<day>` (0 confirms all, N reverses pick N), bound to that card exactly as a decision's tap. The
@@ -164,7 +167,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `awaitingPerson` queues `postDecisionCard`, the day's audit `postAuditCard`. `src/card.js`:
   `harness card <effect-id>` turns either into `request_decision` arguments (approve, revise or drop, with
   the stand-in's lean recommended) plus the `address` and `choices`. The host posts the card, then acks
-  the effect alone with the card's message id (`harness ack <effect> --card cmsg_...`, or `--note cmsg_...`);
+  the effect alone and once with the card's message id (`harness ack <effect> --card cmsg_...`; `--note` never
+  names a card, and a second ack of the effect is refused and writes nothing). The effect's detail carries
+  the decision's `address`, where the ack and the tap go;
   the ack sends `CARD_POSTED {card, effect}` from the host session, and the decision or audit records it once
   (a message id already on another card is refused). `harness send` refuses `CARD_POSTED`. A tap on option
   i is `PERSON_DECIDED {choice: choices[i]}` (an audit's `AUDIT_ANSWERED {option: i}`) with
@@ -174,8 +179,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (`tapEvents`, the events whose machine guards the tap): the person triages, builds, checks and blocks
   nothing.
 - `src/verify-taps.js`: `harness verify-taps [--store DIR]` lists every tap in the log, one line per tap:
-  event id, time, the card's message id, the decision or audit it went to, the option it claims and the
-  person. It never writes, and a `--store` with no `events.jsonl` is an error (exit 2). The machine binds a
+  event id, time, the card's message id, the decision or audit it went to, the choice it claims, the
+  person, and the session that relayed it (`relayedBy`, from `$CLAUDE_CODE_SESSION_ID`; inside a session a
+  tap without it is refused). It never writes, and a `--store` with no `events.jsonl` is an error (exit 2). The machine binds a
   tap to its card, but only the platform knows whether the person tapped that option: verify-taps output
   must be checked by a session other than the one that sent the taps, reading each card with
   `read_messages_by_id`.
@@ -218,7 +224,7 @@ harness from-github wake.txt        # CI and merges: the wake's text, applied on
 harness verify-facts --store .harness  # later, from outside: re-read every GitHub fact in the log
 harness verify-actors --store .harness # later: every session in the log has a ledger covering its events
 harness effects                     # what the host still has to do
-harness ack e3.0 --note "posted"
+harness ack e3.0 --note "dispatched"   # any other effect: a note, no card
 harness page --standalone           # .harness/mission-control.html
 ```
 

@@ -12,7 +12,7 @@ import { lastMoved } from './stalled.js';
 export const NOTES = 'handoff-notes.md';
 
 /** The note for the store as it stands, as Markdown. */
-export function handoffNote(store, { now = new Date().toISOString() } = {}) {
+export async function handoffNote(store, { now = new Date().toISOString() } = {}) {
   const st = status(store);
   const events = store.events();
   const pending = store.pending();
@@ -26,7 +26,7 @@ export function handoffNote(store, { now = new Date().toISOString() } = {}) {
     ...live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => `- ${d.address}: ${d.question ?? d.decisionClass} (${d.card ? `card: ${d.card}` : 'card not posted yet'})`)),
     ...(st.audits ?? []).map((a) => `- ${a.address}: stand-in audit of ${a.picks.length} (${a.card ? `card: ${a.card}` : 'card not posted yet'})`)
   ];
-  const doc = doctor(store);
+  const doc = await doctor(store, { verify: false });
   const b = st.budget;
   const notesFile = join(store.dir, NOTES);
   const notes = existsSync(notesFile) ? readFileSync(notesFile, 'utf8').trim() : '';
@@ -68,8 +68,8 @@ ${notes || '- none'}
 `;
 }
 
-export function writeHandoff(store, opts) {
+export async function writeHandoff(store, opts) {
   const file = join(store.dir, 'handoff.md');
-  writeFileSync(file, handoffNote(store, opts));
+  writeFileSync(file, await handoffNote(store, opts));
   return file;
 }

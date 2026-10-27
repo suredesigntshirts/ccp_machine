@@ -5,7 +5,7 @@ import { tempDir } from './tmp.js';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, status, fromGithub, prMap, verifyFacts, verifyFactsText } from '../src/index.js';
+import { openStore, init, status, fromGithub, prMap, verifyFacts, verifyFactsText, doctor } from '../src/index.js';
 import { readFact, resolveGh, ghPath, restFetcher } from '../src/github-read.js';
 import { apply, start } from './send.js';
 import { fakeGithub, recorded, HEAD, MERGE, CREATED } from './github-fake.js';
@@ -225,6 +225,10 @@ test('verify-facts says unreachable when GitHub cannot be read, and mismatch for
   const down = await verifyFacts(store, { fetcher: fakeGithub({ down: 'HTTP 502' }) });
   assert.deepEqual(down.map((r) => r.result), ['unreachable', 'unreachable', 'unreachable']);
   assert.match(verifyFactsText(down), /^unreachable .*HTTP 502/m);
+  // doctor lists them as unverifiable, not problems: nothing contradicts them, nothing confirmed them yet.
+  const report = await doctor(store, { ledgers: tempDir('harness-ledgers-'), fetcher: fakeGithub({ down: 'HTTP 502' }) });
+  assert.equal(report.unverifiable.filter((l) => /^verify-facts: unreachable/.test(l)).length, 3);
+  assert.equal(report.problems.some((l) => /verify-facts/.test(l)), false);
   const page = await verifyFacts(store, { fetcher: fakeGithub({ ref: 'feat/x', earlier: ['1111111aaa'.repeat(4)], totalCount: 5 }) });
   assert.equal(page[1].result, 'mismatch', 'the pagination rule holds here too');
 });

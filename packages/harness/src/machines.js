@@ -38,7 +38,7 @@ const withInput = (config) => ({
 // the sink as data ({ name, actor, params, subject, detail }); the host's outbox carries it out
 // later, so detail holds what the host needs to do it without reading the snapshot.
 // The default sink drops them, and pure transition() returns them by name either way.
-const DETAIL = ['title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy', 'day', 'picks'];
+const DETAIL = ['item', 'address', 'title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy', 'day', 'picks'];
 const external = (sink, ...names) =>
   Object.fromEntries(
     names.map((name) => [
@@ -242,7 +242,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         enqueue.assign({ decisions: context.decisions + 1, decisionId: id });
         enqueue.spawnChild('decision', {
           id,
-          input: { id, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
+          input: { id, item: context.id, address: `item:${context.id}/${id}`, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
             requester: context.requester, triagers: context.triagers ?? [], workers: context.workers ?? [], checkers: context.checkers ?? [], answerers: context.answerers ?? [],
             ...(params.gate === 'accept' && { expectationsMet: context.expectationsMet }), ...(rung && { autonomy: rung(params.gate) }) }
         });
@@ -274,9 +274,9 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     actors: { budget: budgetMachine, workItem: workItemMachine, audit: auditMachine },
     guards: {
       ...provenance,
-      // A day, not audited before, and 1 to max distinct logPrecedent effect ids.
-      auditOverreaches: ({ context, event: { day, picks } }, { max }) =>
-        typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || (context.audited ?? []).includes(day) ||
+      // The event's own UTC day (receivedAt, set by the runtime), not audited before, and 1 to max distinct logPrecedent effect ids.
+      auditOverreaches: ({ context, event: { day, picks, receivedAt } }, { max }) =>
+        typeof day !== 'string' || day !== String(receivedAt).slice(0, 10) || (context.audited ?? []).includes(day) ||
         !Array.isArray(picks) || !picks.length || picks.length > max || !picks.every(isText) || new Set(picks).size !== picks.length,
       // The filer names the work; a request that sets anything the item's machine holds is refused.
       requestOverreaches: ({ event: { request: r } }) => !r || typeof r.id !== 'string' || !r.id || Object.keys(r).some((k) => k in specs.workItem.context && !['id', 'project'].includes(k)),

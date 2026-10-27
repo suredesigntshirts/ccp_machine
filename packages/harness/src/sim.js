@@ -19,7 +19,7 @@ export function scripted(type, ref = 'sim') {
   const party = { TRIAGED: 'triager', RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CRITERION_CHECKED: 'reviewer', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
   if (SESSIONS[party]) return { actor: { kind: 'session', id: SESSIONS[party] }, source: { kind: 'cli', ref } };
   if (party === 'github') return { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
-  if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref } };
+  if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref }, relayedBy: 'sim-orchestrator' };
   return { actor: { kind: 'session', id: 'sim-orchestrator' }, source: { kind: 'cli', ref } };
 }
 
@@ -45,7 +45,7 @@ export const script = (i) => ({
  * Run `items` synthetic items with WIP `wip` until no effect is pending. Returns the counts the
  * assertions need and mission control rendered when the most items were in flight.
  */
-export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(), 'harness-sim-')), t0 = Date.parse('2026-10-26T09:00:00Z') } = {}) {
+export async function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(), 'harness-sim-')), t0 = Date.parse('2026-10-26T09:00:00Z') } = {}) {
   const store = openStore(dir);
   let clock = t0;
   const now = () => new Date((clock += 60_000)).toISOString();
@@ -73,8 +73,8 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
     const e = pending.find((x) => x.name !== 'postDecisionCard') ?? pending[0];
     if (!e) break;
     if (++steps > 5000) throw new Error('the simulation did not settle');
-    // Gate effects name their decision (decision:<item>:<class>:<n>); the rest name the item.
-    const id = /^decision:/.test(e.subject ?? '') ? e.subject.split(':').slice(1, -2).join(':') : e.subject ?? e.actor;
+    // Gate effects carry their item in detail; the rest name the item.
+    const id = e.detail?.item || (e.subject ?? e.actor);
     const s = script(Number(String(id).split('-')[1]));
     const item = `item:${id}`;
     if (e.name === 'logPrecedent') {
@@ -124,7 +124,7 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
     inFlight: st.context.inFlight.length,
     pending: store.pending().length,
     events: store.events().length,
-    doctor: doctor(store),
+    doctor: await doctor(store, { verify: false }),
     html: peak.html
   };
 }

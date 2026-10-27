@@ -344,11 +344,8 @@ test('doctor is one function: problems are mismatches and old unfiled ledgers, u
   for (const id of new Set(store.events().filter((e) => e.actor?.kind === 'session').map((e) => e.actor.id))) ledger(lib, id);
   const filed = await at(11 * 60_000);
   assert.deepEqual([filed.ok, filed.unverifiable], [true, []], filed.problems.join('\n'));
-  // A fact GitHub could not be reached for is unverifiable; one GitHub does not back is a problem.
+  // A fact GitHub does not back is a problem (an unreachable one is unverifiable: test/github-facts.test.js).
   merged(store, new Date(last).toISOString());
-  const down = await doctor(store, { now: last, ledgers, fetcher: async () => { throw new Error('offline'); } });
-  assert.equal(down.ok, true, down.problems.join('\n'));
-  assert.match(down.unverifiable.join('\n'), /verify-facts: unreachable forged/);
   const forged = await doctor(store, { now: last, ledgers, fetcher: fakeGithub() });
   assert.equal(forged.ok, false);
   assert.match(forged.problems.join('\n'), /verify-facts: mismatch forged/);
