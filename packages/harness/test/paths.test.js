@@ -55,7 +55,7 @@ const homes = {
       ...(input.decisionClass !== 'accept' ? [] : [
         [{ type: 'STAND_IN_FAILED', ...orchestrator }, 'item:w/decision:w:plan:1'],
         [posted, 'item:w/decision:w:plan:1'],
-        [{ type: 'PERSON_DECIDED', choice: 'approve', actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, 'item:w/decision:w:plan:1'],
+        [{ type: 'PERSON_DECIDED', choice: 'approve', actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' }, relayedBy: 'host' }, 'item:w/decision:w:plan:1'],
         item({ type: 'RUN_SUCCEEDED', ...as('worker') }),
         ...(input.expectationsMet ? [item({ type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a', ...as('reviewer') })] : []),
         item({ type: 'CHECKS_PASSED', actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } })
@@ -96,7 +96,7 @@ function deliver(store, name, event) {
   return [
     apply(store, { type: 'STAND_IN_FAILED', ...orchestrator }, { to: `${to}/${decision}` }),
     apply(store, posted, { to: `${to}/${decision}` }),
-    apply(store, { type: 'PERSON_DECIDED', choice: event.choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, { to: `${to}/${decision}` })
+    apply(store, { type: 'PERSON_DECIDED', choice: event.choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' }, relayedBy: 'host' }, { to: `${to}/${decision}` })
   ];
 }
 

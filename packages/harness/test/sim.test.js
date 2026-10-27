@@ -4,8 +4,8 @@ import { tempDir } from './tmp.js';
 import { simulate, timeApplyAt, tablesInCards, script } from '../src/sim.js';
 
 for (const wip of [3, 12]) {
-  test(`12 items at WIP ${wip}: the limit holds, the queue drains, every effect is acked`, () => {
-    const r = simulate({ items: 12, wip, dir: tempDir('harness-sim-') });
+  test(`12 items at WIP ${wip}: the limit holds, the queue drains, every effect is acked`, async () => {
+    const r = await simulate({ items: 12, wip, dir: tempDir('harness-sim-') });
     assert.equal(r.peakInFlight, wip);
     assert.deepEqual([r.done, r.queued, r.inFlight, r.pending], [12, 0, 0, 0]);
     assert.deepEqual(r.refused, [], 'the scripted host sends only what the machine takes');
@@ -32,8 +32,8 @@ for (const wip of [3, 12]) {
   });
 }
 
-test('one apply stays under 200 ms with 500 events in the store', () => {
-  const r = simulate({ items: 12, wip: 12, dir: tempDir('harness-sim-') });
+test('one apply stays under 200 ms with 500 events in the store', async () => {
+  const r = await simulate({ items: 12, wip: 12, dir: tempDir('harness-sim-') });
   assert.ok(timeApplyAt(r.store, 500) < 200);
   assert.ok(r.store.events().length >= 500);
 });

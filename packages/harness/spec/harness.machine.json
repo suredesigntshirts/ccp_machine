@@ -53,7 +53,7 @@
             "max": 3
           }
         },
-        "description": "Refused unless it names a day (YYYY-MM-DD) not audited before and 1 to max picks, each a logPrecedent effect id. The picks name decisions only; what each decided is read from the store's own outbox, never from the event."
+        "description": "Refused unless its day is the UTC day of the event's own time (receivedAt: the at the runtime logs it with, never the sender's word), so a past or future day is refused and there is at most one audit per real day, a day not audited before, and it names 1 to max picks, each a logPrecedent effect id. The picks name decisions only; what each decided is read from the store's own outbox, never from the event."
       },
       {
         "actions": [

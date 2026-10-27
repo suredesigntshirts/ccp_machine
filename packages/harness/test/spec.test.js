@@ -41,7 +41,7 @@ test('every state that waits on the person or a gate can be left', () => {
 // The parties: a worker reports runs, GitHub reports CI and merges, the person taps a card.
 const worker = { actor: { kind: 'session', id: 'worker' }, source: { kind: 'cli', ref: 'harness send' } };
 const github = { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } };
-const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } };
+const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' }, relayedBy: 'host' };
 // The host's ack of postDecisionCard: the card's message id, which the tap must name.
 const posted = { type: 'CARD_POSTED', card: 'cmsg_card', actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness ack' } };
 const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness send' } };

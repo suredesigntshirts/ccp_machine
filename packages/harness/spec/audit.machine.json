@@ -30,7 +30,7 @@
                 "actor": "session"
               }
             },
-            "description": "Refused unless a session sends it: the host session that posted the card acks the postAuditCard effect with the card's message id."
+            "description": "Refused unless a session sends it: the host session that posted the card acks the postAuditCard effect with the card's message id (harness ack <effect> --card <cmsg id>)."
           },
           {
             "guard": {
