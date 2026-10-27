@@ -1,0 +1,16 @@
+{
+  "url": "https://api.github.com/repos/suredesigntshirts/ccp_machine/pulls/21",
+  "number": 21,
+  "state": "closed",
+  "merged": true,
+  "merged_at": "2026-10-27T12:17:08Z",
+  "merge_commit_sha": "354ac3030801672f56b9b9f1b578c37c76837fb7",
+  "head": {
+    "ref": "feat/actor-on-envelope",
+    "sha": "ceeba95dd8908bd491d8d81a66a5c1848edc7745"
+  },
+  "base": {
+    "ref": "main",
+    "sha": "54be2f1f4f6f0f742e1edd554e4c85b922d60f24"
+  }
+}
