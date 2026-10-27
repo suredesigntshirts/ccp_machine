@@ -11,9 +11,22 @@ const load = (name) =>
 export const specs = {
   budget: load('budget'),
   decision: load('decision'),
+  audit: load('audit'),
   workItem: load('workItem'),
   harness: load('harness')
 };
+
+/** Every event, in any machine, with a transition that `test` picks (such as one guarded by tapUnbound). */
+export const eventsWhere = (test, out = new Set()) => {
+  const walk = (node) => {
+    for (const [ev, on] of Object.entries(node.on ?? {})) if ([on].flat().some(test)) out.add(ev);
+    Object.values(node.states ?? {}).forEach(walk);
+  };
+  Object.values(specs).forEach(walk);
+  return out;
+};
+// The events a person may send: those whose machine binds the tap to its posted card. apply() refuses the rest.
+export const tapEvents = eventsWhere((t) => t.guard?.type === 'tapUnbound');
 
 // Input overrides the spec's default context by shallow merge (v6's context patches behave the same).
 const withInput = (config) => ({
@@ -25,7 +38,7 @@ const withInput = (config) => ({
 // the sink as data ({ name, actor, params, subject, detail }); the host's outbox carries it out
 // later, so detail holds what the host needs to do it without reading the snapshot.
 // The default sink drops them, and pure transition() returns them by name either way.
-const DETAIL = ['title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy'];
+const DETAIL = ['title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy', 'day', 'picks'];
 const external = (sink, ...names) =>
   Object.fromEntries(
     names.map((name) => [
@@ -82,6 +95,14 @@ const holdsAnotherRole = ({ context: c, event: { actor } }, { role }) =>
   actor?.kind === 'session' && Object.entries(ROLES).some(([r, ids]) => r !== role && (ids(c) ?? []).includes(actor.id));
 const asSession = (list, actor) => (actor?.kind === 'session' ? [...new Set([...(list ?? []), actor.id])] : list ?? []);
 
+// A card the machine asked for: CARD_POSTED records its message id once, on the ack of the card effect, and a
+// tap is taken only with that id (decision and audit alike).
+const cards = {
+  cardOverreaches: ({ context, event }) => context.card != null || typeof event.card !== 'string' || !/^cmsg_[A-Za-z0-9_-]+$/.test(event.card),
+  tapUnbound: ({ context, event }) => context.card == null || event.source?.kind !== 'tap' || event.source.ref !== context.card
+};
+const recordCard = assign({ card: ({ event }) => event.card });
+
 const provenance = {
   unattested: ({ event }, p) => (p.actor != null && event.actor?.kind !== p.actor) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
   fromOutside: ({ event }) => event.actor != null
@@ -131,9 +152,24 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     }
   }).createMachine(withInput(specs.budget));
 
+  const auditMachine = setup({
+    guards: {
+      unattested: provenance.unattested,
+      ...cards,
+      optionNotOffered: ({ context, event: { option } }) => !Number.isInteger(option) || option < 0 || option > context.picks.length
+    },
+    actions: {
+      recordCard,
+      recordAuditAnswer: assign({ option: ({ event }) => event.option }),
+      ...external(sink, 'postAuditCard')
+    }
+  }).createMachine(withInput(specs.audit));
+
   const decisionMachine = setup({
     guards: {
       unattested: provenance.unattested,
+      ...cards,
+      choiceNotOffered: ({ context, event }) => !context.options.includes(event.choice),
       holdsAnotherRole,
       answeredByOrchestratorOrWorker: ({ context, event }) => event.actor?.id === context.orchestrator || (context.workers ?? []).includes(event.actor?.id),
       answerOverreaches: ({ event: { answer: a } }) =>
@@ -151,6 +187,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         decidedBy: 'stand-in'
       }),
       recordPersonChoice: assign({ choice: ({ event }) => event.choice, decidedBy: 'person' }),
+      recordCard,
       reportDecision: toParent(({ context }) => ({
         type: 'DECISION_MADE',
         choice: context.choice,
@@ -234,9 +271,13 @@ export function createMachines(sink = () => {}, { rung } = {}) {
   }).createMachine(withInput(specs.workItem));
 
   const harnessMachine = setup({
-    actors: { budget: budgetMachine, workItem: workItemMachine },
+    actors: { budget: budgetMachine, workItem: workItemMachine, audit: auditMachine },
     guards: {
       ...provenance,
+      // A day, not audited before, and 1 to max distinct logPrecedent effect ids.
+      auditOverreaches: ({ context, event: { day, picks } }, { max }) =>
+        typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || (context.audited ?? []).includes(day) ||
+        !Array.isArray(picks) || !picks.length || picks.length > max || !picks.every(isText) || new Set(picks).size !== picks.length,
       // The filer names the work; a request that sets anything the item's machine holds is refused.
       requestOverreaches: ({ event: { request: r } }) => !r || typeof r.id !== 'string' || !r.id || Object.keys(r).some((k) => k in specs.workItem.context && !['id', 'project'].includes(k)),
       modeIs: ({ event }, params) => event.mode === params.mode,
@@ -269,6 +310,11 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         for (const id of context.inFlight) enqueue.sendTo(id, { type: 'WRAP_UP' });
       }),
       recordBudgetMode: assign({ budgetMode: ({ event }) => event.mode }),
+      openAudit: enqueueActions(({ enqueue, context, event: { day, picks } }) => {
+        const id = `audit:${day}`;
+        enqueue.spawnChild('audit', { id, systemId: id, input: { id, day, picks } });
+        enqueue.assign({ audited: [...(context.audited ?? []), day] });
+      }),
       addToInbox: assign({ inbox: ({ context, event }) => [...context.inbox, event.decisionId] }),
       removeFromInbox: assign({
         inbox: ({ context, event }) => context.inbox.filter((d) => d !== event.decisionId)
@@ -277,7 +323,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     }
   }).createMachine(withInput(specs.harness));
 
-  return { budget: budgetMachine, decision: decisionMachine, workItem: workItemMachine, harness: harnessMachine };
+  return { budget: budgetMachine, decision: decisionMachine, audit: auditMachine, workItem: workItemMachine, harness: harnessMachine };
 }
 
 export const machines = createMachines();

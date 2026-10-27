@@ -42,6 +42,8 @@ test('every state that waits on the person or a gate can be left', () => {
 const worker = { actor: { kind: 'session', id: 'worker' }, source: { kind: 'cli', ref: 'harness send' } };
 const github = { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } };
 const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } };
+// The host's ack of postDecisionCard: the card's message id, which the tap must name.
+const posted = { type: 'CARD_POSTED', card: 'cmsg_card', actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness ack' } };
 const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness send' } };
 // Triage and the criteria checks come from parties of their own: not the requester, the orchestrator or a worker.
 const triager = { actor: { kind: 'session', id: 'triager' }, source: { kind: 'cli', ref: 'harness send' } };
@@ -235,7 +237,7 @@ test('the stand-in decides alone only where autonomy is earned, confidence is hi
     assert.ok(s.hasTag('needs-human'), why);
   }
 
-  const person = decide({ ...spawned, tier: 2 }, [answered(), { type: 'PERSON_DECIDED', choice: 'revise', ...tap }]);
+  const person = decide({ ...spawned, tier: 2 }, [answered(), posted, { type: 'PERSON_DECIDED', choice: 'revise', ...tap }]);
   assert.deepEqual([person.value, person.context.choice, person.context.decidedBy], ['decided', 'revise', 'person']);
 });
 
@@ -376,6 +378,7 @@ test('an escalated decision shows in the person\'s inbox and leaves it when deci
   assert.ok(root.getSnapshot().hasTag('needs-human'));
   assert.deepEqual(root.getSnapshot().context.inbox, [decisionId]);
 
+  decision.send(posted);
   decision.send({ type: 'PERSON_DECIDED', choice: 'approve', ...tap });
   assert.ok(!root.getSnapshot().hasTag('needs-human'));
   assert.deepEqual(item.getSnapshot().value, { active: 'building' });

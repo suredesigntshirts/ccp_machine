@@ -1,7 +1,7 @@
 {
   "id": "harness",
   "version": "0.1.0",
-  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here.",
+  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit).",
   "type": "parallel",
   "context": {
     "wipLimit": 3,
@@ -9,7 +9,8 @@
     "inFlight": [],
     "inbox": [],
     "budgetMode": "normal",
-    "orchestrator": null
+    "orchestrator": null,
+    "audited": []
   },
   "invoke": {
     "src": "budget",
@@ -31,6 +32,33 @@
         "actions": [
           {
             "type": "recordOrchestrator"
+          }
+        ]
+      }
+    ],
+    "AUDIT_PICKED": [
+      {
+        "guard": {
+          "type": "unattested",
+          "params": {
+            "actor": "session"
+          }
+        },
+        "description": "Refused unless a session sends it: the session that read the decision log and picked (harness audit)."
+      },
+      {
+        "guard": {
+          "type": "auditOverreaches",
+          "params": {
+            "max": 3
+          }
+        },
+        "description": "Refused unless it names a day (YYYY-MM-DD) not audited before and 1 to max picks, each a logPrecedent effect id. The picks name decisions only; what each decided is read from the store's own outbox, never from the event."
+      },
+      {
+        "actions": [
+          {
+            "type": "openAudit"
           }
         ]
       }

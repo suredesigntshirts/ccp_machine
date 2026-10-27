@@ -1,12 +1,12 @@
-export { createMachines, machines, specs, referencedNames } from './machines.js';
+export { createMachines, machines, specs, referencedNames, eventsWhere } from './machines.js';
 export { openStore } from './store.js';
-export { init, apply, ack, status } from './runtime.js';
+export { init, apply, ack, status, cardAddress } from './runtime.js';
 export { renderPage, itemHref, prOf } from './page.js';
 export { budgetEvents } from './budget-feed.js';
 export { renderItemPage, itemRecords, itemTurns } from './item-page.js';
 export { logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, EARN_ACT, RUNGS } from './decision-log.js';
 export { renderDigest, writeDigest } from './digest.js';
-export { doctor } from './doctor.js';
+export { doctor, doctorAll } from './doctor.js';
 export { cardFor } from './card.js';
 export { runScenario, runScenarios, SCENARIOS_DIR } from './scenario.js';
 export { replay } from './replay.js';
@@ -17,7 +17,7 @@ export { canaryRequest, canaryReport, canaryId, CANARY_LATE_MS } from './canary.
 export { calibration, calibrateClass, MIN_TESTED } from './calibration.js';
 export { retro, writeRetro, retroDue, lastRetro, renderRetro, windowMetrics, RETRO_EVERY } from './retro.js';
 export { intakeRows, requestFor, rowsOf, readRows, REQUESTS } from './intake.js';
-export { auditPicks, auditCard, dayAudit, answerAudit, untestedRuns, auditLine, openAudits, reverseOf, AUDIT_MAX, UNTESTED_WARN } from './audit.js';
+export { auditPicks, auditCard, auditCardFor, pickAudit, untestedRuns, auditLine, openAudits, reverseOf, AUDIT_MAX, UNTESTED_WARN } from './audit.js';
 export { standinAnswer } from './standin.js';
 export { requestFromIssue, issueBody, expectFrom } from './issue-request.js';
 export { acceptance, acceptanceText, peakInFlight, touchesByTier } from './acceptance.js';
@@ -27,3 +27,4 @@ export { readFact, restFetcher, combined, resolveGh, ghPath } from './github-rea
 export { bindingError, requestedAt, itemOf } from './pr-binding.js';
 export { verifyFacts, verifyFactsText } from './verify-facts.js';
 export { verifyActors, verifyActorsText, ledgerDir, WINDOW_TOLERANCE_MS } from './verify-actors.js';
+export { verifyTaps, verifyTapsText } from './verify-taps.js';

@@ -32,16 +32,15 @@ export function peakInFlight(events, outbox) {
   return { peak, at: peakAt, items: start.size };
 }
 
-/** The person's touches split by kind and by the item's tier, as triage last set it. */
+/** The person's touches: taps on decision cards by the item's tier, as triage last set it, and audit answers. Only person-actor events count. */
 export function touchesByTier(events) {
   const tier = new Map(events.filter((e) => e.event.type === 'TRIAGED').map((e) => [itemOf(e), e.event.tier]));
-  const out = { requests: 0, decisions: {}, other: {} };
-  for (const e of events.filter((x) => x.event.person)) {
-    if (e.event.type === 'REQUEST_RECEIVED') out.requests++;
+  const out = { decisions: {}, audits: 0 };
+  for (const e of events.filter((x) => x.actor?.kind === 'person')) {
+    if (e.event.type === 'AUDIT_ANSWERED') out.audits++;
     else {
-      const bucket = e.event.type === 'PERSON_DECIDED' ? out.decisions : out.other;
       const t = tier.get(itemOf(e)) ?? '?';
-      bucket[t] = (bucket[t] ?? 0) + 1;
+      out.decisions[t] = (out.decisions[t] ?? 0) + 1;
     }
   }
   return out;
@@ -53,7 +52,7 @@ export function acceptance(store, { ledgerFile = null, sessionsDir = SESSIONS_DI
   const st = status(store);
   const peak = peakInFlight(events, store.outbox());
   const t = touchesByTier(events);
-  const nonTier2 = Object.entries(t.decisions).filter(([k]) => k !== '2').reduce((a, [, n]) => a + n, 0) + Object.values(t.other).reduce((a, n) => a + n, 0);
+  const nonTier2 = Object.entries(t.decisions).filter(([k]) => k !== '2').reduce((a, [, n]) => a + n, 0);
   const merged = st.items.filter((i) => i.state === 'done').length;
   const scen = scenarios();
   const failed = scen.filter((r) => !r.ok).map((r) => r.name ?? r.file);
@@ -64,7 +63,7 @@ export function acceptance(store, { ledgerFile = null, sessionsDir = SESSIONS_DI
   rows.push({
     criterion: 'Three items in flight at once, each from request to merge, with only tier 2 decisions from the person',
     verdict: peak.peak >= 3 && merged >= 3 && nonTier2 === 0 ? 'met' : 'not met',
-    evidence: `peak ${peak.peak} in flight at ${peak.at ?? 'n/a'} across ${peak.items} items; ${merged} merged; the person's touches: ${t.requests} requests, decisions by tier ${JSON.stringify(t.decisions)}, other ${JSON.stringify(t.other)}`
+    evidence: `peak ${peak.peak} in flight at ${peak.at ?? 'n/a'} across ${peak.items} items; ${merged} merged; the person's taps: decisions by tier ${JSON.stringify(t.decisions)}, ${t.audits} audit answers`
   });
   const l = ledgerFile && existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, 'utf8')) : ledgerFile ? null : filedLedger(sessionsDir);
   const source = ledgerFile ?? sessionsDir;

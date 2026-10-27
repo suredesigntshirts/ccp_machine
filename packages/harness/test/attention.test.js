@@ -7,7 +7,7 @@ import { apply, start } from './send.js';
 
 const sure = { choice: 'approve', confidence: 0.95 };
 
-test('attention counts the person\'s touches, the stand-in\'s decisions, turns and wall time per item', () => {
+test('attention counts the person\'s touches (cards posted and taps), the stand-in\'s decisions, turns and wall time per item', () => {
   const store = openStore(tempDir('harness-'));
   init(store, {}, '2026-10-26T09:00:00Z');
   start(store, '2026-10-26T09:00:00Z');
@@ -15,7 +15,7 @@ test('attention counts the person\'s touches, the stand-in\'s decisions, turns a
   send({ type: 'REQUEST_RECEIVED', request: { id: 'p' } }, undefined, '2026-10-26T10:00:00Z');
   send({ type: 'TRIAGED', tier: 2, criteria: ['it works'], session: 's1' }, 'item:p', '2026-10-26T10:05:00Z');
   send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:p/decision:p:plan:1', '2026-10-26T10:06:00Z');
-  send({ type: 'PERSON_DECIDED', choice: 'revise', person: true }, 'item:p/decision:p:plan:1', '2026-10-26T10:30:00Z');
+  send({ type: 'PERSON_DECIDED', choice: 'revise' }, 'item:p/decision:p:plan:1', '2026-10-26T10:30:00Z');
   send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:p', '2026-10-26T10:40:00Z');
   send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:p/decision:p:plan:2', '2026-10-26T10:41:00Z');
   send({ type: 'PERSON_DECIDED', choice: 'approve' }, 'item:p/decision:p:plan:2', '2026-10-26T10:42:00Z');
@@ -26,8 +26,9 @@ test('attention counts the person\'s touches, the stand-in\'s decisions, turns a
   const records = { events: store.events(), outbox: store.outbox(), acks: store.acks(), decisions: readDecisionLog(store) };
   const item = status(store).items[0];
   const none = attention(item, records, '2026-10-26T11:00:00Z');
-  assert.deepEqual([none.cards, none.personMessages, none.touches, none.reversed, none.turns], [2, 1, 3, 1, null]);
-  assert.match(attentionText(none), /^3 touches · \d+ stand-in, 1 reversed · turns n\/a · 1\.0h$/);
+  // Two cards posted (CARD_POSTED) and two taps on them (PERSON_DECIDED from the person).
+  assert.deepEqual([none.cards, none.taps, none.touches, none.reversed, none.turns], [2, 2, 4, 1, null]);
+  assert.match(attentionText(none), /^4 touches · \d+ stand-in, 1 reversed · turns n\/a · 1\.0h$/);
 
   const turn = { index: 4, start: '2026-10-26T10:10:00Z', end: '2026-10-26T10:20:00Z', all: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, cost: 0.5 } };
   const withLedger = attention(item, { ...records, sessions: { s1: { turns: [turn] } } }, '2026-10-26T11:00:00Z');
@@ -40,7 +41,7 @@ test('mission control shows attention for finished items and the digest shows th
   assert.match(renderPage(st, { metrics: { a: '0 touches · 0 stand-in' } }), /<th>Attention<\/th>.*0 touches · 0 stand-in/s);
   const events = [
     { at: '2026-10-25T10:00:00Z', to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'a' } } },
-    { at: '2026-10-25T10:10:00Z', to: 'item:a', event: { type: 'PERSON_DECIDED', person: true } },
+    { at: '2026-10-25T10:10:00Z', to: 'item:a/decision:a:plan:1', actor: { kind: 'person', id: 'sd' }, event: { type: 'PERSON_DECIDED', choice: 'approve' } },
     { at: '2026-10-25T11:00:00Z', to: 'item:a', event: { type: 'MERGED' } },
     { at: '2026-10-26T10:00:00Z', to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'b' } } },
     { at: '2026-10-26T11:00:00Z', to: 'item:b', event: { type: 'MERGED' } }

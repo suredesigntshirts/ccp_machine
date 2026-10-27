@@ -31,7 +31,7 @@ test('the hand-off names every in-flight item with its stage and PR, the waiting
   ack(store, [ask.id], { note: 'judged' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.6, reason: 'unsure' } }, { to: `item:b/${ask.subject}` });
   const card = store.pending().find((e) => e.name === 'postDecisionCard');
-  ack(store, [card.id], { note: 'cmsg_123' });
+  ack(store, [card.id], { note: 'cmsg_123', by: { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness ack' } } });
   // c: queued behind the WIP limit, its triage not yet dispatched.
   req('c');
   writeFileSync(join(store.dir, HANDOFF_NOTES), '- audit card cmsg_9 waits on a tap');

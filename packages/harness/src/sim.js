@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from './store.js';
-import { init, apply, ack, status } from './runtime.js';
+import { init, apply, ack, status, cardAddress } from './runtime.js';
 import { logPrecedents } from './decision-log.js';
 import { doctor } from './doctor.js';
 import { renderPage } from './page.js';
@@ -13,7 +13,7 @@ const sure = { choice: 'approve', confidence: 0.95, reason: 'simulated' };
 
 // The parties a scripted host plays, each sending what it sends for real: a triager sets tier and criteria, a
 // worker reports runs, a reviewer checks the criteria, the stand-in answers, GitHub reports CI and merges, the
-// person taps a card (ref: the card), and the orchestrator sends the rest (requests included).
+// person taps a card (ref: the card's message id), and the orchestrator sends the rest (requests and card posts included).
 const SESSIONS = { triager: 'sim-triager', worker: 'sim-worker', reviewer: 'sim-reviewer', 'stand-in': 'sim-stand-in' };
 export function scripted(type, ref = 'sim') {
   const party = { TRIAGED: 'triager', RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CRITERION_CHECKED: 'reviewer', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
@@ -21,6 +21,13 @@ export function scripted(type, ref = 'sim') {
   if (party === 'github') return { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
   if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref } };
   return { actor: { kind: 'session', id: 'sim-orchestrator' }, source: { kind: 'cli', ref } };
+}
+
+/** The host posts the card a postDecisionCard effect asks for and acks it with the card's message id; the person taps `choice` on it. */
+export function postAndTap(store, effect, choice, { now, id } = {}) {
+  const card = `cmsg_${effect.id.replace(/\W/g, '_')}`;
+  ack(store, [effect.id], { card, by: scripted('CARD_POSTED'), now });
+  return apply(store, { type: 'PERSON_DECIDED', choice, ...scripted('PERSON_DECIDED', card) }, { to: cardAddress(effect), now, id });
 }
 
 /** What triage gives item i and what goes wrong for it: a mix of tiers, a failed run, failed checks, a block, a person's revise and an unmet criterion. */
@@ -46,7 +53,8 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
   let n = 0;
   // The host reports what the machine refuses and goes on; the scripted host should cause none.
   const refused = [];
-  const send = (event, to) => { const id = `sim-${n++}`; const r = apply(store, { ...event, ...scripted(event.type, id) }, { to, id, now: now() }); if (r.refused) refused.push(`${to ?? 'harness'}: ${r.why}`); };
+  const check = (r, to) => r.refused && refused.push(`${to ?? 'harness'}: ${r.why}`);
+  const send = (event, to) => { const id = `sim-${n++}`; check(apply(store, { ...event, ...scripted(event.type, id) }, { to, id, now: now() }), to); };
   const seen = {};
   const once = (key) => !seen[key] && (seen[key] = true);
   let peak = { inFlight: 0, asks: 0, html: '' };
@@ -73,7 +81,8 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
       logPrecedents(store);
       continue;
     }
-    ack(store, [e.id], { note: 'simulated host', now: now() });
+    // A card is posted, then acked with its message id, as a real host does; every other effect is acked as done.
+    if (e.name !== 'postDecisionCard') ack(store, [e.id], { note: 'simulated host', now: now() });
     if (e.name === 'dispatchRun') {
       const step = e.params?.step;
       if (step === 'build' && s.block && once(`block-${id}`)) {
@@ -91,11 +100,10 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
       }
       else send({ type: 'RUN_SUCCEEDED', pr: step === 'build' ? `https://example.test/pr/${id}` : undefined }, item);
     } else if (e.name === 'askStandIn') send({ type: 'STAND_IN_ANSWERED', answer: sure }, `${item}/${e.subject}`);
-    else if (e.name === 'postDecisionCard')
-    {
+    else if (e.name === 'postDecisionCard') {
       // The person revises a plan once, and sends back an accept whose criteria are not all met.
       const revise = (s.revise && /:plan:/.test(e.subject) && once(`revise-${id}`)) || (/:accept:/.test(e.subject) && e.detail?.expectationsMet !== true);
-      send({ type: 'PERSON_DECIDED', choice: revise ? 'revise' : 'approve', person: true }, `${item}/${e.subject}`);
+      check(postAndTap(store, e, revise ? 'revise' : 'approve', { now: now(), id: `sim-${n++}` }), cardAddress(e));
     }
     else if (e.name === 'mergePullRequest') send({ type: 'MERGED' }, item);
     // reportBlocked, checkpoint and publishDigest need nothing back.

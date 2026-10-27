@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDir } from './tmp.js';
 import { existsSync } from 'node:fs';
-import { logged } from './send.js';
+import { logged, start, post, apply } from './send.js';
 import { join } from 'node:path';
-import { openStore, init, readDecisionLog, logPrecedents, auditPicks, auditCard, dayAudit, answerAudit, untestedRuns, auditLine, openAudits, renderPage, calibrateClass, ladder, doctor, renderDigest, status } from '../src/index.js';
+import { openStore, init, readDecisionLog, logPrecedents, auditPicks, auditCard, pickAudit, untestedRuns, auditLine, openAudits, renderPage, calibrateClass, ladder, doctor, renderDigest, status } from '../src/index.js';
 
 const lean = (confidence) => ({ choice: 'approve', confidence, threshold: 0.9, autonomy: 'act', reason: 'looks fine' });
 const standIn = (n, cls, confidence, at) => ({ effectId: `s${n}`, at, item: `i${n}`, decision: `decision:i${n}:${cls}:1`, decisionClass: cls, tier: 1, question: `${cls}: i${n}`, choice: 'approve', decidedBy: 'stand-in', standIn: lean(confidence) });
@@ -12,6 +12,7 @@ const standIn = (n, cls, confidence, at) => ({ effectId: `s${n}`, at, item: `i${
 function storeWith(rows) {
   const store = openStore(tempDir('harness-'));
   init(store, {}, '2026-10-26T09:00:00Z');
+  start(store, '2026-10-26T09:00:00Z');
   logged(store, rows);
   return store;
 }
@@ -38,16 +39,21 @@ test('the card confirms all with option 0 and reverses pick i with option i', ()
   assert.ok(card.options.every((o) => o.label.length <= 40 && o.consequence.length <= 200));
 });
 
+const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness audit' } };
+// The person's tap on the audit card the host posted for `day`.
+const answer = (store, day, option, now) => apply(store, { type: 'AUDIT_ANSWERED', option, actor: { kind: 'person', id: 'sd' }, source: { kind: 'tap', ref: `cmsg_audit_${day.replace(/-/g, '')}` } }, { to: `audit:${day}`, now });
+
 test('an answer becomes the person\'s decisions, which calibration and the ladder learn from', () => {
   const store = storeWith([standIn(1, 'plan', 0.9, '2026-10-26T10:00:00Z'), standIn(2, 'plan', 0.8, '2026-10-26T10:01:00Z'), standIn(3, 'accept', 0.9, '2026-10-26T10:02:00Z')]);
   const day = '2026-10-26';
-  assert.equal(dayAudit(store, day).picks.length, 3);
+  assert.equal(pickAudit(store, day, { by: orchestrator }).picks.length, 3);
   assert.equal(auditLine(store, day), '3 to check, about 1 minute');
   assert.match(renderDigest(status(store), { day, audit: auditLine(store, day) }), /\*\*Stand-in audit:\*\* 3 to check, about 1 minute\./);
   // Picks are fixed for the day: the card and the answer name the same decisions.
-  assert.deepEqual(dayAudit(store, day).picks.map((r) => r.effectId), ['s2', 's3', 's1']);
-  assert.deepEqual(answerAudit(store, day, 1, { at: '2026-10-26T12:00:00Z' }), { added: 3, reversed: 's2' });
-  assert.equal(answerAudit(store, day, 1).added, 0, 'answering twice adds nothing');
+  assert.deepEqual(pickAudit(store, day, { by: orchestrator }).picks, ['s2', 's3', 's1']);
+  post(store, `audit:${day}`, `cmsg_audit_${day.replace(/-/g, '')}`);
+  assert.equal(answer(store, day, 1, '2026-10-26T12:00:00Z').refused, undefined);
+  assert.equal(answer(store, day, 1).refused, true, 'answered: the audit is done, and answering twice adds nothing');
   assert.equal(auditLine(store, day), null);
   const rows = readDecisionLog(store);
   const plan = calibrateClass(rows, 'plan', '2026-10-26T13:00:00Z');
@@ -55,7 +61,6 @@ test('an answer becomes the person\'s decisions, which calibration and the ladde
   assert.equal(ladder(rows, 'plan').autonomy, 'shadow', 'a reversal drops the class a rung');
   assert.equal(calibrateClass(rows, 'accept').tested, 1);
   assert.deepEqual(auditPicks(rows), [], 'audited decisions are not picked again');
-  assert.throws(() => answerAudit(store, day, 4), /answer is 0/);
 });
 
 test('the empty early effects are left out of the log, and the log is the store\'s own records: no decisions.jsonl', () => {
@@ -81,11 +86,12 @@ test('an unanswered audit counts under Needs you on mission control until it is 
   const day = '2026-10-26';
   const page = () => renderPage(status(store), { audits: openAudits(store) });
   assert.match(page(), /Nothing is waiting on you/, 'no audit picked yet');
-  dayAudit(store, day);
+  pickAudit(store, day, { by: orchestrator });
   assert.equal(openAudits(store).length, 1);
   assert.match(page(), /Needs you<\/span><b>1<\/b>/);
-  assert.match(page(), /Did the stand-in call these 1 right\?[\s\S]*harness audit --day 2026-10-26 --answer N/);
-  answerAudit(store, day, 0);
+  assert.match(page(), /Did the stand-in call these 1 right\?[\s\S]*AUDIT_ANSWERED[\s\S]*--to audit:2026-10-26/);
+  post(store, `audit:${day}`, `cmsg_audit_${day.replace(/-/g, '')}`);
+  answer(store, day, 0);
   assert.deepEqual(openAudits(store), []);
   assert.match(page(), /Nothing is waiting on you/);
 });

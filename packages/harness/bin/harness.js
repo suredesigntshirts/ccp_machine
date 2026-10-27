@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
+import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctorAll, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -19,7 +19,8 @@ const HELP = `harness <command> [options]
                                  An event whose guard checks who sent it needs --actor and --source:
                                  a worker's run (RUN_SUCCEEDED, RUN_FAILED), from the worker's own
                                  session, --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<ref>,
-                                 a tap (PERSON_DECIDED) --actor person:<id> --source tap:<card message id>,
+                                 a tap (PERSON_DECIDED, AUDIT_ANSWERED, nothing else) --actor person:<id>
+                                 --source tap:<the message id the card's ack recorded>,
                                  CI and merges come only from from-github (send refuses --actor github
                                  and --source github-wake). Any other event is sent as this
                                  session ($CLAUDE_CODE_SESSION_ID) from the cli; an --actor session:<id>
@@ -34,7 +35,9 @@ const HELP = `harness <command> [options]
   tick [--now ISO]               send the budget a TICK: the time and the cost filed since its last reading
   status                         print the summary as JSON
   effects                        print effects the host has not acknowledged
-  ack <effect-id>... [--outcome done|failed] [--note TEXT]
+  ack <effect-id>... [--outcome done|failed] [--note TEXT] [--card CMSG]
+                                 a posted card effect is acked alone with its message id (--card or --note
+                                 cmsg_...), which records the card (CARD_POSTED; send refuses it)
   decisions                      ack the pending logPrecedent effects (they are the decision log already)
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
                                  worked out from the store's decided decisions; a decision takes it when it opens
@@ -51,9 +54,9 @@ const HELP = `harness <command> [options]
   handoff                        write handoff.md in the store: items in flight with stage, PR and plan,
                                  cards waiting on the person, pending effects, budget, doctor, the host's
                                  own handoff-notes.md, and the next actions; run at the end of each wake
-  audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
-                                 once a day (audits/<day>.json); prints request_decision arguments for one
-                                 card. --answer records the tap: 0 confirms all, N reverses pick N
+  audit [--day D]                the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
+                                 once a day (AUDIT_PICKED queues postAuditCard); prints its effect and card.
+                                 The answer is a tap: AUDIT_ANSWERED {option: 0 all right, N reverse pick N}
   answer <item> --approve|--reject --reason TEXT --confidence N
                                  answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
                                  decision (id standin-<subject>), ack the ask and log the precedent. Autonomy
@@ -87,6 +90,9 @@ const HELP = `harness <command> [options]
                                  start..end, give or take 5 minutes). Never writes. Exits 1 on any failure;
                                  2, writing nothing, when DIR has no events.jsonl. Run it after the sessions'
                                  turns have ended, so their ledgers are filed
+  verify-taps [--store DIR]      one line per tap: event id, time, card message id, decision or audit, the
+                                 option claimed, the person. Never writes; 2 without events.jsonl. Another
+                                 session checks each line against its card (read_messages_by_id)
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -100,15 +106,16 @@ const HELP = `harness <command> [options]
                                  and effects with the store; exits 1 on a difference. It re-applies github
                                  refs as logged without reading GitHub: verify-facts re-checks them
   doctor                         check the store (version gaps, unknown acks, effects pending over a day,
-                                 a stale lock, a snapshot that will not restore); exits 1 on a problem
+                                 a stale lock, a snapshot that will not restore), verify-actors and
+                                 verify-facts; exits 1 on a problem
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also
                                  rebuilds a state.json that is ahead of events.jsonl; exits 1 if any is left.
                                  It re-applies github refs as logged: verify-facts re-checks them
   scenarios [FILE...]            play golden event stories (default packages/harness/scenarios/*.json) on
                                  scratch stores and check each step; exits 1 on a failure
-  card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
-                                 option i is PERSON_DECIDED {choice: choices[i]} to address,
-                                 --actor person:<id> --source tap:<card message id>
+  card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard or postAuditCard
+                                 effect; post it, ack it with --card <cmsg id>; a tap on option i is
+                                 PERSON_DECIDED {choice: choices[i]} (AUDIT_ANSWERED {option: i}) to address
   page [--html FILE] [--title T] [--standalone] [--request-box]
                                  render mission control (default .harness/mission-control.html) and
                                  one page per item beside it (items/<id>.html), linked from its row,
@@ -147,6 +154,7 @@ try {
       id: { type: 'string' },
       outcome: { type: 'string', default: 'done' },
       note: { type: 'string' },
+      card: { type: 'string' },
       samples: { type: 'string', default: '.ledger/usage.json' },
       html: { type: 'string' },
       title: { type: 'string', default: 'Mission control' },
@@ -157,7 +165,6 @@ try {
       sessions: { type: 'string' },
       rebuild: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
-      answer: { type: 'string' },
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
       out: { type: 'string' },
@@ -175,8 +182,8 @@ try {
 }
 const { values: o, positionals: [cmd, ...args] } = parsed;
 if (o.store) o.dir = o.store;
-// verify-facts and verify-actors only read: a folder without a log is a wrong --store to report, never a folder to make.
-if (['verify-facts', 'verify-actors'].includes(cmd) && !existsSync(join(o.dir, 'events.jsonl'))) {
+// verify-facts, verify-actors and verify-taps only read: a folder without a log is a wrong --store to report, never a folder to make.
+if (['verify-facts', 'verify-actors', 'verify-taps'].includes(cmd) && !existsSync(join(o.dir, 'events.jsonl'))) {
   console.error(`harness: ${cmd}: no events.jsonl in ${o.dir}, so nothing to verify (is --store the harness folder?)`);
   process.exit(2);
 }
@@ -226,13 +233,7 @@ const by = (what) => {
 };
 const timer = (ref) => ({ actor: { kind: 'timer', id: `harness ${cmd}` }, source: { kind: 'timer', ref } });
 // Events a guard takes only from a named party: the worker, a tap or a GitHub wake.
-const attested = new Set();
-const walk = (node) => {
-  for (const [ev, on] of Object.entries(node.on ?? {}))
-    if ([on].flat().some((t) => t.guard?.type === 'reportedByOrchestrator' || t.guard?.params?.source)) attested.add(ev);
-  Object.values(node.states ?? {}).forEach(walk);
-};
-Object.values(specs).forEach(walk);
+const attested = eventsWhere((t) => t.guard?.type === 'reportedByOrchestrator' || t.guard?.params?.source);
 
 try {
   // GitHub's word comes only through from-github, which reads it from GitHub; no flag can claim it.
@@ -253,6 +254,8 @@ try {
       if (!args[0]) throw new Error('send needs an event, such as \'{"type":"REQUEST_RECEIVED","request":{"id":"a"}}\'');
       {
         const event = JSON.parse(args[0]);
+        if (event.type === 'CARD_POSTED')
+          throw new Error('send refuses CARD_POSTED: a card is recorded only by harness ack <card effect> --card <cmsg id>, the ack of the card the machine asked for');
         if (attested.has(event.type) && !(flagged.actor && flagged.source))
           throw new Error(`${event.type} needs --actor KIND:ID --source KIND:REF naming who sent it (see harness help send)`);
         Object.assign(event, by('send'));
@@ -283,7 +286,7 @@ try {
       print(store.pending());
       break;
     case 'ack':
-      print(ack(store, args, { outcome: o.outcome, note: o.note }));
+      print(ack(store, args, { outcome: o.outcome, note: o.note, card: o.card, ...((flagged.actor || platform) && { by: by('ack') }) }));
       break;
     case 'answer':
       if (!args[0] || o.approve === o.reject) throw new Error('answer needs an item and one of --approve or --reject');
@@ -317,12 +320,10 @@ try {
       break;
     case 'audit': {
       const day = o.day ?? new Date().toISOString().slice(0, 10);
-      if (o.answer != null) {
-        print(answerAudit(store, day, Number(o.answer)));
-        break;
-      }
-      const a = dayAudit(store, day);
-      print({ day, picks: a.picks.map((r) => r.effectId), answered: a.answered, card: a.picks.length && !a.answered ? auditCard(a.picks) : null });
+      const a = pickAudit(store, day, { by: by('audit') });
+      const effect = a.effect && store.outbox().find((e) => e.id === a.effect);
+      const open = openAudits(store).find((x) => x.day === day);
+      print({ ...a, posted: open?.card ?? null, answered: Boolean(effect && !open), card: effect && open ? auditCardFor(store, effect) : null });
       break;
     }
     case 'from-github': {
@@ -338,6 +339,12 @@ try {
       const n = (k) => results.filter((r) => r.result === k).length;
       console.error(`harness: ${results.length} GitHub facts: ${n('ok')} ok, ${n('mismatch')} mismatch, ${n('unreachable')} unreachable`);
       process.exitCode = n('mismatch') ? 1 : n('unreachable') ? 3 : 0;
+      break;
+    }
+    case 'verify-taps': {
+      const rows = verifyTaps(store);
+      if (rows.length) console.log(verifyTapsText(rows));
+      console.error(`harness: ${rows.length} taps; a session other than the one that sent them checks each against its card (read_messages_by_id)`);
       break;
     }
     case 'verify-actors': {
@@ -409,7 +416,7 @@ try {
       break;
     }
     case 'doctor': {
-      const report = doctor(store);
+      const report = await doctorAll(store);
       print(report);
       if (!report.ok) process.exitCode = 1;
       break;
@@ -426,7 +433,7 @@ try {
     case 'card': {
       const effect = store.outbox().find((e) => e.id === args[0]);
       if (!effect) throw new Error(`no effect ${args[0]}`);
-      print(cardFor(effect, { itemUrl: o.url }));
+      print(effect.name === 'postAuditCard' ? auditCardFor(store, effect) : cardFor(effect, { itemUrl: o.url }));
       break;
     }
     case 'page': {

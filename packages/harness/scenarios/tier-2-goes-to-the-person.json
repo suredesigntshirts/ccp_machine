@@ -6,6 +6,7 @@
     {"event":{"type":"REQUEST_RECEIVED","request":{"id":"p"},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
     {"event":{"type":"TRIAGED","tier":2,"criteria":["p works"],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:p","expect":{"effects":["askStandIn"],"items":{"p":"active.awaitingPlanDecision"},"needsPerson":false}},
     {"event":{"type":"STAND_IN_ANSWERED","answer":{"choice":"approve","confidence":0.95},"actor":{"kind":"session","id":"stand-in"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:p/decision:p:plan:1","expect":{"effects":["postDecisionCard"],"inbox":["decision:p:plan:1"],"needsPerson":true}},
+    {"ack":"postDecisionCard","to":"item:p/decision:p:plan:1","card":"cmsg_card","by":{"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness ack"}},"expect":{"effects":[]}},
     {"event":{"type":"PERSON_DECIDED","choice":"approve","actor":{"kind":"person","id":"person"},"source":{"kind":"tap","ref":"cmsg_card"}},"to":"item:p/decision:p:plan:1","expect":{"effects":["logPrecedent","dispatchRun:build"],"items":{"p":"active.building"},"inbox":[],"needsPerson":false}}
   ]
 }

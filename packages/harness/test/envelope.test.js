@@ -7,7 +7,7 @@ import { tempDir } from './tmp.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, apply, status, replay } from '../src/index.js';
+import { openStore, init, apply, ack, status, replay } from '../src/index.js';
 
 const orchestrator = { actor: { kind: 'session', id: 'orch-1' }, source: { kind: 'cli', ref: 'harness send' } };
 const worker = { actor: { kind: 'session', id: 'worker-1' }, source: { kind: 'cli', ref: 'harness send' } };
@@ -44,6 +44,7 @@ function itemAt(to) {
   if (to === 'building') return store;
   if (to === 'plan') {
     apply(store, { type: 'STAND_IN_FAILED', ...orchestrator }, { to: 'item:a/decision:a:plan:1' });
+    ack(store, [store.pending().find((e) => e.name === 'postDecisionCard').id], { card: tap.source.ref, by: orchestrator });
     return store;
   }
   apply(store, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/7', ...worker }, { to: 'item:a' });
@@ -84,7 +85,7 @@ test('replay re-applies each row with its envelope; a row from before the envelo
   assert.deepEqual(replay(store).notes, ['old-1: refused: CHECKS_PASSED without an actor']);
 });
 
-test('PERSON_DECIDED is taken only from a person through a tap with the card message id', () => {
+test('PERSON_DECIDED is taken only from a person through a tap with the posted card\'s message id', () => {
   const store = itemAt('plan');
   const to = { to: 'item:a/decision:a:plan:1' };
   const decide = { type: 'PERSON_DECIDED', choice: 'approve' };
@@ -92,6 +93,7 @@ test('PERSON_DECIDED is taken only from a person through a tap with the card mes
   refused(store, { ...decide, ...fromCli(tap.actor) }, to, /refused/);
   refused(store, { ...decide, actor: { kind: 'timer', id: 'tick' }, source: tap.source }, to, /refused/);
   refused(store, { ...decide, actor: tap.actor, source: { kind: 'tap', ref: '' } }, to, /refused/);
+  refused(store, { ...decide, actor: tap.actor, source: { kind: 'tap', ref: 'cmsg_another' } }, to, /refused: PERSON_DECIDED in awaitingPerson/);
   assert.equal(apply(store, { ...decide, ...tap }, to).refused, undefined);
   assert.equal(state(store, 'a'), 'active.building');
 });
@@ -180,7 +182,7 @@ test('harness send needs --actor and --source for a guarded event, and never mak
   const bare = run('send', '{"type":"PERSON_DECIDED","choice":"approve"}', ...to);
   assert.equal(bare.status, 1);
   assert.match(bare.stderr, /PERSON_DECIDED needs --actor .* --source/);
-  assert.equal(store.events().length, 4, 'nothing written');
+  assert.equal(store.events().length, 5, 'nothing written');
   const ok = run('send', '{"type":"PERSON_DECIDED","choice":"approve"}', ...to, '--actor', 'person:person', '--source', 'tap:cmsg_card1');
   assert.equal(ok.status, 0, ok.stderr);
   const row = store.events().at(-1);

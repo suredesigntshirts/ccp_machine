@@ -1,9 +1,13 @@
 // Tests drive the harness the way the scripted host does: each event from the party that sends it for
 // real (src/sim.js scripted), unless the test names one. test/envelope.test.js checks the wrong parties.
-import { apply as applyEvent } from '../src/runtime.js';
+import { apply as applyEvent, ack, cardAddress } from '../src/runtime.js';
 import { scripted } from '../src/sim.js';
 
-export const apply = (store, event, opts) => applyEvent(store, event?.actor || event?.source ? event : { ...event, ...scripted(event?.type) }, opts);
+// A PERSON_DECIDED with no sender named is the person's tap on the decision's card, posted first if it is not yet.
+export const apply = (store, event, opts) =>
+  event?.type === 'PERSON_DECIDED' && !event.actor && !event.source
+    ? decide(store, opts?.to, event.choice, undefined, opts)
+    : applyEvent(store, event?.actor || event?.source ? event : { ...event, ...scripted(event?.type) }, opts);
 
 /** The orchestrator starts, as every host does after init. */
 export const start = (store, now) => apply(store, { type: 'ORCHESTRATOR_STARTED' }, { id: 'orchestrator-started', ...(now && { now }) });
@@ -17,3 +21,19 @@ export const logged = (store, rows) => {
 /** Earn `act` for a class: 20 of the person's decisions agreeing with the stand-in's lean, recorded before `at`. */
 export const earn = (store, decisionClass, at = '2026-01-01T00:00:00Z') =>
   logged(store, Array.from({ length: 20 }, (_, i) => ({ effectId: `earned-${decisionClass}-${i}`, at, decisionClass, choice: 'approve', decidedBy: 'person', standIn: { choice: 'approve' } })));
+
+/** The host posts the card the machine asked for at `to` (a decision or an audit): it acks the pending card effect with the card's message id. */
+export const post = (store, to, card = `cmsg_${to.replace(/[^A-Za-z0-9]/g, '_')}`, now) => {
+  const effect = store.pending().find((e) => ['postDecisionCard', 'postAuditCard'].includes(e.name) && cardAddress(e) === to);
+  if (!effect) throw new Error(`no card to post for ${to}`);
+  ack(store, [effect.id], { card, by: scripted('CARD_POSTED'), ...(now && { now }) });
+  return card;
+};
+
+/** The person taps `choice` on the decision's card at `to`, posting the card first if the host has not. */
+export const decide = (store, to, choice, card, { to: _, ...opts } = {}) => {
+  const posted = store.events().findLast((e) => e.event.type === 'CARD_POSTED' && e.to === to)?.event.card;
+  const ref = card ?? posted ?? post(store, to, undefined, opts.now);
+  if (!posted && card) post(store, to, card, opts.now);
+  return applyEvent(store, { type: 'PERSON_DECIDED', choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref } }, { to, ...opts });
+};

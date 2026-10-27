@@ -13,7 +13,11 @@
       { "type": "DECISION_PENDING", "decisionId": "d1", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "DECISION_CLOSED", "decisionId": "d1", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "DIGEST_DUE", "day": "2026-10-27", "actor": { "kind": "timer", "id": "tick" }, "source": { "kind": "timer", "ref": "2026-10-26T02:30:00Z" } },
-      { "type": "ORCHESTRATOR_STARTED", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } }
+      { "type": "ORCHESTRATOR_STARTED", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "AUDIT_PICKED", "day": "2026-10-26", "picks": ["s1", "s2"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness audit" } },
+      { "type": "AUDIT_PICKED", "day": "2026-10-27", "picks": ["s1", "s2", "s3", "s4"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness audit" } },
+      { "type": "AUDIT_PICKED", "day": "today", "picks": ["s1"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness audit" } },
+      { "type": "AUDIT_PICKED", "day": "2026-10-28", "picks": ["s1"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } }
     ]
   },
   "budget": {
@@ -90,13 +94,33 @@
       { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.5 }, "actor": { "kind": "session", "id": "stand-in" }, "source": { "kind": "cli", "ref": "harness answer" } },
       { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve" }, "actor": { "kind": "session", "id": "stand-in" }, "source": { "kind": "cli", "ref": "harness answer" } },
       { "type": "STAND_IN_FAILED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "CARD_POSTED", "card": "cmsg_card", "effect": "e1.0", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness ack" } },
+      { "type": "CARD_POSTED", "card": "cmsg_card", "effect": "e1.0", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "CARD_POSTED", "card": "posted", "effect": "e1.0", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness ack" } },
       { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
       { "type": "PERSON_DECIDED", "choice": "reject", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
       { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "cli", "ref": "cmsg_card" } },
       { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "" } },
       { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95 }, "actor": { "kind": "session", "id": "triager" }, "source": { "kind": "cli", "ref": "harness answer" } },
-      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95 }, "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness answer" } }
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95 }, "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness answer" } },
+      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_other" } },
+      { "type": "PERSON_DECIDED", "choice": "maybe", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } }
+    ]
+  },
+  "audit": {
+    "inputs": [{"id": "audit:2026-10-26", "day": "2026-10-26", "picks": ["s1", "s2"]}],
+    "events": [
+      { "type": "CARD_POSTED", "card": "cmsg_card", "effect": "e1.0", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness ack" } },
+      { "type": "CARD_POSTED", "card": "cmsg_card", "effect": "e1.0", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "CARD_POSTED", "card": "posted", "effect": "e1.0", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness ack" } },
+      { "type": "AUDIT_ANSWERED", "option": 0, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "AUDIT_ANSWERED", "option": 2, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "AUDIT_ANSWERED", "option": 3, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "AUDIT_ANSWERED", "option": "1", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "AUDIT_ANSWERED", "option": 1, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_other" } },
+      { "type": "AUDIT_ANSWERED", "option": 1, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "AUDIT_ANSWERED", "option": 1, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "cli", "ref": "cmsg_card" } }
     ]
   }
 }

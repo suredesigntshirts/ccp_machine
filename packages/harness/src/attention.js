@@ -4,26 +4,29 @@ import { itemRecords, itemTurns } from './item-page.js';
 
 /**
  * One item's cost.
- * - touches: decision cards posted for it, plus events the host marked `person: true` (a message of
- *   the person's that the item needed);
+ * - touches: the cards posted for its decisions (CARD_POSTED), the person's taps on them (PERSON_DECIDED from
+ *   a person actor) and the audit answers that checked one of its decisions (AUDIT_ANSWERED, as decision log
+ *   rows); no event flag counts;
  * - standIn: decisions the stand-in made alone; reversed: the person's decisions that went against its lean;
  * - turns, tokens and cost: from the session ledgers of the sessions named on its events (null without one);
  * - wallMs: request to merge (or to now while it runs).
  */
 export function attention(item, { events = [], outbox = [], acks = [], decisions = [], sessions = {} } = {}, now = new Date().toISOString()) {
   const mine = itemRecords(item.id, { events, outbox, acks });
-  const cards = mine.effects.filter((e) => e.name === 'postDecisionCard').length;
-  const personMessages = mine.events.filter((e) => e.event.person === true).length;
+  const cards = mine.events.filter((e) => e.event.type === 'CARD_POSTED').length;
+  const taps = mine.events.filter((e) => e.actor?.kind === 'person').length;
   const rows = decisions.filter((d) => d.item === item.id);
+  const audited = rows.filter((d) => d.audit).length;
   const turns = itemTurns(item, mine.events, sessions, now);
   const sum = (k) => turns.reduce((n, t) => n + (t.all?.[k] ?? 0), 0);
   const first = mine.events[0]?.at;
   const end = item.done ? mine.events.at(-1)?.at : now;
   return {
     id: item.id,
-    touches: cards + personMessages,
+    touches: cards + taps + audited,
     cards,
-    personMessages,
+    taps,
+    audited,
     standIn: rows.filter((d) => d.decidedBy === 'stand-in').length,
     reversed: rows.filter((d) => d.decidedBy === 'person' && d.standIn?.choice && d.choice && d.standIn.choice !== d.choice).length,
     turns: turns.length || null,

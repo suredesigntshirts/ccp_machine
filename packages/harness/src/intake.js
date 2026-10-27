@@ -74,7 +74,7 @@ export function intakeRows(store, result, { at = new Date().toISOString(), by } 
       continue;
     }
     const request = requestFor(row);
-    const r = apply(store, { type: 'REQUEST_RECEIVED', request, person: true, ...by }, { id: `req-${row.id}` });
+    const r = apply(store, { type: 'REQUEST_RECEIVED', request, ...by }, { id: `req-${row.id}` });
     if (r.refused) { skipped.push({ id: row.id, why: r.why }); continue; }
     filed.push({ row: row.id, item: request.id, duplicate: r.duplicate === true });
     updates.push({ doc_id: row.id, data: { status: 'taken', item: request.id, href: itemHref(request.id), takenAt: at } });

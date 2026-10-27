@@ -1,12 +1,17 @@
 // A decision card: turns a postDecisionCard effect into the arguments of a request_decision card, so
-// the orchestrator posts it unchanged. The options map to the gate's choices in order; a tap on option
-// i comes back as PERSON_DECIDED with choices[i], sent to `address` as the person from a tap whose ref is
-// the card's message id (--actor person:<id> --source tap:<message id>); the decision refuses anything else.
-const CHOICES = [
-  ['approve', 'Approve', { plan: 'The item goes on to build.', accept: 'The item goes on to merge.', merge: 'The PR is merged.' }],
-  ['revise', 'Revise', { plan: 'The item goes back to triage for a new plan.', accept: 'The item goes back to build.', merge: 'The item goes back to build.' }],
-  ['reject', 'Drop it', { plan: 'The item is cancelled.', accept: 'The item is cancelled.', merge: 'The item is cancelled and the PR stays open.' }]
-];
+// the orchestrator posts it unchanged, then acks the effect with the card's message id
+// (harness ack <effect> --card <cmsg id>), which the decision records (CARD_POSTED). The options are the
+// decision's options in order; a tap on option i comes back as PERSON_DECIDED with choices[i], sent to
+// `address` as the person from a tap whose ref is that message id (--actor person:<id> --source tap:<cmsg id>);
+// the decision refuses anything else.
+import { specs } from './machines.js';
+
+const LABELS = {
+  approve: ['Approve', { plan: 'The item goes on to build.', accept: 'The item goes on to merge.', merge: 'The PR is merged.' }],
+  revise: ['Revise', { plan: 'The item goes back to triage for a new plan.', accept: 'The item goes back to build.', merge: 'The item goes back to build.' }],
+  reject: ['Drop it', { plan: 'The item is cancelled.', accept: 'The item is cancelled.', merge: 'The item is cancelled and the PR stays open.' }]
+};
+const CHOICES = specs.decision.context.options.map((c) => [c, ...LABELS[c]]);
 
 const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
