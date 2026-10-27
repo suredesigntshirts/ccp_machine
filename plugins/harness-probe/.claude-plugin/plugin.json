@@ -1,0 +1,5 @@
+{
+  "name": "harness-probe",
+  "version": "0.0.1",
+  "description": "Throwaway install probe: tests marketplace plugin loading per project and hook firing in cloud threads."
+}
