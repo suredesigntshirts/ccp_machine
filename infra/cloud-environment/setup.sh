@@ -1,7 +1,9 @@
 #!/bin/bash
-# ccp_machine cloud setup script. Paste into Project settings > Cloud environment > gear > Setup
-# script. It runs when the container is built, after the repo clone and before Claude Code starts;
-# the environment then caches the container, so edits here take effect only on the next cache build.
+# ccp_machine cloud setup script. Do not paste this file: paste the stub paste-me.sh once into
+# Project settings > Cloud environment > gear > Setup script, and it runs this file from the fresh
+# clone at each container build, so edits here need no re-paste.
+# It runs when the container is built, after the repo clone and before Claude Code starts; the
+# environment then caches the container, so edits take effect only on the next cache build.
 # 1. Merges the repo's .claude/settings.json into the user-level ~/.claude/settings.json.
 # 2. Links the repo's .claude/skills into ~/.claude/skills, because a cloud thread does not load
 #    the repo's own .claude/ (untrusted workspace).
@@ -32,6 +34,20 @@ repo=/home/user/ccp_machine
   else
     echo "settings: jq failed on $src; $settings left as it was"
   fi
+  # The harness plugin registers its own Stop hook, so an older copy of the repo's file-turns.js Stop
+  # entry in the user settings (kept by the additive merge) would fire twice. Drop exactly that entry.
+  if tmp=$(jq 'if (.hooks.Stop | type) == "array" then
+      .hooks.Stop |= map(select(([.hooks[]?.args[]?, .hooks[]?.command?] | map(strings) | any(contains("plugins/harness/scripts/file-turns.js"))) | not))
+      | if (.hooks.Stop | length) == 0 then del(.hooks.Stop) else . end
+      | if (.hooks | length) == 0 then del(.hooks) else . end
+    else . end' "$settings") && [ -n "$tmp" ]; then
+    if [ "$tmp" != "$(jq . "$settings")" ]; then
+      printf '%s\n' "$tmp" > "$settings"
+      echo "settings: removed stale file-turns.js Stop hook entry"
+    fi
+  else
+    echo "settings: stale Stop hook cleanup skipped; $settings left as it was"
+  fi
 
   # 2. Repo skills. Link, not copy: the clone is fresh every session while this container is cached.
   mkdir -p "$H/.claude/skills"
@@ -42,9 +58,8 @@ repo=/home/user/ccp_machine
   done
 
   # 3. Repo plugins. A folder holding .claude-plugin/plugin.json, linked into ~/.claude/skills,
-  # loads as <name>@skills-dir. Named from its plugin.json, else its folder. mods/ holds Claude Code
-  # mods, not plugins, so it is skipped.
-  find "$repo" -maxdepth 4 \( -name node_modules -o -name .git -o -path "$repo/mods" \) -prune -o \
+  # loads as <name>@skills-dir. Named from its plugin.json, else its folder.
+  find "$repo" -maxdepth 4 \( -name node_modules -o -name .git \) -prune -o \
     -path '*/.claude-plugin/plugin.json' -print 2>/dev/null | while read -r manifest; do
     dir=$(dirname "$(dirname "$manifest")")
     name=$(jq -r '.name // empty' "$manifest" 2>/dev/null)

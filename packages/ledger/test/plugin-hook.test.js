@@ -155,10 +155,10 @@ test('the status mod ships in the plugin: hooks.json names its module and plugin
   assert.match(mod, /scripts\/status\.js/);
 });
 
-test('both registrations pass their tag: hooks.json says plugin, .claude/settings.json says settings', () => {
-  const stop = (hooks) => hooks.Stop.flatMap((h) => h.hooks).find((h) => h.args?.[0]?.endsWith('scripts/file-turns.js'));
+test('only the plugin registers the Stop hook: hooks.json says plugin, .claude/settings.json has none', () => {
+  const stop = (hooks) => (hooks?.Stop ?? []).flatMap((h) => h.hooks).find((h) => h.args?.[0]?.endsWith('scripts/file-turns.js'));
   assert.equal(stop(JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8')).hooks).args[1], 'plugin');
-  assert.equal(stop(JSON.parse(readFileSync(join(repo, '.claude/settings.json'), 'utf8')).hooks).args[1], 'settings');
+  assert.equal(stop(JSON.parse(readFileSync(join(repo, '.claude/settings.json'), 'utf8')).hooks), undefined);
 });
 
 test('CI version check: a plugin change without a higher version fails, with one passes', () => {
