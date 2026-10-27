@@ -1,11 +1,9 @@
 # harness plugin
 
 This folder is the installable plugin. The setup script links it as it is
-(`infra/cloud-environment/setup.sh`), and a marketplace can install it as it is: nothing is copied by hand.
-
-```
-/plugin install harness --marketplace suredesigntshirts/ccp_machine
-```
+(`infra/cloud-environment/setup.sh`): nothing is copied by hand. It is not in the marketplace
+(`.claude-plugin/marketplace.json`) until it gates itself per project: marketplace plugins on this
+account sync into every project.
 
 - **Stop hook** (`hooks/hooks.json`, `scripts/file-turns.js`): after every turn, re-reads the session
   transcript and writes its ledger to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>.json` (default
