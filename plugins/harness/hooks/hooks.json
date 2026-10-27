@@ -1,13 +1,25 @@
 {
-  "description": "After each turn, file this session's turn ledger (turns, requests, tools, subagents, cost) in the Library",
+  "description": "Print the harness version at session start; after each turn, file this session's turn ledger in the Library. Both do nothing unless the project has installed the harness.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/file-turns.js"],
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/file-turns.js", "plugin"],
             "timeout": 30
           }
         ]

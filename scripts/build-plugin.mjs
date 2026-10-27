@@ -6,8 +6,9 @@
 import { cpSync, rmSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
 const src = join(root, 'packages/ledger/src');
 const out = join(root, 'plugins/harness/lib/ledger');
 const args = process.argv.slice(2);

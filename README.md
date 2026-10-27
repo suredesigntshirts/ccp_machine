@@ -15,8 +15,9 @@ effects, and renders mission control and the item pages. See [its README](packag
 tools, subagents, cost and usage windows, with a budget and an HTML report. See
 [its README](packages/ledger/README.md).
 
-**`plugins/harness`.** The Claude Code plugin threads load: a Stop hook that files each turn's ledger
-into the Library. The folder is the plugin as installed. See [its README](plugins/harness/README.md).
+**`plugins/harness`.** The Claude Code plugin threads load: a SessionStart hook that prints the harness
+version and commit, and a Stop hook that files each turn's ledger into the Library. Both stay quiet in
+projects without the install marker. The folder is the plugin as installed. See [its README](plugins/harness/README.md).
 
 **`mods/harness-status`.** A Claude Code mod with a status line and a `/harness` pane over the harness
 store. See [its README](mods/harness-status/README.md).
