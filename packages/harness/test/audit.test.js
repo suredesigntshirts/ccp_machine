@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, readDecisionLog, logPrecedents, auditPicks, auditCard, dayAudit, answerAudit, untestedRuns, auditLine, calibrateClass, ladder, doctor, renderDigest, status } from '../src/index.js';
+import { openStore, init, readDecisionLog, logPrecedents, auditPicks, auditCard, dayAudit, answerAudit, untestedRuns, auditLine, openAudits, renderPage, calibrateClass, ladder, doctor, renderDigest, status } from '../src/index.js';
 
 const lean = (confidence) => ({ choice: 'approve', confidence, threshold: 0.9, autonomy: 'act', reason: 'looks fine' });
 const standIn = (n, cls, confidence, at) => ({ effectId: `s${n}`, at, item: `i${n}`, decision: `decision:i${n}:${cls}:1`, decisionClass: cls, tier: 1, question: `${cls}: i${n}`, choice: 'approve', decidedBy: 'stand-in', standIn: lean(confidence) });
@@ -72,4 +72,18 @@ test('doctor warns, without failing, when a class goes 21 stand-in decisions unc
   const report = doctor(storeWith(rows));
   assert.equal(report.ok, true);
   assert.match(report.warnings[0], /^plan: 21 stand-in decisions in a row/);
+});
+
+test('an unanswered audit counts under Needs you on mission control until it is answered', () => {
+  const store = storeWith([standIn(1, 'plan', 0.9, '2026-10-26T10:00:00Z')]);
+  const day = '2026-10-26';
+  const page = () => renderPage(status(store), { audits: openAudits(store) });
+  assert.match(page(), /Nothing is waiting on you/, 'no audit picked yet');
+  dayAudit(store, day);
+  assert.equal(openAudits(store).length, 1);
+  assert.match(page(), /Needs you<\/span><b>1<\/b>/);
+  assert.match(page(), /Did the stand-in call these 1 right\?[\s\S]*harness audit --day 2026-10-26 --answer N/);
+  answerAudit(store, day, 0);
+  assert.deepEqual(openAudits(store), []);
+  assert.match(page(), /Nothing is waiting on you/);
 });

@@ -2,7 +2,7 @@
 // never gets tested and its ladder never moves. Once a day the person checks up to 3 of those decisions
 // on one card: one tap confirms all of them, or reverses one. Each answer goes into the decision log as
 // the person's decision against the stand-in's lean, which is what calibration and the ladder learn from.
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readDecisionLog } from './decision-log.js';
 
@@ -116,6 +116,17 @@ export function untestedRuns(rows, limit = UNTESTED_WARN) {
   return Object.entries(run)
     .filter(([, n]) => n > limit)
     .map(([decisionClass, n]) => ({ decisionClass, untested: n }));
+}
+
+/** Every audit the person has not answered yet, any day, oldest first: mission control lists them under Needs you. */
+export function openAudits(store) {
+  const dir = join(store.dir, 'audits');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .sort()
+    .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')))
+    .filter((a) => !a.answered && a.picks?.length);
 }
 
 /** The digest's line while today's audit waits on the person, else null. */

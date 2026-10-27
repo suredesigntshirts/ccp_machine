@@ -62,17 +62,28 @@ function decisionCard(item, d) {
   <div class="m">Answer: <code>harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to ${esc(d.address)}</code></div></div>`;
 }
 
+function auditCardHtml(a) {
+  return `<div class="card"><span class="eyebrow">stand-in audit · ${esc(a.day)}</span>
+  <b>Did the stand-in call these ${a.picks.length} right?</b>
+  <ul>${a.picks.map((p) => `<li>${esc(p.item)} ${esc(p.decisionClass)}: ${esc(p.choice)}${p.standIn?.confidence != null ? ` (${pct(p.standIn.confidence)} sure)` : ''}</li>`).join('')}</ul>
+  <div class="m">Answer on the card in the thread, or: <code>harness audit --day ${esc(a.day)} --answer N</code> (0 all right, N reverses pick N)</div></div>`;
+}
+
 /**
  * @param {object} st from status()
  * @param {{events?: object[], pending?: object[], title?: string, standalone?: boolean, itemLinks?: boolean}} opts
  *   itemLinks: link each item to items/<id>.html (written next to the page by `harness page`)
  *   metrics: {id: text} per item (attentionText); finished items show it as an Attention column
+ *   audits: unanswered stand-in audits (openAudits); each is one ask under Needs you
  *   requestBox: add the "Ask for work" form, which saves to the Artifact db (publish with capabilities {db: {}})
  */
-export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {}, requestBox = false } = {}) {
+export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {}, requestBox = false, audits = [] } = {}) {
   const live = st.items.filter((i) => !i.done);
   const finished = st.items.filter((i) => i.done);
-  const asks = live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => decisionCard(i, d)));
+  const asks = [
+    ...live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => decisionCard(i, d))),
+    ...audits.map(auditCardHtml)
+  ];
   const scheduler = st.state.scheduler;
   const budget = st.budget;
   const links = (i) => {
