@@ -299,14 +299,16 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         enqueue.spawnChild('workItem', { id, systemId: `item:${id}`, input: { ...event.request, orchestrator: context.orchestrator, requester: event.actor?.id ?? null } });
         enqueue.assign({ queued: ({ context }) => [...context.queued, id] });
       }),
-      startReadyItems: enqueueActions(({ enqueue, context }) => {
-        const free = Math.max(0, context.wipLimit - context.inFlight.length);
-        const starting = context.queued.slice(0, free);
+      // inFlight and queued hold only items still running. An item that finished without its slot being released
+      // (cancelled while queued in a store from before releaseSlot cleared the queue, then started) is dropped
+      // here, so it never holds a slot. A child spawned by this same event is not in the snapshot yet: it stays.
+      startReadyItems: enqueueActions(({ enqueue, context, self }) => {
+        const running = (id) => (self.getSnapshot?.()?.children?.[id]?.getSnapshot?.().status ?? 'active') === 'active';
+        const inFlight = context.inFlight.filter(running);
+        const queued = context.queued.filter(running);
+        const starting = queued.slice(0, Math.max(0, context.wipLimit - inFlight.length));
         for (const id of starting) enqueue.sendTo(id, { type: 'START' });
-        enqueue.assign({
-          queued: context.queued.slice(starting.length),
-          inFlight: [...context.inFlight, ...starting]
-        });
+        enqueue.assign({ queued: queued.slice(starting.length), inFlight: [...inFlight, ...starting] });
       }),
       // An item that finishes while still queued (cancelled before it started) leaves the queue too.
       releaseSlot: assign({

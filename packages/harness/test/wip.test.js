@@ -110,3 +110,19 @@ test('replay rebuilds from the limit the store had before its first WIP_SET', ()
   assert.equal(status(store).context.wipLimitAtInit, 1);
   clean(store);
 });
+
+// The dogfood store at v10, as it was: rules-in-spec was cancelled while queued before releaseSlot cleared the queue,
+// then WIP_SET 2 started it, so a finished item held a slot. The next event that starts items frees it.
+test('a finished item stuck in flight (dogfood v10) is dropped the next time items start, and its slot goes to the next request', async () => {
+  const { cpSync } = await import('node:fs');
+  const dir = tempDir('harness-stale-');
+  cpSync(new URL('./fixtures/stale-in-flight/', import.meta.url), dir, { recursive: true });
+  const store = openStore(dir);
+  const before = status(store);
+  assert.deepEqual([before.context.inFlight, before.items.find((i) => i.id === 'rules-in-spec').state], [['spawn-merge-gates', 'rules-in-spec'], 'cancelled']);
+  const r = apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'harness-pages' }, actor: { kind: 'session', id: 'pages-thread' }, source: { kind: 'cli', ref: 'harness issue-request' } });
+  assert.equal(r.refused, undefined, r.why);
+  const after = status(store);
+  assert.deepEqual([after.context.inFlight, after.context.queued], [['spawn-merge-gates', 'harness-pages'], []]);
+  assert.equal(after.items.find((i) => i.id === 'harness-pages').state, 'active.triaging');
+});

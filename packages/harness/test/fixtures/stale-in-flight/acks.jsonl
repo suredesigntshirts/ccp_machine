@@ -1,0 +1,5 @@
+{"effectId":"req-issue36.0","outcome":"done","note":"triage run done: TRIAGED v4 from agent a9d8047973463a82e","at":"2026-10-27T18:38:08.775Z"}
+{"effectId":"triage-spawn-merge-gates-1.0","outcome":"done","note":"stand-in answered approve","at":"2026-10-27T18:38:45.321Z"}
+{"effectId":"standin-decision:spawn-merge-gates:plan:1.0","outcome":"done","note":"cmsg_01CRqZ2YoFXkbgk5p24fe6Kk3oATsfWtG2dG9xfzTzMhzG","at":"2026-10-27T18:39:17.560Z"}
+{"effectId":"tap-plan-spawn-merge-gates-1.0","outcome":"done","note":"in the decision log","at":"2026-10-27T18:53:03.573Z"}
+{"effectId":"tap-plan-spawn-merge-gates-1.1","outcome":"done","note":"builder spawned 18:5x: Opus subagent aa493f167da2afc8f, brief notes/harness-reflection/briefs/spawn-merge-gates/builder.md sha256 aea4f3d9…","at":"2026-10-27T18:53:03.667Z"}
