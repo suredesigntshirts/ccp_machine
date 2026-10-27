@@ -2,11 +2,28 @@
 // with `pr`, usually), and one PR binds to at most one item; runtime.apply() refuses an event that would
 // bind otherwise. So a GitHub fact read for a PR counts for the one item that named it first.
 
-/** "owner/repo#12" or ".../owner/repo/pull/12" as "owner/repo#12". */
+/**
+ * One key per PR, "owner/repo#12", from "owner/repo#12", ".../owner/repo/pull/12" or an API ".../pulls/12":
+ * owner/repo lowercased (GitHub ignores their case) and the number as an integer, so every spelling of one
+ * PR binds as one.
+ */
 export const prKey = (ref) => {
-  const m = /([\w.-]+\/[\w.-]+)(?:#|\/pull\/)(\d+)/.exec(String(ref ?? ''));
-  return m ? `${m[1]}#${m[2]}` : null;
+  const m = /([\w.-]+\/[\w.-]+)(?:#|\/pulls?\/)(\d+)/.exec(String(ref ?? ''));
+  return m ? `${m[1].toLowerCase()}#${Number.parseInt(m[2], 10)}` : null;
 };
+
+/**
+ * Whether a PR's branch is item's: `<type>/<slug>` where the slug, less an optional leading `<issue>-` and
+ * an optional trailing `--<agent>`, is the item id exactly. feat/42-login-fix and feat/login-fix--tests are
+ * item login-fix's; feat/login-fix-2 and feat/login are not.
+ */
+export function branchNamesItem(branch, item) {
+  const m = /^[a-z0-9]+\/(.+)$/.exec(String(branch ?? ''));
+  if (!m || !item) return false;
+  const slug = m[1];
+  const bare = slug.replace(/--[a-z0-9-]+$/, '');
+  return [slug, bare].some((s) => s === item || s.replace(/^\d+-/, '') === item);
+}
 
 /** The item an address belongs to: "item:a" and "item:a/decision:..." are item a's; others none. */
 export const itemOf = (to) => /^item:([^/]+)/.exec(to ?? '')?.[1] ?? null;

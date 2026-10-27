@@ -7,6 +7,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
+import { branchNamesItem } from './pr-binding.js';
 
 export const FAILED = ['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure'];
 export const GH = '/usr/local/bin/gh';
@@ -73,25 +74,26 @@ export function malformed(p, n) {
   return bad.length ? bad.join(', ') : null;
 }
 
-/** Why PR answer p is not item's own PR: opened before the item's request, or a branch without its id. */
+/** Why PR answer p is not item's own PR: opened before the item's request, or a branch that does not name it (branchNamesItem). */
 export function notItsPr(p, pr, { item, requestedAt }) {
   const why = [];
   if (!requestedAt) why.push(`item ${item} has no REQUEST_RECEIVED to date its PR against`);
   else if (Date.parse(p.created_at) < Date.parse(requestedAt)) why.push(`${pr} was created ${p.created_at}, before item ${item}'s request at ${requestedAt}`);
   const ref = String(p.head?.ref ?? '');
-  if (!ref.includes(item)) why.push(`${pr}'s branch ${ref || '(none)'} does not contain the item id ${item}`);
+  if (!branchNamesItem(ref, item)) why.push(`${pr}'s branch ${ref || '(none)'} does not name item ${item} (<type>/[<issue>-]${item}[--<agent>])`);
   return why;
 }
 
 /**
- * The GitHub fact behind a CHECKS_PASSED, CHECKS_FAILED or MERGED for pr ("owner/repo#N"; sha: the full head
- * sha the wake named, needed for CI). With item, the PR must also be that item's: created at or after
- * requestedAt and on a branch whose name contains the item id. Returns {ref} naming what GitHub said (and the
- * head sha for CI), or {why} when the wake or GitHub's answer falls short, GitHub disagrees, or it cannot be read.
+ * The GitHub fact behind a CHECKS_PASSED, CHECKS_FAILED, MERGED or CANCEL (closed without merging) for pr
+ * ("owner/repo#N"; sha: the full head sha the wake named, needed for CI). With item, the PR must also be that
+ * item's: created at or after requestedAt and on a branch that names the item (branchNamesItem). Returns {ref}
+ * naming what GitHub said (and the head sha for CI), or {why} when the wake or GitHub's answer falls short,
+ * GitHub disagrees, or it cannot be read.
  */
 export async function readFact({ type, pr, sha = '', item, requestedAt }, fetcher = restFetcher) {
   const [repo, n] = pr.split('#');
-  if (type !== 'MERGED' && !SHA.test(sha)) return { why: `the wake names no full 40-character head sha for ${pr} (${sha || 'none'})` };
+  if (type !== 'MERGED' && type !== 'CANCEL' && !SHA.test(sha)) return { why: `the wake names no full 40-character head sha for ${pr} (${sha || 'none'})` };
   let step = `repos/${repo}/pulls/${n}`;
   try {
     const p = await fetcher(step);
@@ -100,6 +102,10 @@ export async function readFact({ type, pr, sha = '', item, requestedAt }, fetche
     if (item != null) {
       const not = notItsPr(p, pr, { item, requestedAt });
       if (not.length) return { why: `GitHub: ${not.join('; ')}` };
+    }
+    if (type === 'CANCEL') {
+      if (p.state !== 'closed' || p.merged) return { why: `GitHub says ${pr} is ${p.merged ? 'merged' : p.state}, not closed without merging` };
+      return { ref: pr };
     }
     if (type === 'MERGED') {
       if (p.merged !== true || !p.merge_commit_sha) return { why: `GitHub says ${pr} is not merged` };

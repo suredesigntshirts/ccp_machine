@@ -10,7 +10,7 @@ import { apply, start } from './send.js';
 import { fakeGithub, recorded, HEAD, MERGE } from './github-fake.js';
 
 // PR o/r#7 is item x's: its branch names the item and it was opened after the request (12:00, before CREATED).
-const github = (o) => fakeGithub({ ref: 'feat/7-x-login', ...o });
+const github = (o) => fakeGithub({ ref: 'feat/7-x', ...o });
 
 const wake = (kind, data) => `<wake reason="external-event"><event source="github" kind="${kind}" from="system" trust="relay">
     <!-- harness guidance, with a {"brace"} in it -->
@@ -66,7 +66,7 @@ test('no delivery id is read from a wake, and an attribute matches only by its w
 });
 
 test('each kind maps to its event; successes and other kinds are ignored', () => {
-  assert.equal(mapGithubEvent({ kind: 'check_suite.completed', data: { pr: PR, head_sha: 'abcdef123' } }).id, 'ci-abcdef1-passed');
+  assert.equal(mapGithubEvent({ kind: 'check_suite.completed', data: { pr: PR, head_sha: 'abcdef123' } }).id, 'ci-o/r#7-abcdef1-passed');
   assert.equal(mapGithubEvent({ kind: 'check_run.completed', data: { pr: PR, head_sha: 'abcdef123', conclusion: 'failure', check: 'test' } }).event.type, 'CHECKS_FAILED');
   assert.ok(mapGithubEvent({ kind: 'check_run.completed', data: { pr: PR, conclusion: 'success' } }).ignore);
   assert.equal(mapGithubEvent({ kind: 'pull_request.closed', data: { pr: PR, outcome: 'merged' } }).id, 'merge-pr7');
@@ -92,10 +92,10 @@ test('a failed check, then a green suite, then the merge drive the item to done;
   const { store } = storeAtVerify();
   assert.deepEqual(prMap(store.events()), { [PR]: 'x' });
   const fail = await fromGithub(store, failedRun(), { fetcher: github({ checks: 'failure' }) });
-  assert.deepEqual([fail.result, fail.event, fail.id], ['sent', 'CHECKS_FAILED', `ci-${H7}-failed`]);
+  assert.deepEqual([fail.result, fail.event, fail.id], ['sent', 'CHECKS_FAILED', `ci-${PR}-${H7}-failed`]);
   const row = store.events().at(-1);
   assert.deepEqual([row.actor, row.source], [{ kind: 'github', id: 'github' }, { kind: 'github-wake', ref: `${PR}@${HEAD}:checks=failure` }]);
-  assert.deepEqual(await fromGithub(store, suite(), { fetcher: github() }), { result: 'refused', item: 'x', id: `ci-${H7}-passed`, why: 'refused: CHECKS_PASSED in active.building' }, 'building again, not verifying');
+  assert.deepEqual(await fromGithub(store, suite(), { fetcher: github() }), { result: 'refused', item: 'x', id: `ci-${PR}-${H7}-passed`, why: 'refused: CHECKS_PASSED in active.building' }, 'building again, not verifying');
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x' });
   const green = github({ head: OTHER });
   assert.equal((await fromGithub(store, suite(OTHER), { fetcher: green })).result, 'sent');
@@ -159,7 +159,7 @@ test('a failed check, then a passing re-run on the same commit, both reach the i
   // The host re-ran the job instead of pushing: the same build goes back to verify.
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x', id: 'run-pr7-rerun' });
   const pass = await fromGithub(store, suite(), { fetcher: github() });
-  assert.deepEqual([pass.result, pass.id], ['sent', `ci-${H7}-passed`]);
+  assert.deepEqual([pass.result, pass.id], ['sent', `ci-${PR}-${H7}-passed`]);
   assert.match(state(store), /merging/);
 });
 

@@ -31,10 +31,11 @@ export function mapGithubEvent({ kind, data }) {
   const sha = head.slice(0, 7);
   if (!pr) return { ignore: `no PR in ${kind}` };
   const url = `https://github.com/${pr.replace('#', '/pull/')}`;
-  if (kind === 'check_suite.completed') return { pr, head, id: `ci-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha } };
+  // A CI id names the PR: two items' PRs can share a commit, and each item takes its own result.
+  if (kind === 'check_suite.completed') return { pr, head, id: `ci-${pr}-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha } };
   if (kind === 'check_run.completed') {
     if (!FAILED.includes(data.conclusion)) return { ignore: `check ${data.check ?? ''} ${data.conclusion}: the suite reports the result` };
-    return { pr, head, id: `ci-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion } };
+    return { pr, head, id: `ci-${pr}-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion } };
   }
   if (kind === 'pull_request.closed')
     return data.outcome === 'merged'
@@ -45,10 +46,11 @@ export function mapGithubEvent({ kind, data }) {
 
 /**
  * Apply one GitHub event to the store, sent by github from a github-wake, once GitHub agrees: before a CI
- * result or a merge, the PR is read from GitHub's REST API (fetcher, see github-read.js). It must be the
- * item's own PR (the item that named it first; created at or after the item's request; its branch name
- * contains the item id), a CI result must name the PR's full 40-character head sha, and the ref is the
- * fact read, such as o/r#7@<head sha>:checks=success or o/r#7:merged@<merge sha>. Returns what happened: sent
+ * result, a merge or a close without merging, the PR is read from GitHub's REST API (fetcher, see
+ * github-read.js). It must be the item's own PR (the item that named it first; created at or after the
+ * item's request; a branch that names the item, see branchNamesItem), a CI result must name the PR's full
+ * 40-character head sha, and the ref is the fact read, such as o/r#7@<head sha>:checks=success,
+ * o/r#7:merged@<merge sha> or o/r#7 (closed without merging). Returns what happened: sent
  * (with the effects), duplicate, refused (GitHub disagrees or cannot be read, or the item's machine would
  * not take it; nothing written), unknown PR, or ignored.
  */
@@ -59,10 +61,9 @@ export async function fromGithub(store, raw, { fetcher } = {}) {
   const events = store.events();
   const item = prMap(events)[m.pr];
   if (!item) return { result: 'unknown', why: `no item names ${m.pr}`, pr: m.pr };
-  const fact = m.event.type === 'CANCEL' ? { ref: m.pr } : await readFact({ type: m.event.type, pr: m.pr, sha: m.head, item, requestedAt: requestedAt(events, item) }, fetcher);
+  const fact = await readFact({ type: m.event.type, pr: m.pr, sha: m.head, item, requestedAt: requestedAt(events, item) }, fetcher);
   if (fact.why) return { result: 'refused', item, id: m.id, why: fact.why };
-  if (fact.sha) m.event.sha = fact.sha.slice(0, 7);
-  const id = fact.sha ? m.id.replace(/^ci-[^-]*-/, `ci-${m.event.sha}-`) : m.id;
+  const { id } = m;
   // observedAt lets the retro tell CI's time from the host's delay in feeding the result.
   const at = Date.parse(ev.at);
   const event = { ...m.event, ...(!Number.isNaN(at) && { observedAt: new Date(at).toISOString() }), actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: fact.ref } };

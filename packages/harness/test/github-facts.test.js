@@ -98,8 +98,8 @@ test('the verifier\'s attack: an item bound to an unrelated merged PR (#21) gets
 
 test('from-github refuses a PR created before the item\'s request, and one whose branch does not name the item', async () => {
   const { store } = itemAtVerify('x', 'o/r#7');
-  await refused(store, suite('o/r#7'), fakeGithub({ ref: 'feat/7-x-login', createdAt: '2026-10-27T11:59:59Z' }), /o\/r#7 was created 2026-10-27T11:59:59Z, before item x's request at 2026-10-27T12:00:00/);
-  await refused(store, suite('o/r#7'), fakeGithub({ ref: 'feat/7-login' }), /branch feat\/7-login does not contain the item id x/);
+  await refused(store, suite('o/r#7'), fakeGithub({ ref: 'feat/7-x', createdAt: '2026-10-27T11:59:59Z' }), /o\/r#7 was created 2026-10-27T11:59:59Z, before item x's request at 2026-10-27T12:00:00/);
+  await refused(store, suite('o/r#7'), fakeGithub({ ref: 'feat/7-login' }), /branch feat\/7-login does not name item x/);
   // Created at the request time exactly is fine.
   assert.equal((await fromGithub(store, suite('o/r#7'), { fetcher: fakeGithub({ ref: 'feat/x', createdAt: '2026-10-27T12:00:00Z' }) })).result, 'sent');
 });

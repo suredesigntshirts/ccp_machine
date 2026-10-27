@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // harness: drive a stored harness one event at a time. Every command reads and writes the store
 // folder (--dir, default .harness), so each session wake runs a command and exits.
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
@@ -63,18 +63,19 @@ const HELP = `harness <command> [options]
   from-github FILE               turn each PR activity event in FILE, in order (wakes' <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
-                                 the merge effect); ids ci-<sha7>-passed|failed and merge-pr<N> dedupe replays.
-                                 Each CI result or merge is applied only if GitHub agrees, read with
+                                 the merge effect), a PR closed unmerged CANCEL; ids
+                                 ci-<owner/repo#N>-<sha7>-passed|failed, merge-pr<N> and closed-pr<N> dedupe
+                                 replays. Each CI result, merge or close is applied only if GitHub agrees, read with
                                  \`gh api\` (REST; gh by absolute path, /usr/local/bin/gh else \`command -v gh\`;
                                  GH_TOKEN and fetch without gh); the ref is the fact read. The PR must be
                                  the item's own: the item that named it first (an item's PR is bound once,
                                  one PR to one item), created at or after the item's request, on a branch
-                                 whose name contains the item id; a CI result must name the full 40-character
+                                 <type>/[<issue>-]<item id>[--<agent>]; a CI result must name the full 40-character
                                  head sha. Otherwise it is refused with the reason, nothing written, exit 1
   verify-facts [--store DIR]     re-read GitHub for every github-wake event in the log, one line per fact:
                                  ok, mismatch (GitHub does not back it, or it is not the item's PR) or
                                  unreachable. Never writes to the store. Exits 1 on any mismatch, else 3
-                                 when any could not be read. The check against a session that forged a
+                                 when any could not be read; 2, writing nothing, when DIR has no events.jsonl. The check against a session that forged a
                                  fact: run it from outside that session
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
@@ -166,6 +167,11 @@ try {
 }
 const { values: o, positionals: [cmd, ...args] } = parsed;
 if (o.store) o.dir = o.store;
+// verify-facts only reads: a folder without a log is a wrong --store to report, never a folder to make.
+if (cmd === 'verify-facts' && !existsSync(join(o.dir, 'events.jsonl'))) {
+  console.error(`harness: verify-facts: no events.jsonl in ${o.dir}, so no facts to verify (is --store the harness folder?)`);
+  process.exit(2);
+}
 const store = openStore(o.dir);
 // Every event goes through here: one the machine refuses is reported, and a batch goes on.
 function apply(...args) { const r = applyEvent(...args); if (r.refused) console.error(`harness: ${r.why}`); return r; }

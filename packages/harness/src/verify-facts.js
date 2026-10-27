@@ -3,7 +3,7 @@
 // runs them (or call apply() itself); a re-read later, by anyone holding the store, catches a fact GitHub
 // does not back. It reads the log and GitHub only, and never writes to the store.
 import { restFetcher, malformed, notItsPr, runsState } from './github-read.js';
-import { prMap, itemOf, requestedAt } from './pr-binding.js';
+import { prKey, prMap, itemOf, requestedAt } from './pr-binding.js';
 
 const PR = '([\\w.-]+\\/[\\w.-]+#\\d+)';
 const FACT = {
@@ -20,7 +20,8 @@ async function verifyRow(row, events, fetcher) {
   const item = itemOf(row.to);
   const m = FACT[type]?.exec(ref);
   if (!m) return { result: 'mismatch', why: FACT[type] ? `the ref names no GitHub fact for ${type}` : `${type} is not a GitHub fact` };
-  const [, pr, sha] = m;
+  const [, ref0, sha] = m;
+  const pr = prKey(ref0);
   const why = [];
   const bound = prMap(events)[pr];
   if (bound !== item) why.push(bound ? `${pr} is bound to item ${bound}, not ${item}` : `no event of item ${item} names ${pr}`);
