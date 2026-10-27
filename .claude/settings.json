@@ -12,7 +12,7 @@
   "hooks": {
   "Stop": [
     { "hooks": [ { "type": "command", "command": "node",
-      "args": ["/home/user/ccp_machine/plugins/harness/scripts/file-turns.js"], "timeout": 30 } ] }
+      "args": ["/home/user/ccp_machine/plugins/harness/scripts/file-turns.js", "settings"], "timeout": 30 } ] }
   ]
 }
 }

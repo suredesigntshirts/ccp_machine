@@ -13,6 +13,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the plugin version check diffs against the PR's base branch
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -20,6 +22,9 @@ jobs:
       - run: npm ci
       # plugins/harness/lib/ledger is committed build output; fail when it differs from a fresh build.
       - run: npm run build:plugin -- --check
+      # A change under plugins/harness must raise its plugin.json version: the version names the build.
+      - if: github.event_name == 'pull_request'
+        run: node scripts/check-plugin-version.mjs origin/${{ github.base_ref }}
       - run: npm test
       - run: npm run scenarios
       # Browser only: ubuntu-latest already has Chromium's libraries, and --with-deps spent its whole
