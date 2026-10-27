@@ -7,7 +7,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, apply, status } from '../src/index.js';
+import { openStore, init, apply, status, replay } from '../src/index.js';
 
 const orchestrator = { actor: { kind: 'session', id: 'orch-1' }, source: { kind: 'cli', ref: 'harness send' } };
 const worker = { actor: { kind: 'session', id: 'worker-1' }, source: { kind: 'cli', ref: 'harness send' } };
@@ -70,6 +70,15 @@ test('the log records actor, source and the harness version that applied the eve
   assert.deepEqual(row.event, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 } }, 'the envelope is not repeated in the event');
   assert.equal(row.harness.version, '0.1.0');
   assert.ok(row.harness.commit === null || /^[0-9a-f]{40}$/.test(row.harness.commit), row.harness.commit);
+});
+
+test('replay re-applies each row with its envelope; a row from before the envelope is refused and noted', () => {
+  const store = itemAt('verifying');
+  const good = replay(store);
+  assert.deepEqual([good.ok, good.notes], [true, []]);
+  // A fixture row as the store wrote it before M1: no actor, no source.
+  store.appendEvents([{ id: 'old-1', version: 6, at: '2026-10-26T12:00:00Z', to: 'item:a', event: { type: 'CHECKS_PASSED' } }]);
+  assert.deepEqual(replay(store).notes, ['old-1: refused: CHECKS_PASSED without an actor']);
 });
 
 test('PERSON_DECIDED is taken only from a person through a tap with the card message id', () => {

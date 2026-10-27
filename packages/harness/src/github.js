@@ -4,19 +4,23 @@
 import { apply, ack } from './runtime.js';
 
 /**
- * {kind, data, at?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
+ * {kind, data, at?, delivery?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
  * `at` is the wake's current-time: when GitHub reported, which can be well before the host feeds it.
+ * `delivery` is the delivery or event id when the wake carries one (an id or delivery attribute, or the JSON's).
  */
 export function parseGithubEvent(text) {
   const s = String(text).trim();
-  const tag = /<event\b[^>]*\bkind="([^"]+)"[^>]*>([\s\S]*?)<\/event>/.exec(s);
-  if (tag) {
-    const json = tag[2].replace(/<!--[\s\S]*?-->/g, '').trim();
-    const at = /<wake\b[^>]*\bcurrent-time="([^"]+)"/.exec(s)?.[1];
-    return { kind: tag[1], data: JSON.parse(json), ...(at && { at }) };
+  const tag = /<event\b([^>]*)>([\s\S]*?)<\/event>/.exec(s);
+  const attr = (name, where = tag?.[1] ?? '') => new RegExp(`\\b${name}="([^"]+)"`).exec(where)?.[1];
+  if (tag && attr('kind')) {
+    const data = JSON.parse(tag[2].replace(/<!--[\s\S]*?-->/g, '').trim());
+    const at = attr('current-time', /<wake\b[^>]*>/.exec(s)?.[0]);
+    const delivery = attr('delivery') ?? attr('id') ?? data.delivery_id ?? data.event_id;
+    return { kind: attr('kind'), data, ...(at && { at }), ...(delivery && { delivery: String(delivery) }) };
   }
   const o = JSON.parse(s);
-  return { kind: o.kind, data: o.data ?? o, ...(o.at && { at: o.at }) };
+  const delivery = o.delivery ?? o.delivery_id ?? o.event_id ?? o.data?.delivery_id ?? o.data?.event_id;
+  return { kind: o.kind, data: o.data ?? o, ...(o.at && { at: o.at }), ...(delivery && { delivery: String(delivery) }) };
 }
 
 /** "owner/repo#12" or ".../owner/repo/pull/12" as "owner/repo#12". */
@@ -57,7 +61,9 @@ export function mapGithubEvent({ kind, data }) {
 }
 
 /**
- * Apply one GitHub event to the store. Returns what happened: sent (with the effects), duplicate,
+ * Apply one GitHub event to the store, sent by github from a github-wake. Its ref is the wake's delivery
+ * or event id; a wake without one is named by the GitHub object it reports (the PR, @ the head sha for CI),
+ * which a verifier can look up. Returns what happened: sent (with the effects), duplicate,
  * refused (the item's machine would not take it), unknown PR, or ignored.
  */
 export function fromGithub(store, raw) {
@@ -68,7 +74,8 @@ export function fromGithub(store, raw) {
   if (!item) return { result: 'unknown', why: `no item names ${m.pr}`, pr: m.pr };
   // observedAt lets the retro tell CI's time from the host's delay in feeding the result.
   const at = Date.parse(ev.at);
-  const event = Number.isNaN(at) ? m.event : { ...m.event, observedAt: new Date(at).toISOString() };
+  const ref = ev.delivery ?? (ev.data?.head_sha ? `${m.pr}@${ev.data.head_sha}` : m.pr);
+  const event = { ...m.event, ...(!Number.isNaN(at) && { observedAt: new Date(at).toISOString() }), actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
   const r = apply(store, event, { to: `item:${item}`, id: m.id });
   if (r.refused) return { result: 'refused', item, id: m.id, why: r.why };
   if (m.event.type === 'MERGED') {

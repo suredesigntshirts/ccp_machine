@@ -6,11 +6,13 @@ import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, utimesSync, c
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { openStore, init, apply, status, doctor, repair } from '../src/index.js';
+import { openStore, init, status, doctor, repair } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const fresh = () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-chaos-')));
   init(store, {}, '2026-10-26T10:00:00Z');
+  start(store, '2026-10-26T10:00:00Z');
   return store;
 };
 const soon = Date.parse('2026-10-26T11:00:00Z');
@@ -26,9 +28,9 @@ test('a crash after state.json and before the log: doctor says so, repair --rebu
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:02:00Z' });
   writeFileSync(join(store.dir, 'events.jsonl'), before);
   writeFileSync(join(store.dir, 'outbox.jsonl'), outbox);
-  assert.ok(problems(store).some((p) => /state.json is version 3, the last event is 2 .*repair --rebuild/.test(p)));
+  assert.ok(problems(store).some((p) => /state.json is version 4, the last event is 3 .*repair --rebuild/.test(p)));
   assert.deepEqual(repair(store).left.length, 1, 'not rebuilt without --rebuild');
-  assert.deepEqual(repair(store, { rebuild: true }).fixed, ['rebuilt state.json from events.jsonl at version 2']);
+  assert.deepEqual(repair(store, { rebuild: true }).fixed, ['rebuilt state.json from events.jsonl at version 3']);
   assert.deepEqual(problems(store), []);
   const again = apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:03:00Z' });
   assert.equal(again.duplicate, undefined, 'the resent event applies');
@@ -67,7 +69,7 @@ test('two writer processes at once: every event lands once and the log stays con
         const store = openStore(${JSON.stringify(store.dir)});
         for (let i = 0; i < 8; i++) {
           for (let tries = 0; ; tries++) {
-            try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i, tier: 0 } }, { id: 'req-${tag}' + i }); break; }
+            try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i, tier: 0 }, actor: { kind: 'session', id: 'writer-${tag}' }, source: { kind: 'cli', ref: 'test' } }, { id: 'req-${tag}' + i }); break; }
             catch (e) { if (tries > 2000 || !/another writer|state changed/.test(e.message)) throw e; }
           }
         }`;
@@ -78,10 +80,10 @@ test('two writer processes at once: every event lands once and the log stays con
     });
   await Promise.all([writer('x'), writer('y')]);
   const events = store.events();
-  assert.equal(events.length, 16);
-  assert.equal(new Set(events.map((e) => e.id)).size, 16);
+  assert.equal(events.length, 17, 'the orchestrator starting, then 8 from each writer');
+  assert.equal(new Set(events.map((e) => e.id)).size, 17);
   assert.deepEqual(problems(store, Date.now()), []);
-  assert.equal(store.read().version, 17);
+  assert.equal(store.read().version, 18);
 });
 
 test('the same event twice, or out of order, changes nothing and leaves a sound store', () => {
@@ -127,7 +129,7 @@ test('a slow mount whose lock looks stale mid-write: compare-and-set refuses the
         closeSync(openSync(lock, 'w')); // our finally still has a lock to remove
         store.write({ ...mine, version: mine.version + 1 }, mine.version);
       }),
-    /state changed: expected version 1, found 2/
+    /state changed: expected version 2, found 3/
   );
   assert.deepEqual(status(store).items.map((i) => i.id), ['b']);
   assert.deepEqual(problems(store, Date.now()), []);

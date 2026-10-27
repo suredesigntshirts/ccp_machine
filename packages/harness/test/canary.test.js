@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, status, canaryRequest, canaryReport, renderDigest } from '../src/index.js';
+import { openStore, init, status, canaryRequest, canaryReport, renderDigest } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const day = '2026-10-26';
 const at = (hm) => `${day}T${hm}:00Z`;
 const fresh = () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-canary-')));
   init(store, {}, at('08:00'));
+  start(store, at('08:00'));
   return store;
 };
 const file = (store) => apply(store, canaryRequest(day), { id: `req-canary-${day}`, now: at('09:00') });

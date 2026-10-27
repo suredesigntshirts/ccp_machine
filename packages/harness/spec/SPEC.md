@@ -36,7 +36,7 @@ Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`, `usageStale`
 
 ## decision (v0.1.0)
 
-One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation.
+One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation. Only a person's tap decides for the person: the machine checks that PERSON_DECIDED says actor person and source tap with the card's message id; that the tap is real is checked afterwards against the platform.
 
 ```mermaid
 stateDiagram-v2
@@ -57,13 +57,17 @@ States:
 
 - `awaitingPerson` (tags: `needs-human`): A decision card is in front of the person, with the stand-in's recommendation.
 
+Refused (nothing changes and nothing is written):
+
+- `PERSON_DECIDED` in `awaitingPerson`, when `unattested` {"actor":"person","source":"tap"}: Refused unless the actor is a person and the source a tap whose ref is the decision card's message id. The machine checks the kinds and that the id is there; whether the tap happened is checked afterwards against the platform.
+
 Effects and context updates: `acceptStandInChoice`, `askStandIn`, `logPrecedent`, `notifyInboxClosed`, `notifyInboxOpened`, `postDecisionCard`, `recordPersonChoice`, `recordStandInAnswer`, `reportDecision`
 
-Guards: `standInMayDecide`
+Guards: `standInMayDecide`, `unattested`
 
 ## workItem (v0.1.0)
 
-One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes.
+One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); CI and merge results come only from GitHub wakes. The machine checks actor and source kinds, that a ref is there, and that ids differ; whether they are true is checked afterwards against the platform and GitHub.
 
 ```mermaid
 stateDiagram-v2
@@ -132,13 +136,27 @@ States:
 - `active.awaitingMergeDecision` (tags: `gated`): Merge to main: the person decides, the stand-in recommends.
 - `blocked`: Waiting on something outside the item (a dependency, a conflict, a failing check). Resumes where it stopped.
 
-Effects and context updates: `checkpoint`, `countRetry`, `dispatchRun`, `mergePullRequest`, `openDecision`, `recordChoice`, `recordRun`, `reportBlocked`, `reportFinished`, `withdrawDecision`
+Refused (nothing changes and nothing is written):
 
-Guards: `choiceIs`, `retriesLeft`, `tierBelow`
+- `ORCHESTRATOR_STARTED` in any state, when `fromOutside`: Sent by the harness when an orchestrator starts inside the harness; the same event from outside (any event with an actor) is refused.
+- `RUN_SUCCEEDED` in `active.triaging`, when `reportedByOrchestrator`: Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards.
+- `RUN_FAILED` in `active.triaging`, when `reportedByOrchestrator`: Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards.
+- `DECISION_MADE` in `active.awaitingPlanDecision`, when `fromOutside`: Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused.
+- `RUN_SUCCEEDED` in `active.building`, when `reportedByOrchestrator`: Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards.
+- `RUN_FAILED` in `active.building`, when `reportedByOrchestrator`: Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards.
+- `CHECKS_PASSED` in `active.verifying`, when `unattested` {"actor":"github","source":"github-wake"}: Refused unless a CI result comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub.
+- `CHECKS_FAILED` in `active.verifying`, when `unattested` {"actor":"github","source":"github-wake"}: Refused unless a CI result comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub.
+- `DECISION_MADE` in `active.awaitingAcceptance`, when `fromOutside`: Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused.
+- `DECISION_MADE` in `active.awaitingMergeDecision`, when `fromOutside`: Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused.
+- `MERGED` in `active.merging`, when `unattested` {"actor":"github","source":"github-wake"}: Refused unless a merge comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub.
+
+Effects and context updates: `checkpoint`, `countRetry`, `dispatchRun`, `mergePullRequest`, `openDecision`, `recordChoice`, `recordOrchestrator`, `recordRun`, `reportBlocked`, `reportFinished`, `withdrawDecision`
+
+Guards: `choiceIs`, `fromOutside`, `reportedByOrchestrator`, `retriesLeft`, `tierBelow`, `unattested`
 
 ## harness (v0.1.0)
 
-The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox.
+The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here.
 
 ```mermaid
 stateDiagram-v2
@@ -171,6 +189,11 @@ States:
 - `attention.quiet`: Nothing needs the person.
 - `attention.needsPerson` (tags: `needs-human`)
 
-Effects and context updates: `addToInbox`, `publishDigest`, `recordBudgetMode`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
+Refused (nothing changes and nothing is written):
 
-Guards: `inboxEmpty`, `modeIs`
+- `ORCHESTRATOR_STARTED` in any state, when `unattested` {"actor":"session"}: Refused unless the actor is a session. Its id becomes the orchestrator's, here and in every queued or in-flight item, so no run it reports itself is taken.
+- `BUDGET_MODE` in `scheduler`, when `fromOutside`: Sent by the budget actor when its mode changes inside the harness; the same event from outside (any event with an actor) is refused.
+
+Effects and context updates: `addToInbox`, `publishDigest`, `recordBudgetMode`, `recordOrchestrator`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
+
+Guards: `fromOutside`, `inboxEmpty`, `modeIs`, `unattested`

@@ -62,10 +62,10 @@ export function requestFor(row) {
 }
 
 /**
- * File every row whose status is `new` (or missing). Returns the rows filed, the rows skipped and, for
+ * File every row whose status is `new` (or missing), sent `by` the session that reads the rows ({actor, source}). Returns the rows filed, the rows skipped and, for
  * the host to write back with ArtifactData, one update per filed row: {doc_id, data: {status, item, href}}.
  */
-export function intakeRows(store, result, { at = new Date().toISOString() } = {}) {
+export function intakeRows(store, result, { at = new Date().toISOString(), by } = {}) {
   const filed = [];
   const skipped = [];
   const updates = [];
@@ -75,7 +75,7 @@ export function intakeRows(store, result, { at = new Date().toISOString() } = {}
       continue;
     }
     const request = requestFor(row);
-    const r = apply(store, { type: 'REQUEST_RECEIVED', request, person: true }, { id: `req-${row.id}` });
+    const r = apply(store, { type: 'REQUEST_RECEIVED', request, person: true, ...by }, { id: `req-${row.id}` });
     if (r.refused) { skipped.push({ id: row.id, why: r.why }); continue; }
     filed.push({ row: row.id, item: request.id, duplicate: r.duplicate === true });
     updates.push({ doc_id: row.id, data: { status: 'taken', item: request.id, href: itemHref(request.id), takenAt: at } });

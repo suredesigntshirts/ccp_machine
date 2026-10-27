@@ -4,17 +4,23 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
+import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
 
-  init [--wip N]                 create a harness in --dir
-  send <event-json> [--to ADDR] [--id ID]
+  init [--wip N]                 create a harness in --dir, with this session as its orchestrator
+                                 (ORCHESTRATOR_STARTED; a session taking over an existing store sends it)
+  send <event-json> [--to ADDR] [--id ID] [--actor KIND:ID] [--source KIND:REF]
                                  apply one event; ADDR is harness (default), a system id such as
                                  item:a or budget, or a child path such as item:a/decision:a:plan:1.
                                  --id makes the send idempotent. Prints the effects it queued. An event
                                  the machine would not take is refused: nothing is written, exit 1.
+                                 An event whose guard checks who sent it needs --actor and --source:
+                                 a worker's run (RUN_SUCCEEDED, RUN_FAILED) --actor session:<worker id>,
+                                 a tap (PERSON_DECIDED) --actor person:<id> --source tap:<card message id>,
+                                 CI and merges come from from-github. Any other event is sent as this
+                                 session ($CLAUDE_CODE_SESSION_ID) from the cli.
   usage [--samples FILE]         feed saved usage samples (ledger usage, default .ledger/usage.json)
                                  to the budget actor, then tick
   stalled [--after 60m]          list in-flight items with no event for longer than --after, oldest first
@@ -75,13 +81,17 @@ const HELP = `harness <command> [options]
   scenarios [FILE...]            play golden event stories (default packages/harness/scenarios/*.json) on
                                  scratch stores and check each step; exits 1 on a failure
   card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
-                                 option i is PERSON_DECIDED {choice: choices[i]} to address, --id <card id>
+                                 option i is PERSON_DECIDED {choice: choices[i]} to address,
+                                 --actor person:<id> --source tap:<card message id>
   page [--html FILE] [--title T] [--standalone] [--request-box]
                                  render mission control (default .harness/mission-control.html) and
                                  one page per item beside it (items/<id>.html), linked from its row,
                                  and the decision log (decisions.html);
                                  publish those as the Artifact's supporting files
 
+  --actor KIND:ID, --source KIND:REF
+                                 who sent the event (person, session, github, timer) and where it came
+                                 from (tap, github-wake, cli, timer); the event log keeps both
   --dir DIR                      store folder (default $HARNESS_DIR, else .harness); an orchestrator
                                  thread keeps it in the Library so the next thread can pick it up`;
 
@@ -129,7 +139,9 @@ try {
       reject: { type: 'boolean', default: false },
       reason: { type: 'string' },
       confidence: { type: 'string' },
-      autonomy: { type: 'string' }
+      autonomy: { type: 'string' },
+      actor: { type: 'string' },
+      source: { type: 'string' }
     }
   });
 } catch (e) {
@@ -145,7 +157,7 @@ const tick = (now) => {
   const costSince = since
     ? Object.values(readSessions()).flatMap((s) => s.turns ?? []).filter((t) => t.start > since && t.start <= now).reduce((a, t) => a + (t.all?.cost ?? 0), 0)
     : undefined;
-  return apply(store, { type: 'TICK', now, ...(costSince != null && { costSince }) }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
+  return apply(store, { type: 'TICK', now, ...(costSince != null && { costSince }), ...timer(now) }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
 };
 // Filed session ledgers, by id, for the item pages' turns (missing folder: none).
 const readSessions = (dir = '/mnt/project-files/harness/ledger/sessions') => {
@@ -162,16 +174,49 @@ const readSessions = (dir = '/mnt/project-files/harness/ledger/sessions') => {
   }
 };
 const print = (x) => console.log(JSON.stringify(x, null, 2));
+// Who sends from here: --actor and --source, else this session from the cli. Nothing here defaults to a
+// person or a tap; an event whose guard checks the source (a tap, a GitHub wake) or the worker must name
+// its sender with the flags.
+const pair = (flag, a, b) => {
+  const v = o[flag];
+  if (v == null) return null;
+  const i = v.indexOf(':');
+  if (i < 1) usageError(`--${flag} is KIND:${b.toUpperCase()}, such as ${flag === 'actor' ? 'person:sd' : 'tap:cmsg_123'}`);
+  return { [a]: v.slice(0, i), [b]: v.slice(i + 1) };
+};
+const flagged = { actor: pair('actor', 'kind', 'id'), source: pair('source', 'kind', 'ref') };
+const by = (what) => {
+  const actor = flagged.actor ?? (process.env.CLAUDE_CODE_SESSION_ID ? { kind: 'session', id: process.env.CLAUDE_CODE_SESSION_ID } : null);
+  if (!actor) throw new Error(`${what} needs --actor session:<id> outside a Claude Code session`);
+  return { actor, source: flagged.source ?? { kind: 'cli', ref: `harness ${cmd}` } };
+};
+const timer = (ref) => ({ actor: { kind: 'timer', id: `harness ${cmd}` }, source: { kind: 'timer', ref } });
+// Events a guard takes only from a named party: the worker, a tap or a GitHub wake.
+const attested = new Set();
+const walk = (node) => {
+  for (const [ev, on] of Object.entries(node.on ?? {}))
+    if ([on].flat().some((t) => t.guard?.type === 'reportedByOrchestrator' || t.guard?.params?.source)) attested.add(ev);
+  Object.values(node.states ?? {}).forEach(walk);
+};
+Object.values(specs).forEach(walk);
 
 try {
   switch (cmd) {
-    case 'init':
-      print(init(store, o.wip ? { wipLimit: Number(o.wip) } : {}));
+    case 'init': {
+      const sender = by('init');
+      const r = init(store, o.wip ? { wipLimit: Number(o.wip) } : {});
+      const started = apply(store, { type: 'ORCHESTRATOR_STARTED', ...sender }, { id: `orchestrator-${sender.actor.id}` });
+      print({ ...r, orchestrator: started.refused ? null : sender.actor.id });
+      if (started.refused) process.exitCode = 1;
       break;
+    }
     case 'send':
       if (!args[0]) throw new Error('send needs an event, such as \'{"type":"REQUEST_RECEIVED","request":{"id":"a"}}\'');
       {
         const event = JSON.parse(args[0]);
+        if (attested.has(event.type) && !(flagged.actor && flagged.source))
+          throw new Error(`${event.type} needs --actor KIND:ID --source KIND:REF naming who sent it (see harness help send)`);
+        Object.assign(event, by('send'));
         const blocked = acceptBlocked(store, event, o.to);
         if (blocked) throw new Error(blocked);
         const r = apply(store, event, { to: o.to, id: o.id });
@@ -181,7 +226,7 @@ try {
       break;
     case 'usage': {
       const samples = JSON.parse(readFileSync(o.samples, 'utf8'));
-      for (const e of budgetEvents(samples)) apply(store, e.event, { to: e.to, id: e.id });
+      for (const e of budgetEvents(samples)) apply(store, { ...e.event, ...by('usage') }, { to: e.to, id: e.id });
       tick(new Date().toISOString());
       const st = status(store);
       print({ budget: st.budget, scheduler: st.state.scheduler });
@@ -210,7 +255,8 @@ try {
           choice: o.approve ? 'approve' : 'reject',
           reason: o.reason,
           ...(o.confidence && { confidence: Number(o.confidence) }),
-          ...(o.autonomy && { autonomy: o.autonomy })
+          ...(o.autonomy && { autonomy: o.autonomy }),
+          by: by('answer')
         })
       );
       break;
@@ -268,19 +314,19 @@ try {
       if (!args[0]) throw new Error('issue-request needs a file holding one issue as GitHub JSON');
       const issue = JSON.parse(readFileSync(args[0], 'utf8'));
       const request = requestFromIssue(issue);
-      const r = apply(store, { type: 'REQUEST_RECEIVED', request }, { id: `req-issue${issue.number}` });
+      const r = apply(store, { type: 'REQUEST_RECEIVED', request, ...by('issue-request') }, { id: `req-issue${issue.number}` });
       print({ request, duplicate: r.duplicate, refused: r.why, effects: r.effects.map((e) => e.name) });
       break;
     }
     case 'intake': {
       if (!args[0]) throw new Error('intake needs a file or folder holding the requests rows');
-      print(intakeRows(store, readRows(args[0])));
+      print(intakeRows(store, readRows(args[0]), { by: by('intake') }));
       break;
     }
     case 'canary': {
       const day = o.day ?? new Date().toISOString().slice(0, 10);
       if (!o.check) {
-        const r = apply(store, canaryRequest(day), { id: `req-canary-${day}` });
+        const r = apply(store, { ...canaryRequest(day), ...by('canary') }, { id: `req-canary-${day}` });
         print({ item: `canary-${day}`, filed: !r.duplicate && !r.refused, effects: r.effects.map((e) => e.name) });
         break;
       }

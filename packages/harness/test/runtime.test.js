@@ -4,10 +4,12 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
+import { openStore, init, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
+import { apply, start } from './send.js';
 const fresh = (input) => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, input, '2026-10-26T18:00:00Z');
+  start(store, '2026-10-26T18:00:00Z');
   return store;
 };
 const names = (r) => r.effects.map((e) => e.name);
@@ -16,7 +18,7 @@ const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'a
 test('each wake restores, applies one event, persists, and queues its effects', () => {
   const store = fresh({ wipLimit: 2 });
   assert.deepEqual(names(apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 } })), ['dispatchRun']);
-  assert.equal(store.read().version, 2);
+  assert.equal(store.read().version, 3, 'init is version 1, the orchestrator starting 2');
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
   assert.deepEqual(names(apply(store, { type: 'CHECKS_PASSED' }, { to: 'item:a' })), ['mergePullRequest']);
@@ -24,7 +26,7 @@ test('each wake restores, applies one event, persists, and queues its effects', 
   const st = status(store);
   assert.deepEqual(st.items.map((i) => [i.id, i.state, i.done]), [['a', 'done', true]]);
   assert.deepEqual(st.context.inFlight, []);
-  assert.equal(store.events().length, 5);
+  assert.equal(store.events().length, 6);
 });
 
 test('an event id is applied once, however often it is delivered', () => {
@@ -42,7 +44,7 @@ test('an event the machine would not take is refused and changes nothing', () =>
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
   const before = [store.read(), store.events(), store.outbox()];
   const r = apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a', id: 'late-run' });
-  assert.deepEqual(r, { version: 4, refused: true, why: 'refused: RUN_SUCCEEDED in active.verifying', effects: [] });
+  assert.deepEqual(r, { version: 5, refused: true, why: 'refused: RUN_SUCCEEDED in active.verifying', effects: [] });
   assert.deepEqual([store.read(), store.events(), store.outbox()], before, 'no version, event row or effect');
   // The id is not spent: the same id is taken once the machine would take it.
   assert.equal(apply(store, { type: 'CHECKS_PASSED' }, { to: 'item:a', id: 'late-run' }).refused, undefined);
@@ -55,8 +57,8 @@ test('an event the machine would not take is refused and changes nothing', () =>
 test('a stale writer is refused by compare-and-set, and a held lock stops a second writer', () => {
   const store = fresh();
   const state = store.read();
-  store.write({ ...state, version: 2 }, 1);
-  assert.throws(() => store.write({ ...state, version: 2 }, 1), /expected version 1, found 2/);
+  store.write({ ...state, version: 3 }, 2);
+  assert.throws(() => store.write({ ...state, version: 3 }, 2), /expected version 2, found 3/);
   assert.throws(() => store.withLock(() => store.withLock(() => {})), /another writer/);
 });
 
@@ -107,7 +109,7 @@ test('usage samples reach the scheduler: a spent slice halts starts, and feeding
   const st = status(store);
   assert.equal(st.budget.mode, 'paused');
   assert.equal(st.state.scheduler, 'halted');
-  assert.equal(store.events().length, 2);
+  assert.equal(store.events().filter((e) => e.to === 'budget').length, 2);
 });
 
 test('an estimated reading keeps the budget accepting through a 3-hour gap, and the page says so', () => {
@@ -218,7 +220,7 @@ test('doctor passes a sound store and names each problem in a broken one', () =>
   const { ok, problems } = doctor(store, { now: Date.parse('2026-10-26T00:00:00Z') });
   assert.equal(ok, false);
   assert.ok(problems.some((p) => /unknown effect ghost/.test(p)));
-  assert.ok(problems.some((p) => /version 9, expected 4/.test(p)));
+  assert.ok(problems.some((p) => /version 9, expected 5/.test(p)));
   assert.ok(problems.some((p) => /pending since/.test(p)));
 });
 
@@ -244,7 +246,7 @@ test('replay rebuilds a store from its log and names a tampered state', () => {
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:p', id: 'run-1', now: '2026-10-26T10:05:00Z' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: sure }, { to: 'item:p/decision:p:plan:1', id: 's-1', now: '2026-10-26T10:06:00Z' });
   const good = replay(store);
-  assert.deepEqual([good.ok, good.events, good.firstDivergence, good.differences], [true, 3, null, []]);
+  assert.deepEqual([good.ok, good.events, good.firstDivergence, good.differences], [true, 4, null, []]);
   const state = store.read();
   state.snapshot.context.queued = ['ghost'];
   store.write({ ...state, version: state.version + 1 }, state.version);

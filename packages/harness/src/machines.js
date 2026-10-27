@@ -57,6 +57,14 @@ const usage = (c, e) => {
 };
 const spentShare = (c, u) => u.spentToday / c.dailyShare;
 
+// Who sent an event. runtime.apply() takes only events with an actor and a source; the machines send each
+// other events without them. These guards are the refusing first transition of an event (true refuses).
+// They check kinds, that a ref is there and that ids differ; whether the ref is real is checked afterwards.
+const provenance = {
+  unattested: ({ event }, p) => (p.actor != null && event.actor?.kind !== p.actor) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
+  fromOutside: ({ event }) => event.actor != null
+};
+
 // One set of machines per sink, so a host can collect the effects of the events it applies.
 export function createMachines(sink = () => {}) {
   const budgetMachine = setup({
@@ -103,6 +111,7 @@ export function createMachines(sink = () => {}) {
 
   const decisionMachine = setup({
     guards: {
+      unattested: provenance.unattested,
       // The stand-in decides alone only for tiers below 2, for a class whose autonomy is earned
       // ("act"), with confidence at or above that class's threshold.
       standInMayDecide: ({ context }) => {
@@ -143,11 +152,14 @@ export function createMachines(sink = () => {}) {
   const workItemMachine = setup({
     actors: { decision: decisionMachine },
     guards: {
+      ...provenance,
+      reportedByOrchestrator: ({ context, event }) => !context.orchestrator || event.actor?.id === context.orchestrator,
       retriesLeft: ({ context }, params) => context.retries < params.max,
       tierBelow: ({ context }, params) => context.tier < params.tier,
       choiceIs: ({ event }, params) => event.choice === params.choice
     },
     actions: {
+      recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
       recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
       countRetry: assign({ retries: ({ context }) => context.retries + 1 }),
       recordChoice: assign({ choice: ({ event }) => event.choice }),
@@ -177,13 +189,19 @@ export function createMachines(sink = () => {}) {
   const harnessMachine = setup({
     actors: { budget: budgetMachine, workItem: workItemMachine },
     guards: {
+      ...provenance,
       modeIs: ({ event }, params) => event.mode === params.mode,
       inboxEmpty: ({ context }) => context.inbox.length === 0
     },
     actions: {
-      spawnWorkItem: enqueueActions(({ enqueue, event }) => {
+      // The orchestrator's id comes from here, never from the request or a report.
+      recordOrchestrator: enqueueActions(({ enqueue, context, event }) => {
+        enqueue.assign({ orchestrator: event.actor.id });
+        for (const id of [...context.queued, ...context.inFlight]) enqueue.sendTo(id, { type: 'ORCHESTRATOR_STARTED', orchestrator: event.actor.id });
+      }),
+      spawnWorkItem: enqueueActions(({ enqueue, context, event }) => {
         const id = event.request.id;
-        enqueue.spawnChild('workItem', { id, systemId: `item:${id}`, input: event.request });
+        enqueue.spawnChild('workItem', { id, systemId: `item:${id}`, input: { ...event.request, orchestrator: context.orchestrator } });
         enqueue.assign({ queued: ({ context }) => [...context.queued, id] });
       }),
       startReadyItems: enqueueActions(({ enqueue, context }) => {

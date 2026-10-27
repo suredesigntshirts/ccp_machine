@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, apply, status, parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, prMap, prKey } from '../src/index.js';
+import { openStore, init, status, parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, prMap, prKey } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const wake = (kind, data) => `<wake reason="external-event"><event source="github" kind="${kind}" from="system" trust="relay">
     <!-- harness guidance, with a {"brace"} in it -->
@@ -17,6 +18,7 @@ function storeAtVerify() {
   const dir = mkdtempSync(join(tmpdir(), 'harness-'));
   const store = openStore(dir);
   init(store);
+  start(store);
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', tier: 0 } });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:x' });
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x' });
@@ -27,6 +29,8 @@ const state = (store) => status(store).items[0].state;
 test('a wake\'s event text and plain JSON both parse; PR refs normalise', () => {
   assert.deepEqual(parseGithubEvent(wake('pull_request.closed', { outcome: 'merged', pr: PR })), { kind: 'pull_request.closed', data: { outcome: 'merged', pr: PR } });
   assert.deepEqual(parseGithubEvent('{"kind":"check_suite.completed","data":{"pr":"o/r#7"}}').kind, 'check_suite.completed');
+  assert.equal(parseGithubEvent(wake('pull_request.closed', { outcome: 'merged', pr: PR }).replace('kind=', 'id="evt-9" kind=')).delivery, 'evt-9');
+  assert.equal(parseGithubEvent('{"kind":"check_suite.completed","delivery":"d-1","data":{"pr":"o/r#7"}}').delivery, 'd-1');
   assert.equal(prKey(PR_URL), PR);
   assert.equal(prKey(PR), PR);
   assert.equal(prKey('nothing'), null);
@@ -46,6 +50,8 @@ test('a failed check, then a green suite, then the merge drive the item to done'
   assert.deepEqual(prMap(store.events()), { [PR]: 'x' });
   const fail = fromGithub(store, wake('check_run.completed', { check: 'test', conclusion: 'failure', head_sha: '1111111aaa', pr: PR }));
   assert.deepEqual([fail.result, fail.event, fail.id], ['sent', 'CHECKS_FAILED', 'ci-1111111-failed']);
+  const row = store.events().at(-1);
+  assert.deepEqual([row.actor, row.source], [{ kind: 'github', id: 'github' }, { kind: 'github-wake', ref: 'o/r#7@1111111aaa' }], 'a wake without a delivery id is named by the PR and head sha');
   assert.deepEqual(fromGithub(store, wake('check_suite.completed', { head_sha: '1111111aaa', pr: PR })), { result: 'refused', item: 'x', id: 'ci-1111111-passed', why: 'refused: CHECKS_PASSED in active.building' }, 'building again, not verifying');
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x' });
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'sent');

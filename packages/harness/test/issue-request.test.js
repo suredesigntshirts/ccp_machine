@@ -21,10 +21,10 @@ test("an issue's JSON becomes a request with its id, tier, url and expect", () =
   init(openStore(dir));
   const f = join(dir, 'issue.json');
   writeFileSync(f, JSON.stringify(issue));
-  const r = spawnSync(process.execPath, [bin, 'issue-request', f, '--dir', dir], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [bin, 'issue-request', f, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(requestOf(openStore(dir), 'issue-request').expect, 'a works\nb is refused');
-  const again = spawnSync(process.execPath, [bin, 'issue-request', f, '--dir', dir], { encoding: 'utf8' });
+  const again = spawnSync(process.execPath, [bin, 'issue-request', f, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
   assert.equal(JSON.parse(again.stdout).duplicate, true, 'req-issue88 files once');
 });
 

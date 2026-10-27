@@ -56,6 +56,18 @@ function states(node, path = [], rows = []) {
   return rows;
 }
 
+// A guarded transition with no target and no actions refuses its event (snapshot.can() is false), so
+// apply() writes nothing: these are the rules on who may send what.
+function refusals(node, path = [], rows = []) {
+  const at = path.length ? `\`${path.join('.')}\`` : 'any state';
+  for (const [ev, on] of Object.entries(node.on ?? {}))
+    for (const t of asList(on))
+      if (t.guard && !t.target && !asList(t.actions).length)
+        rows.push(`- \`${ev}\` in ${at}, when \`${t.guard.type}\`${t.guard.params ? ` ${JSON.stringify(t.guard.params)}` : ''}: ${t.description ?? 'refused'}`);
+  for (const [key, child] of Object.entries(node.states ?? {})) refusals(child, [...path, key], rows);
+  return rows;
+}
+
 export function renderSpec() {
   const out = [
     '# Harness spec (generated)',
@@ -68,6 +80,8 @@ export function renderSpec() {
     out.push(`## ${name} (v${config.version})`, '', config.description ?? '', '', '```mermaid', diagram(config), '```', '');
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');
+    const refused = refusals(config);
+    if (refused.length) out.push('Refused (nothing changes and nothing is written):', '', ...refused, '');
     out.push(`Effects and context updates: ${[...names.actions].sort().map((n) => `\`${n}\``).join(', ')}`, '');
     out.push(`Guards: ${[...names.guards].sort().map((n) => `\`${n}\``).join(', ') || 'none'}`, '');
   }
