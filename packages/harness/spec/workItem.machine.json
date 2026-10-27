@@ -1,7 +1,7 @@
 {
   "id": "workItem",
   "version": "0.1.0",
-  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); each run's worker is recorded (workers), and both ids go to every decision the item opens, so neither can answer as the stand-in; CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.",
+  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); every worker that reports a run, succeeded or failed, is recorded (workers), and both ids go to every decision the item opens, so neither can answer as the stand-in; CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.",
   "initial": "active",
   "context": {
     "id": "",
@@ -83,6 +83,9 @@
                 "actions": [
                   {
                     "type": "recordRun"
+                  },
+                  {
+                    "type": "recordWorker"
                   }
                 ]
               }
@@ -106,11 +109,19 @@
                 "actions": [
                   {
                     "type": "countRetry"
+                  },
+                  {
+                    "type": "recordWorker"
                   }
                 ]
               },
               {
-                "target": "#workItem.failed"
+                "target": "#workItem.failed",
+                "actions": [
+                  {
+                    "type": "recordWorker"
+                  }
+                ]
               }
             ]
           }
@@ -218,6 +229,9 @@
                 "actions": [
                   {
                     "type": "recordRun"
+                  },
+                  {
+                    "type": "recordWorker"
                   }
                 ]
               }
@@ -241,11 +255,19 @@
                 "actions": [
                   {
                     "type": "countRetry"
+                  },
+                  {
+                    "type": "recordWorker"
                   }
                 ]
               },
               {
-                "target": "#workItem.failed"
+                "target": "#workItem.failed",
+                "actions": [
+                  {
+                    "type": "recordWorker"
+                  }
+                ]
               }
             ]
           }

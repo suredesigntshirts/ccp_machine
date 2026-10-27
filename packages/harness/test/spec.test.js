@@ -143,6 +143,7 @@ test('autonomy and threshold come from the machine: an answer that claims either
     ['threshold', { threshold: 0.5 }],
     ['no confidence', { confidence: undefined }],
     ['confidence over 1', { confidence: 2 }],
+    ['confidence as a string', { confidence: '0.95' }],
     ['no choice', { choice: undefined }]
   ]) {
     const event = answered(over);
@@ -170,6 +171,21 @@ test('only the stand-in answers: not the orchestrator, not a worker on the item,
   const d = item.getSnapshot().children['decision:b:plan:1'].getSnapshot();
   assert.deepEqual([d.context.orchestrator, d.context.workers, d.context.autonomy, d.context.threshold], ['orchestrator', ['triager'], 'recommend', 0.9]);
   assert.equal(d.can({ ...answered(), actor: { kind: 'session', id: 'triager' } }), false);
+});
+
+test('every run a worker reports, failed or succeeded, records the worker, so none of them can answer', () => {
+  const root = createActor(machines.harness, { systemId: 'harness' }).start();
+  root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
+  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'f', tier: 1 } });
+  const item = root.system.get('item:f');
+  const as = (id) => ({ actor: { kind: 'session', id }, source: worker.source });
+  item.send({ type: 'RUN_FAILED', ...as('wA') });
+  item.send({ type: 'RUN_SUCCEEDED', ...as('wB') });
+  const d = item.getSnapshot().children['decision:f:plan:1'].getSnapshot();
+  assert.deepEqual(d.context.workers, ['wA', 'wB']);
+  assert.equal(d.can({ ...answered(), ...as('wA') }), false, 'the worker whose run failed');
+  assert.equal(d.can({ ...answered(), ...as('wB') }), false);
+  assert.equal(d.can(answered()), true);
 });
 
 test('budget: 10% of the 7-day window per day, wrap up at 80% of it, stop at 100% or a full 5-hour window', () => {
