@@ -4,3 +4,4 @@ export { extractSamples, samplesFromText, mergeSamples, budgetStatus, estimateSa
 export { renderReport } from './report.js';
 export { sessionsFromEvents } from './events.js';
 export { fileSessions, mergeSessions, SESSIONS_DIR } from './file.js';
+export { messageDocs, textsOf, interactions, manual, readLog, mergeLog, attention, PERSON_LOG } from './person.js';

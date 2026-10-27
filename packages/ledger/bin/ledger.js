@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
-import { buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, estimateSample, usageSources, peerSources, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
+import { messageDocs, textsOf, interactions, manual, readLog, mergeLog, attention, PERSON_LOG, buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, estimateSample, usageSources, peerSources, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
 
 const HELP = `ledger <command> [options]
 
@@ -32,6 +32,11 @@ const HELP = `ledger <command> [options]
   refresh [dir ...]              collect, then report: what the orchestrator runs after each wake
   report                         Render --out's ledger and --samples' budget as HTML to --html
                                  (default .ledger/report.html). --standalone writes a full document.
+  person [dump ...]              Add the person's messages and card taps from saved read_thread /
+                                 read_project_chat output (or transcripts holding it) to --log
+                                 (default /mnt/project-files/harness/ledger/person/interactions.jsonl).
+                                 --add '<json>' adds one record by hand (a reaction, a tap seen in a
+                                 wake). Prints the attention summary per day.
   turns [transcript.jsonl ...]   Print one line per turn: index, start, duration, cost, label.
 
 Options: --out <path> --samples <path> --html <path> --title <text> --standalone
@@ -41,7 +46,7 @@ const usageError = (msg) => {
   console.error(`ledger: ${msg}\n\n${HELP}`);
   process.exit(2);
 };
-const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'estimate', 'usage-sources', 'help'];
+const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'estimate', 'usage-sources', 'person', 'help'];
 if (process.argv.slice(2).some((a) => a === '--help' || a === '-h')) {
   console.log(HELP);
   process.exit(0);
@@ -61,7 +66,9 @@ try {
       'soft-at': { type: 'string' },
       'five-hour-stop': { type: 'string' },
       'utc-offset': { type: 'string' },
-      notes: { type: 'string' }
+      notes: { type: 'string' },
+      log: { type: 'string' },
+      add: { type: 'string' }
     }
   });
 } catch (e) {
@@ -179,6 +186,15 @@ switch (cmd) {
     collect(args);
     report();
     break;
+  case 'person': {
+    const log = o.log || PERSON_LOG;
+    const added = interactions(args.flatMap(textsOf).flatMap(messageDocs));
+    if (o.add) added.push(manual(JSON.parse(o.add)));
+    const merged = mergeLog(readLog(log), added);
+    write(log, merged.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    console.log(JSON.stringify({ log, records: merged.length, read: added.length, days: attention(merged) }, null, 1));
+    break;
+  }
   case 'turns': {
     for (const s of buildLedger(transcripts()).sessions)
       for (const t of s.turns)
