@@ -282,6 +282,9 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         !Array.isArray(picks) || !picks.length || picks.length > max || !picks.every(isText) || new Set(picks).size !== picks.length,
       // The filer names the work; a request that sets anything the item's machine holds is refused.
       requestOverreaches: ({ event: { request: r } }) => !r || typeof r.id !== 'string' || !r.id || Object.keys(r).some((k) => k in specs.workItem.context && !['id', 'project'].includes(k)),
+      // Only the orchestrator's own session routes the work, so only it sets how much runs at once.
+      notFromOrchestrator: ({ context, event: { actor } }) => actor?.kind !== 'session' || !context.orchestrator || actor.id !== context.orchestrator,
+      wipOutOfRange: ({ event: { limit } }, { min, max }) => !Number.isInteger(limit) || limit < min || limit > max,
       modeIs: ({ event }, params) => event.mode === params.mode,
       inboxEmpty: ({ context }) => context.inbox.length === 0
     },
@@ -305,8 +308,15 @@ export function createMachines(sink = () => {}, { rung } = {}) {
           inFlight: [...context.inFlight, ...starting]
         });
       }),
+      // An item that finishes while still queued (cancelled before it started) leaves the queue too.
       releaseSlot: assign({
-        inFlight: ({ context, event }) => context.inFlight.filter((id) => id !== event.id)
+        inFlight: ({ context, event }) => context.inFlight.filter((id) => id !== event.id),
+        queued: ({ context, event }) => context.queued.filter((id) => id !== event.id)
+      }),
+      // The first change keeps the limit init gave, so replay can rebuild from it.
+      recordWipLimit: assign({
+        wipLimit: ({ event }) => event.limit,
+        wipLimitAtInit: ({ context }) => context.wipLimitAtInit ?? context.wipLimit
       }),
       wrapUpInFlight: enqueueActions(({ enqueue, context }) => {
         for (const id of context.inFlight) enqueue.sendTo(id, { type: 'WRAP_UP' });

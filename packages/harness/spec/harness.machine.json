@@ -116,6 +116,7 @@
     },
     "scheduler": {
       "initial": "accepting",
+      "description": "Holds the WIP limit. WIP_SET from the orchestrator records a new wipLimit (the first one keeps init's as wipLimitAtInit, which replay starts from); outside accepting it starts nothing, and lowering it never stops an item in flight. An item that finishes, even one cancelled while still queued, leaves inFlight and queued, so no slot goes to it.",
       "on": {
         "ITEM_FINISHED": {
           "actions": [
@@ -205,14 +206,13 @@
               {
                 "type": "recordWipLimit"
               }
-            ],
-            "description": "Records the new limit. Outside accepting it starts nothing; lowering it never stops an item in flight."
+            ]
           }
         ]
       },
       "states": {
         "accepting": {
-          "description": "Start ready items while fewer than wipLimit are in flight.",
+          "description": "Start ready items while fewer than wipLimit are in flight, and again at once when WIP_SET raises the limit.",
           "entry": [
             {
               "type": "startReadyItems"
@@ -287,8 +287,7 @@
                   {
                     "type": "startReadyItems"
                   }
-                ],
-                "description": "Records the new limit and starts queued items into the free slots at once."
+                ]
               }
             ]
           }

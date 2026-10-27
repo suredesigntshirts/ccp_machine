@@ -38,7 +38,7 @@ export function replay(store) {
   const dir = mkdtempSync(join(tmpdir(), 'harness-replay-'));
   try {
     const scratch = openStore(dir);
-    init(scratch, { wipLimit: state.snapshot.context?.wipLimit }, store.events()[0]?.at);
+    init(scratch, { wipLimit: state.snapshot.context?.wipLimitAtInit ?? state.snapshot.context?.wipLimit }, store.events()[0]?.at);
     const outbox = new Map();
     for (const e of store.outbox()) outbox.set(e.eventId, [...(outbox.get(e.eventId) ?? []), effectKey(e)]);
     let firstDivergence = null;
