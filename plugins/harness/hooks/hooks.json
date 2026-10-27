@@ -1,5 +1,5 @@
 {
-  "description": "Print the harness version at session start; before each prompt, at most every 30 minutes, tell the session when a newer harness exists (and fast-forward a clean skills-dir checkout); after each turn, fast-forward the clone the hooks run from (at most every 10 minutes, only when safe) and file this session's turn ledger in the Library; keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
+  "description": "Print the harness version at session start; before each prompt, at most every 30 minutes, tell the session when a newer harness exists (and fast-forward a clean skills-dir checkout); after each turn, fast-forward the clone the hooks run from (at most every 10 minutes, only when safe) and file this session's turn ledger in the Library; tell subagents apart in the harness store (before a subagent's Bash call, hand its agent to the harness CLI, and file each subagent's start in the Library); keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
   "hooks": {
     "SessionStart": [
       {
@@ -23,6 +23,35 @@
             "command": "node",
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/scripts/notice-behind.js"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/agent-actor.js"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/agent-actor.js"
             ],
             "timeout": 5
           }

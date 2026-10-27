@@ -58,9 +58,9 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   const unverifiable = [];
   const actors = verify ? verifyActors(store, ledgers ? { dir: ledgers } : {}) : [];
   const facts = verify ? await verifyFacts(store, fetcher ? { fetcher } : {}) : [];
-  const lastAt = Object.fromEntries(events.filter((e) => e.actor?.kind === 'session').map((e) => [e.actor.id, Date.parse(e.at)]));
+  const lastAt = Object.fromEntries(events.filter((e) => e.actor?.kind === 'session' || e.actor?.kind === 'agent').map((e) => [e.actor.id, Date.parse(e.at)]));
   for (const r of actors.filter((r) => r.result !== 'ok'))
-    (r.result === 'no ledger' && /^no /.test(r.why) && now - lastAt[r.id] < LEDGER_GRACE_MS ? unverifiable : problems).push(`verify-actors: ${verifyActorsText([r])}`);
+    (['no ledger', 'no record'].includes(r.result) && /^no /.test(r.why) && now - lastAt[r.id] < LEDGER_GRACE_MS ? unverifiable : problems).push(`verify-actors: ${verifyActorsText([r])}`);
   for (const r of facts.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`verify-facts: ${verifyFactsText([r])}`);
   return { ok: problems.length === 0, problems, unverifiable, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length } };
 }

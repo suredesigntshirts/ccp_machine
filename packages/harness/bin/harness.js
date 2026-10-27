@@ -24,7 +24,9 @@ const HELP = `harness <command> [options]
                                  CI and merges come only from from-github (send refuses --actor github
                                  and --source github-wake). Any other event is sent as this
                                  session ($CLAUDE_CODE_SESSION_ID) from the cli; an --actor session:<id>
-                                 that is not this session is refused. Triage answers with
+                                 that is not this session is refused. In a subagent's Bash call the plugin's
+                                 hook sets HARNESS_AGENT and the actor is agent:<session_id>/<agent_id>; any
+                                 --actor session or other agent is refused there, and --actor agent elsewhere. Triage answers with
                                  {"type":"TRIAGED","tier":N,"criteria":[...]} --to item:<id>, from a session
                                  that is not the requester, the orchestrator or a worker; a reviewer who is
                                  neither sends {"type":"CRITERION_CHECKED","criterion":"...","verdict":
@@ -87,7 +89,9 @@ const HELP = `harness <command> [options]
   verify-actors [--store DIR]    check every session actor in the log against the session ledgers the Stop
                                  hook files ($HARNESS_LIBRARY_DIR/ledger/sessions/<id>.json): one line per
                                  actor, ok, no ledger, or outside window (an event outside the ledger's
-                                 start..end, give or take 5 minutes). Never writes. Exits 1 on any failure;
+                                 start..end, give or take 5 minutes); every agent actor against the
+                                 SubagentStart record (<session>/agents/<agent>.json): ok, no record, or
+                                 outside window. Never writes. Exits 1 on any failure;
                                  2, writing nothing, when DIR has no events.jsonl. Run it after the sessions'
                                  turns have ended, so their ledgers are filed
   verify-taps [--store DIR]      one line per tap: event id, time, card message id, decision or audit, the
@@ -125,7 +129,7 @@ const HELP = `harness <command> [options]
                                  publish those as the Artifact's supporting files
 
   --actor KIND:ID, --source KIND:REF
-                                 who sent the event (person, session, github, timer) and where it came
+                                 who sent the event (person, session, agent, github, timer) and where it came
                                  from (tap, cli, timer; github and github-wake only via from-github);
                                  the event log keeps both
   --dir DIR, --store DIR         store folder (default $HARNESS_DIR, else .harness); an orchestrator
@@ -228,8 +232,13 @@ const pair = (flag, a, b) => {
 };
 const flagged = { actor: pair('actor', 'kind', 'id'), source: pair('source', 'kind', 'ref') };
 const platform = process.env.CLAUDE_CODE_SESSION_ID || null;
+// A subagent's call: the plugin's PreToolUse hook sets HARNESS_AGENT=<agent_id>:<agent_type>, and the actor is
+// agent <session_id>/<agent_id> (spec harness meta.actors). Without it, this is the session itself.
+const handed = process.env.HARNESS_AGENT || null;
+const [, agentId, agentType] = /^([A-Za-z0-9_-]+):(.+)$/.exec(handed ?? '') ?? [];
+const self = handed ? { kind: 'agent', id: `${platform}/${agentId}`, type: agentType } : platform ? { kind: 'session', id: platform } : null;
 const by = (what) => {
-  const actor = flagged.actor ?? (platform ? { kind: 'session', id: platform } : null);
+  const actor = flagged.actor ? { ...flagged.actor, ...(flagged.actor.kind === 'agent' && self?.kind === 'agent' && { type: self.type }) } : self;
   if (!actor) throw new Error(`${what} needs --actor session:<id> outside a Claude Code session`);
   const source = flagged.source ?? { kind: 'cli', ref: `harness ${cmd}` };
   return { actor, source, relayedBy: source.kind === 'tap' ? platform : undefined }; // a tap names the session relaying it
@@ -242,6 +251,14 @@ try {
   // GitHub's word comes only through from-github, which reads it from GitHub; no flag can claim it.
   if (flagged.actor?.kind === 'github' || flagged.source?.kind === 'github-wake')
     throw new Error(`${cmd} refuses --actor github and --source github-wake: only harness from-github sends as GitHub, after reading the result from GitHub`);
+  if (handed && !(platform && agentId))
+    throw new Error(`HARNESS_AGENT=${handed} is not <agent_id>:<agent_type> under a CLAUDE_CODE_SESSION_ID: only the plugin's PreToolUse hook sets it, for a subagent; nothing was written`);
+  if (flagged.actor?.kind === 'session' && handed)
+    throw new Error(`--actor session:${flagged.actor.id} is refused for a subagent (agent ${self.id}): a subagent records only as itself, never as its parent or another session; nothing was written`);
+  if (flagged.actor?.kind === 'agent' && handed && flagged.actor.id !== self.id)
+    throw new Error(`--actor agent:${flagged.actor.id} is not this subagent (agent ${self.id}): a subagent cannot act as another; nothing was written`);
+  if (flagged.actor?.kind === 'agent' && !handed && platform)
+    throw new Error(`--actor agent:${flagged.actor.id} is refused: this is session ${platform}, not a subagent (the plugin's PreToolUse hook names a subagent); nothing was written`);
   if (flagged.actor?.kind === 'session' && platform && flagged.actor.id !== platform)
     throw new Error(`--actor session:${flagged.actor.id} is not this session (CLAUDE_CODE_SESSION_ID is ${platform}): a session's id comes from the platform, so one session cannot act as another; nothing was written`);
   switch (cmd) {
@@ -351,9 +368,10 @@ try {
     case 'verify-actors': {
       const results = verifyActors(store);
       if (results.length) console.log(verifyActorsText(results));
-      const n = (k) => results.filter((r) => r.result === k).length;
-      console.error(`harness: ${results.length} session actors: ${n('ok')} ok, ${n('no ledger')} no ledger, ${n('outside window')} outside window`);
-      process.exitCode = results.length === n('ok') ? 0 : 1;
+      const n = (k, kind) => results.filter((r) => r.result === k && r.kind === kind).length;
+      const agents = results.filter((r) => r.kind === 'agent').length;
+      console.error(`harness: ${results.length - agents} session actors: ${n('ok', 'session')} ok, ${n('no ledger', 'session')} no ledger, ${n('outside window', 'session')} outside window${agents ? `; ${agents} agent actors: ${n('ok', 'agent')} ok, ${n('no record', 'agent')} no record, ${n('outside window', 'agent')} outside window` : ''}`);
+      process.exitCode = results.every((r) => r.result === 'ok') ? 0 : 1;
       break;
     }
     case 'issue-request': {

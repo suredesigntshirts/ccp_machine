@@ -87,13 +87,15 @@ export const expectationsMet = ({ context: c }) =>
 // other events without them. These guards are the refusing first transition of an event (true refuses).
 // They check kinds, that a ref is there and that ids differ. from-github reads a GitHub ref's fact from GitHub
 // before it sends; whether a tap or a session id is real is checked afterwards.
-// One session plays one part on an item (spec workItem, Roles). Each role is a list of session ids on the item's
-// context (the decision gets a copy at spawn); an event from a session holding another role is refused. The
-// person, GitHub and timers are exempt, and only sessions are recorded.
+// One actor plays one part on an item (spec workItem, Roles). Each role is a list of actor ids on the item's
+// context (the decision gets a copy at spawn); an event from an actor holding another role is refused. Only the
+// kinds marked roles in harness meta.actors (sessions and agents) are recorded; their id forms are disjoint
+// (the runtime refuses any other), so an id names the whole actor. The person, GitHub and timers are exempt.
+const holdsRoles = (actor) => specs.harness.meta.actors[actor?.kind]?.roles === true;
 const ROLES = { requester: (c) => [c.requester], triager: (c) => c.triagers, worker: (c) => c.workers, checker: (c) => c.checkers, answerer: (c) => c.answerers };
 const holdsAnotherRole = ({ context: c, event: { actor } }, { role }) =>
-  actor?.kind === 'session' && Object.entries(ROLES).some(([r, ids]) => r !== role && (ids(c) ?? []).includes(actor.id));
-const asSession = (list, actor) => (actor?.kind === 'session' ? [...new Set([...(list ?? []), actor.id])] : list ?? []);
+  holdsRoles(actor) && Object.entries(ROLES).some(([r, ids]) => r !== role && (ids(c) ?? []).includes(actor.id));
+const asSession = (list, actor) => (holdsRoles(actor) ? [...new Set([...(list ?? []), actor.id])] : list ?? []);
 
 // A card the machine asked for: CARD_POSTED records its message id once, on the ack of the card effect, and a
 // tap is taken only with that id (decision and audit alike).
@@ -104,7 +106,7 @@ const cards = {
 const recordCard = assign({ card: ({ event }) => event.card });
 
 const provenance = {
-  unattested: ({ event }, p) => (p.actor != null && event.actor?.kind !== p.actor) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
+  unattested: ({ event }, p) => (p.actor != null && ![p.actor].flat().includes(event.actor?.kind)) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
   fromOutside: ({ event }) => event.actor != null
 };
 
@@ -181,7 +183,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     },
     actions: {
       recordStandInAnswer: assign({ standIn: ({ event }) => event.answer }),
-      reportAnswerer: toParent(({ event }) => event.actor?.kind === 'session' && { type: 'STAND_IN_RECORDED', by: event.actor.id }),
+      reportAnswerer: toParent(({ event }) => holdsRoles(event.actor) && { type: 'STAND_IN_RECORDED', by: event.actor.id }),
       acceptStandInChoice: assign({
         choice: ({ context }) => context.standIn.choice,
         decidedBy: 'stand-in'

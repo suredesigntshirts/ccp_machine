@@ -50,6 +50,16 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   or `{ at, skipped }` with the reason) and `behind` (commits behind origin/main as of the last fetch,
   `null` when unknown). Filing is idempotent (one file per session, replaced atomically). It never fails the
   session. `ledger collect` merges the filed sessions into one ledger for the report.
+- **Agent hooks** (`scripts/agent-actor.js`, PreToolUse on Bash and SubagentStart): a subagent shares its
+  parent's `CLAUDE_CODE_SESSION_ID`, and only hook input carries its `agent_id` and `agent_type`. Before a
+  subagent's Bash command that names `harness`, PreToolUse returns `updatedInput` with
+  `export HARNESS_AGENT='<agent_id>:<agent_type>'; readonly HARNESS_AGENT` ahead of the command (no permission
+  decision: the permission rules still apply), so every harness call in it records as agent
+  `<session_id>/<agent_id>`. Other commands and every command of the parent session are left as they are; a
+  command that sets, exports, clears or passes `HARNESS_AGENT` itself is denied with the reason, from either.
+  SubagentStart writes `{ sessionId, agentId, agentType, at }` to
+  `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json`, which `harness verify-actors` checks.
+  The marker is read only for a command that would be changed or denied, so other Bash calls pay nothing.
 - **Status line and `/harness` pane** (`hooks/status.tsx`, the harness-status mod, named under `modules`
   in `hooks/hooks.json`; its `$.state` contract is `types/index.d.ts`). A hooks module, so it loads with
   the plugin by the same route, `harness@skills-dir` included; there is no separate copy. Placeholder

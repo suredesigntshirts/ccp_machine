@@ -77,7 +77,12 @@ export function renderSpec() {
   ];
   for (const [name, config] of Object.entries(specs)) {
     const names = referencedNames(config);
-    out.push(`## ${name} (v${config.version})`, '', config.description ?? '', '', '```mermaid', diagram(config), '```', '');
+    out.push(`## ${name} (v${config.version})`, '', config.description ?? '', '');
+    // The actors an event may come from (meta.actors): the envelope and the role guards read them from here.
+    const actors = Object.entries(config.meta?.actors ?? {});
+    if (actors.length)
+      out.push('Actors:', '', ...actors.map(([kind, a]) => `- \`${kind}\`${a.id ? ` (id \`${a.id}\`)` : ''}${a.roles ? ', holds roles' : ''}: ${a.description}`), '', config.meta.roles ?? '', '');
+    out.push('```mermaid', diagram(config), '```', '');
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');
     const refused = refusals(config);
