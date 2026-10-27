@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openStore, init, ack, acceptance, peakInFlight, touchesByTier } from '../src/index.js';
 import { apply, start } from './send.js';
@@ -28,7 +28,7 @@ test('the person\'s touches split into requests and decisions by tier', () => {
 });
 
 test('harness acceptance reports each v1 criterion with a verdict and evidence', () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
+  const store = openStore(tempDir('harness-'));
   init(store, { wipLimit: 3 });
   start(store);
   for (const id of ['a', 'b', 'c']) apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 0 } }, { id: `req-${id}` });
@@ -37,7 +37,7 @@ test('harness acceptance reports each v1 criterion with a verdict and evidence',
     apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}` });
   }
   const scenarios = () => [{ file: 'x/budget-soft-limit.json', ok: true }];
-  const none = mkdtempSync(join(tmpdir(), 'sessions-'));
+  const none = tempDir('sessions-');
   const rows = acceptance(store, { sessionsDir: none, scenarios });
   assert.equal(rows.length, 6);
   assert.ok(rows.every((r) => ['met', 'not met', 'unknown'].includes(r.verdict) && r.evidence));

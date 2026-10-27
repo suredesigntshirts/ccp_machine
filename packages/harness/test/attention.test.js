@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
 import { join } from 'node:path';
 import { openStore, init, status, logPrecedents, readDecisionLog, attention, attentionText, touchesTrend, renderPage, renderDigest } from '../src/index.js';
 import { apply, start } from './send.js';
@@ -9,7 +8,7 @@ import { apply, start } from './send.js';
 const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act' };
 
 test('attention counts the person\'s touches, the stand-in\'s decisions, turns and wall time per item', () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
+  const store = openStore(tempDir('harness-'));
   init(store, {}, '2026-10-26T09:00:00Z');
   start(store, '2026-10-26T09:00:00Z');
   const send = (event, to, now) => apply(store, event, { to, now });

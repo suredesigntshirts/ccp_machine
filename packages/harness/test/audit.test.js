@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openStore, init, readDecisionLog, logPrecedents, auditPicks, auditCard, dayAudit, answerAudit, untestedRuns, auditLine, openAudits, renderPage, calibrateClass, ladder, doctor, renderDigest, status } from '../src/index.js';
 
@@ -9,7 +9,7 @@ const lean = (confidence) => ({ choice: 'approve', confidence, threshold: 0.9, a
 const standIn = (n, cls, confidence, at) => ({ effectId: `s${n}`, at, item: `i${n}`, decision: `decision:i${n}:${cls}:1`, decisionClass: cls, tier: 1, question: `${cls}: i${n}`, choice: 'approve', decidedBy: 'stand-in', standIn: lean(confidence) });
 
 function storeWith(rows) {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
+  const store = openStore(tempDir('harness-'));
   init(store, {}, '2026-10-26T09:00:00Z');
   writeFileSync(join(store.dir, 'decisions.jsonl'), rows.map((r) => JSON.stringify(r) + '\n').join(''));
   return store;

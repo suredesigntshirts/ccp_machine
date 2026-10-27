@@ -3,9 +3,9 @@
 // records, and the CI check that a plugin change raises its version.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, cpSync } from 'node:fs';
+import { tempDir } from './tmp.js';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, cpSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,7 @@ const git = (cwd, ...args) =>
 
 /** A scratch dir holding a Library area (no marker yet) and a copy of the plugin in a folder named like a synced update. */
 function scratch() {
-  const tmp = mkdtempSync(join(tmpdir(), 'hook-'));
+  const tmp = tempDir('hook-');
   const lib = join(tmp, 'harness');
   mkdirSync(lib);
   const root = join(tmp, 'harness~g2 x'); // `~` and a space: paths must come from fileURLToPath
@@ -162,7 +162,7 @@ test('only the plugin registers the Stop hook: hooks.json says plugin, .claude/s
 });
 
 test('CI version check: a plugin change without a higher version fails, with one passes', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'bump-'));
+  const tmp = tempDir('bump-');
   const manifest = join(tmp, 'plugins/harness/.claude-plugin/plugin.json');
   mkdirSync(join(tmp, 'plugins/harness/.claude-plugin'), { recursive: true });
   const write = (v, body) => {

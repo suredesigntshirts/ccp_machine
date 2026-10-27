@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
 import { join } from 'node:path';
 import { mergeSessions, fileSessions } from '../src/index.js';
 
@@ -16,6 +15,6 @@ test('a session split across transcripts is filed once, turns in time order and 
 });
 
 test('fileSessions writes nothing for no input', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'sessions-'));
+  const dir = tempDir('sessions-');
   assert.deepEqual(fileSessions([], { dir }), []);
 });

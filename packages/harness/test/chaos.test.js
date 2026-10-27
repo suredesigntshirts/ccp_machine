@@ -2,15 +2,15 @@
 // and that harness repair fixes the safe ones.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, appendFileSync, utimesSync, closeSync, openSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { readFileSync, writeFileSync, appendFileSync, utimesSync, closeSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { openStore, init, status, doctor, repair } from '../src/index.js';
 import { apply, start } from './send.js';
 
 const fresh = () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-chaos-')));
+  const store = openStore(tempDir('harness-chaos-'));
   init(store, {}, '2026-10-26T10:00:00Z');
   start(store, '2026-10-26T10:00:00Z');
   return store;

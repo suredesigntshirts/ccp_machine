@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, status, expectLines, checkTemplate, parseCheck, checkVerdict, initCheck, readCheck, acceptBlocked, renderItemPage } from '../src/index.js';
@@ -20,7 +20,7 @@ test('expect splits into lines; a check parses and counts met only with evidence
 });
 
 test('the stand-in may approve an accept gate only when every expected line is met', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'harness-'));
+  const dir = tempDir('harness-');
   const store = openStore(dir);
   init(store);
   start(store);

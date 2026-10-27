@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
 import { join } from 'node:path';
 import { openStore, init, status, canaryRequest, canaryReport, renderDigest } from '../src/index.js';
 import { apply, start } from './send.js';
@@ -9,7 +8,7 @@ import { apply, start } from './send.js';
 const day = '2026-10-26';
 const at = (hm) => `${day}T${hm}:00Z`;
 const fresh = () => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-canary-')));
+  const store = openStore(tempDir('harness-canary-'));
   init(store, {}, at('08:00'));
   start(store, at('08:00'));
   return store;

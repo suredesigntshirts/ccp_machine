@@ -8,8 +8,8 @@
 // not from hand-written paths; the fixtures also hold each guarded event from the wrong party, which both refuse.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { cpSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialTransition, transition } from 'xstate';
 import { getShortestPaths } from 'xstate/graph';
@@ -18,7 +18,7 @@ import { init, apply } from '../src/runtime.js';
 import { openStore } from '../src/store.js';
 
 const fixtures = JSON.parse(readFileSync(new URL('./path-fixtures.json', import.meta.url), 'utf8'));
-const scratch = mkdtempSync(join(tmpdir(), 'harness-paths-'));
+const scratch = tempDir('harness-paths-');
 let n = 0;
 
 // Where each machine lives in a running harness: the address apply() sends to, the events that bring it
