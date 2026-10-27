@@ -156,9 +156,13 @@ test('CLI: the default actor is the agent when HARNESS_AGENT is set and the hook
   assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/a1b2', type: 'my-plugin:reviewer' });
   assert.equal(run(parent, 'send', JSON.stringify({ type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF }), '--to', 'item:a', '--dir', dir).status, 0);
   cliSpawn(dir, 'builder', 'c3d4', 'harness:builder');
-  const w = run(sub('c3d4', 'harness:builder'), 'send', '{"type":"RUN_SUCCEEDED"}', '--to', 'item:a', '--actor', 'agent:lead/c3d4', '--source', 'cli:handback', '--dir', dir);
+  // The plugin's call record names the subagent, so its run needs no --actor or --source.
+  const w = run(sub('c3d4', 'harness:builder'), 'send', '{"type":"RUN_SUCCEEDED"}', '--to', 'item:a', '--dir', dir);
   assert.equal(w.status, 0, w.stderr);
-  assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/c3d4', type: 'harness:builder' });
+  assert.deepEqual([rows(dir).at(-1).actor, rows(dir).at(-1).source], [{ kind: 'agent', id: 'lead/c3d4', type: 'harness:builder' }, { kind: 'cli', ref: 'harness send' }]);
+  const unflagged = run({ ...parent, HARNESS_AGENT: 'c3d4:harness:builder' }, 'send', '{"type":"RUN_FAILED"}', '--to', 'item:a', '--dir', dir);
+  assert.equal(unflagged.status, 1, 'without the record it is refused');
+  assert.match(unflagged.stderr, /needs --actor/);
 });
 
 test('CLI: an agent the hook did not record is refused, and under HARNESS_ENFORCE=1 so is any call it did not record', () => {

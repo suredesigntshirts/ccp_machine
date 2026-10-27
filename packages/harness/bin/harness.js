@@ -18,7 +18,8 @@ const HELP = `harness <command> [options]
                                  the machine would not take is refused: nothing is written, exit 1.
                                  An event whose guard checks who sent it needs --actor and --source:
                                  a worker's run (RUN_SUCCEEDED, RUN_FAILED), from the worker's own
-                                 session, --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<ref>,
+                                 session, --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<ref> (a
+                                 subagent's, which the plugin's call record names, needs neither),
                                  a tap (PERSON_DECIDED, AUDIT_ANSWERED, nothing else) --actor person:<id>
                                  --source tap:<the message id the card's ack recorded>,
                                  CI and merges come only from from-github (send refuses --actor github
@@ -308,7 +309,8 @@ try {
         const event = JSON.parse(args[0]);
         if (event.type === 'CARD_POSTED')
           throw new Error('send refuses CARD_POSTED: a card is recorded only by harness ack <card effect> --card <cmsg id>, the ack of the card the machine asked for');
-        if (attested.has(event.type) && !(flagged.actor && flagged.source))
+        // A subagent the plugin's call record names is already named: its run needs no flags (by() checks the record).
+        if (attested.has(event.type) && !(flagged.actor && flagged.source) && !(handed && call))
           throw new Error(`${event.type} needs --actor KIND:ID --source KIND:REF naming who sent it (see harness help send)`);
         Object.assign(event, by('send'));
         const r = apply(store, event, { to: o.to, id: o.id });
