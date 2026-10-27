@@ -96,7 +96,9 @@ test('Stop: files nothing until installed, then stamps each record with the vers
   let record = JSON.parse(readFileSync(filed, 'utf8'));
   assert.equal(record.session.turns.length, 1);
   assert.ok(record.session.totals.cost > 0);
-  assert.deepEqual(record.harness, { name: 'harness', version, commit: null, root, hook: 'plugin', hooks: ['plugin'] });
+  const { refreshed, ...stamped } = record.harness;
+  assert.deepEqual(stamped, { name: 'harness', version, commit: null, root, hook: 'plugin', hooks: ['plugin'], behind: null });
+  assert.equal(refreshed.skipped, 'not a git checkout');
 
   run(root, 'file-turns.js', { HARNESS_LIBRARY_DIR: lib }, ['settings'], input);
   record = JSON.parse(readFileSync(filed, 'utf8'));
