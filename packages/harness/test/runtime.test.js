@@ -4,7 +4,8 @@ import { tempDir } from './tmp.js';
 import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
 import { openStore, init, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
-import { apply, start } from './send.js';
+import { writeFileSync } from 'node:fs';
+import { apply, start, earn } from './send.js';
 const fresh = (input) => {
   const store = openStore(tempDir('harness-'));
   init(store, input, '2026-10-26T18:00:00Z');
@@ -12,7 +13,7 @@ const fresh = (input) => {
   return store;
 };
 const names = (r) => r.effects.map((e) => e.name);
-const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act' };
+const sure = { choice: 'approve', confidence: 0.95 };
 
 test('each wake restores, applies one event, persists, and queues its effects', () => {
   const store = fresh({ wipLimit: 2 });
@@ -137,6 +138,7 @@ test('an item page shows what was asked, how it ended, who decided and what the 
   ack(store, effects.map((e) => e.id), { note: 'plan written' });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:p' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { ...sure, reason: 'small' } }, { to: 'item:p/decision:p:plan:1' });
+  apply(store, { type: 'PERSON_DECIDED', choice: 'approve' }, { to: 'item:p/decision:p:plan:1' });
   apply(store, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/9' }, { to: 'item:p' });
   apply(store, { type: 'CHECKS_PASSED' }, { to: 'item:p' });
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'other', tier: 0 } });
@@ -149,7 +151,8 @@ test('an item page shows what was asked, how it ended, who decided and what the 
   assert.match(html, /CI passed/);
   assert.match(html, /pull\/9/);
   assert.match(html, /plan written/);
-  assert.match(html, /stand-in/);
+  assert.match(html, /<td class="m">person<\/td>/);
+  assert.match(html, /small/, 'the stand-in\'s reason shows beside the person\'s decision');
   assert.ok(!html.includes('other'));
   assert.match(renderPage(status(store), { itemLinks: true }), /href="items\/p\.html"/);
 });
@@ -159,19 +162,60 @@ test('logPrecedent effects become the decision log once, and the page shows agre
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 1 } });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:p' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { ...sure, reason: '<why>' } }, { to: 'item:p/decision:p:plan:1' });
+  apply(store, { type: 'PERSON_DECIDED', choice: 'approve' }, { to: 'item:p/decision:p:plan:1' });
   assert.deepEqual(logPrecedents(store), { added: 1, acked: 1 });
   assert.deepEqual(logPrecedents(store), { added: 0, acked: 0 });
   const rows = readDecisionLog(store);
   assert.equal(rows[0].item, 'p');
-  assert.equal(rows[0].decidedBy, 'stand-in');
+  assert.deepEqual([rows[0].decidedBy, rows[0].autonomy], ['person', 'recommend'], 'the log keeps the rung the decision opened with');
   assert.ok(!store.pending().some((e) => e.name === 'logPrecedent'));
   const [plan] = classStats(rows);
-  assert.deepEqual([plan.decisions, plan.agreement, plan.earnedAct], [1, null, false]);
+  assert.deepEqual([plan.decisions, plan.agreement, plan.earnedAct], [1, 1, false]);
   const many = Array.from({ length: 20 }, () => ({ ...rows[0], decidedBy: 'person' }));
   assert.equal(classStats(many)[0].earnedAct, true);
   const html = renderDecisionLog(rows);
   assert.match(html, /recommend/);
   assert.match(html, /&lt;why&gt;/);
+});
+
+test('a decision takes its autonomy from the ladder when it opens; no log, an unreadable log or an unknown class leaves it at recommend', () => {
+  const plan = (store, id) => `item:${id}/decision:${id}:plan:1`;
+  const open = (store, id) => {
+    apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 1 } });
+    apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}` });
+    return store.read().snapshot.children[id].snapshot.children[`decision:${id}:plan:1`].snapshot.context;
+  };
+  const answer = (store, to, answer) => names(apply(store, { type: 'STAND_IN_ANSWERED', answer }, { to }));
+
+  // No log: recommend, so even a sure stand-in goes to the person.
+  const none = fresh();
+  assert.deepEqual([open(none, 'p').autonomy, open(none, 'p2').threshold], ['recommend', 0.9]);
+  assert.deepEqual(answer(none, plan(none, 'p'), { choice: 'approve', confidence: 0.99 }), ['postDecisionCard']);
+
+  // Earned for plan: alone at or above the machine's threshold, to the person below it.
+  const earned = fresh();
+  earn(earned, 'plan');
+  assert.equal(open(earned, 'p').autonomy, 'act');
+  open(earned, 'q');
+  assert.ok(answer(earned, plan(earned, 'p'), { choice: 'approve', confidence: 0.9 }).includes('dispatchRun'), 'at the threshold');
+  assert.deepEqual(answer(earned, plan(earned, 'q'), { choice: 'approve', confidence: 0.85 }), ['postDecisionCard'], 'below it');
+  // A class with no log of its own (accept) is at recommend, however plan has done.
+  apply(earned, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/1' }, { to: 'item:p' });
+  apply(earned, { type: 'CHECKS_PASSED' }, { to: 'item:p' });
+  const accept = status(earned).items.find((i) => i.id === 'p').decisions[0];
+  assert.deepEqual([accept.decisionClass, accept.autonomy], ['accept', 'recommend']);
+  assert.deepEqual(answer(earned, accept.address, { choice: 'approve', confidence: 0.99 }), ['postDecisionCard']);
+
+  // A log that cannot be read counts as no log.
+  const broken = fresh();
+  writeFileSync(join(broken.dir, 'decisions.jsonl'), 'not json\n');
+  earn(broken, 'plan');
+  assert.equal(open(broken, 'p').autonomy, 'recommend');
+
+  // No confidence: refused, and nothing is written.
+  const before = none.read().version;
+  const r = apply(none, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve' } }, { to: plan(none, 'p2') });
+  assert.deepEqual([r.refused, none.read().version], [true, before]);
 });
 
 test('the stand-in ladder climbs after 20 agreeing decisions and drops a rung on each reversal', () => {

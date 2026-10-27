@@ -26,7 +26,7 @@ test('the stand-in may approve an accept gate only when every expected line is m
   start(store);
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', tier: 1, expect: 'a works; b works' } });
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y', tier: 1 } });
-  const approve = { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act' } };
+  const approve = { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.95 } };
   const to = 'item:x/decision:x:accept:2';
   assert.match(acceptBlocked(store, approve, to), /write the check first: harness check x --init/);
   assert.equal(acceptBlocked(store, approve, 'item:x/decision:x:plan:1'), null, 'only the accept gate');

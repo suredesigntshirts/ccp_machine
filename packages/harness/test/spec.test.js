@@ -108,28 +108,68 @@ const decide = (input, events) => {
   for (const e of events) a.send(e);
   return a.getSnapshot();
 };
-const answer = (over) => ({ choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act', ...over });
+const answer = (over) => ({ choice: 'approve', confidence: 0.95, ...over });
+const standIn = { actor: { kind: 'session', id: 'stand-in' }, source: { kind: 'cli', ref: 'harness answer' } };
+const answered = (over) => ({ type: 'STAND_IN_ANSWERED', answer: answer(over), ...standIn });
+// What the work item hands a decision at spawn: the ladder's rung, the orchestrator and the item's workers.
+const spawned = { autonomy: 'act', orchestrator: 'orchestrator', workers: ['worker'] };
 
 test('the stand-in decides alone only where autonomy is earned, confidence is high and tier is below 2', () => {
-  const alone = decide({ tier: 1 }, [{ type: 'STAND_IN_ANSWERED', answer: answer() }]);
+  const alone = decide({ ...spawned, tier: 1 }, [answered()]);
   assert.equal(alone.value, 'decided');
   assert.equal(alone.context.decidedBy, 'stand-in');
 
   for (const [why, input, ans] of [
-    ['shadow mode', { tier: 1 }, answer({ autonomy: 'shadow' })],
-    ['low confidence', { tier: 1 }, answer({ confidence: 0.6 })],
-    ['tier 2', { tier: 2 }, answer()]
+    ['shadow mode', { ...spawned, tier: 1, autonomy: 'shadow' }, answered()],
+    ['recommend', { ...spawned, tier: 1, autonomy: 'recommend' }, answered()],
+    ['no autonomy given at spawn', { tier: 1 }, answered()],
+    ['below the machine\'s threshold', { ...spawned, tier: 1 }, answered({ confidence: 0.85 })],
+    ['tier 2', { ...spawned, tier: 2 }, answered()]
   ]) {
-    const s = decide(input, [{ type: 'STAND_IN_ANSWERED', answer: ans }]);
+    const s = decide(input, [ans]);
     assert.equal(s.value, 'awaitingPerson', why);
     assert.ok(s.hasTag('needs-human'), why);
   }
 
-  const person = decide({ tier: 2 }, [
-    { type: 'STAND_IN_ANSWERED', answer: answer() },
-    { type: 'PERSON_DECIDED', choice: 'revise', ...tap }
-  ]);
+  const person = decide({ ...spawned, tier: 2 }, [answered(), { type: 'PERSON_DECIDED', choice: 'revise', ...tap }]);
   assert.deepEqual([person.value, person.context.choice, person.context.decidedBy], ['decided', 'revise', 'person']);
+});
+
+test('autonomy and threshold come from the machine: an answer that claims either, or lacks a confidence, is refused', () => {
+  assert.deepEqual([specs.decision.context.autonomy, specs.decision.context.threshold], ['recommend', 0.9], 'the spec holds both');
+  const [s0] = initialTransition(machines.decision, { ...spawned, tier: 1 });
+  for (const [why, over] of [
+    ['autonomy', { autonomy: 'act' }],
+    ['threshold', { threshold: 0.5 }],
+    ['no confidence', { confidence: undefined }],
+    ['confidence over 1', { confidence: 2 }],
+    ['no choice', { choice: undefined }]
+  ]) {
+    const event = answered(over);
+    if (over.confidence === undefined && 'confidence' in over) delete event.answer.confidence;
+    if (over.choice === undefined && 'choice' in over) delete event.answer.choice;
+    assert.equal(s0.can(event), false, why);
+  }
+  assert.equal(s0.can(answered({ reason: 'small' })), true, 'choice, confidence and a reason');
+});
+
+test('only the stand-in answers: not the orchestrator, not a worker on the item, not a non-session', () => {
+  const [s0] = initialTransition(machines.decision, { ...spawned, tier: 1 });
+  assert.equal(s0.can({ ...answered(), ...orchestrator }), false, 'the orchestrator');
+  assert.equal(s0.can({ ...answered(), ...worker }), false, 'the item\'s worker');
+  assert.equal(s0.can({ ...answered(), ...tap }), false, 'a person is not the stand-in');
+  assert.equal(s0.can({ type: 'STAND_IN_ANSWERED', answer: answer() }), false, 'no actor');
+  assert.equal(s0.can(answered()), true);
+
+  // The work item records each run's worker and hands both ids to the decision it opens.
+  const root = createActor(machines.harness, { systemId: 'harness' }).start();
+  root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
+  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'b', tier: 1 } });
+  const item = root.system.get('item:b');
+  item.send({ type: 'RUN_SUCCEEDED', actor: { kind: 'session', id: 'triager' }, source: worker.source });
+  const d = item.getSnapshot().children['decision:b:plan:1'].getSnapshot();
+  assert.deepEqual([d.context.orchestrator, d.context.workers, d.context.autonomy, d.context.threshold], ['orchestrator', ['triager'], 'recommend', 0.9]);
+  assert.equal(d.can({ ...answered(), actor: { kind: 'session', id: 'triager' } }), false);
 });
 
 test('budget: 10% of the 7-day window per day, wrap up at 80% of it, stop at 100% or a full 5-hour window', () => {
@@ -208,7 +248,7 @@ test('an escalated decision shows in the person\'s inbox and leaves it when deci
   item.send({ type: 'RUN_SUCCEEDED', ...worker }); // triage done -> plan decision opened
   const decisionId = 'decision:p:plan:1';
   const decision = item.getSnapshot().children[decisionId];
-  decision.send({ type: 'STAND_IN_ANSWERED', answer: answer() });
+  decision.send(answered());
   assert.ok(root.getSnapshot().hasTag('needs-human'));
   assert.deepEqual(root.getSnapshot().context.inbox, [decisionId]);
 

@@ -31,7 +31,7 @@ const HELP = `harness <command> [options]
   ack <effect-id>... [--outcome done|failed] [--note TEXT]
   decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
-                                 worked out from decisions.jsonl; use it as STAND_IN_ANSWERED's autonomy
+                                 worked out from decisions.jsonl; a decision takes it when it opens
   intake PATH                    file each new request-box row in PATH (an ArtifactData read of the mission
                                  control \`requests\` collection: its out_dir folder of <doc_id>.json files,
                                  its inline list text, or JSON) as REQUEST_RECEIVED req-<row id>,
@@ -52,11 +52,11 @@ const HELP = `harness <command> [options]
   audit [--day D] [--answer N]   the day's stand-in audit: up to 3 decisions the stand-in made alone, picked
                                  once a day (audits/<day>.json); prints request_decision arguments for one
                                  card. --answer records the tap: 0 confirms all, N reverses pick N
-  answer <item> --approve|--reject --reason TEXT [--confidence N] [--autonomy A]
+  answer <item> --approve|--reject --reason TEXT --confidence N
                                  answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
-                                 decision (id standin-<subject>), ack the ask and log the precedent. The
-                                 autonomy comes from the ladder unless --autonomy (only for standing
-                                 authority quoted in --reason); an accept approve still needs a met check
+                                 decision (id standin-<subject>), ack the ask and log the precedent. Autonomy
+                                 and threshold are the decision's; only the stand-in may answer, never the
+                                 orchestrator or the item's worker; an accept approve still needs a met check
   issue-request FILE             file one backlog issue (gh api repos/O/R/issues/N JSON) as REQUEST_RECEIVED,
                                  id req-issue<N>: item id and tier from its "Item id: \`x\`, tier N" line,
                                  expect from its "Expect:" lines; refuses an issue without the item line
@@ -157,7 +157,6 @@ try {
       reject: { type: 'boolean', default: false },
       reason: { type: 'string' },
       confidence: { type: 'string' },
-      autonomy: { type: 'string' },
       actor: { type: 'string' },
       source: { type: 'string' }
     }
@@ -281,8 +280,7 @@ try {
         standinAnswer(store, args[0], {
           choice: o.approve ? 'approve' : 'reject',
           reason: o.reason,
-          ...(o.confidence && { confidence: Number(o.confidence) }),
-          ...(o.autonomy && { autonomy: o.autonomy }),
+          confidence: o.confidence && Number(o.confidence),
           by: by('answer')
         })
       );

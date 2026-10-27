@@ -9,12 +9,13 @@ import { logPrecedents } from './decision-log.js';
 import { doctor } from './doctor.js';
 import { renderPage } from './page.js';
 
-const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act', reason: 'simulated' };
+const sure = { choice: 'approve', confidence: 0.95, reason: 'simulated' };
 
-// The parties a scripted host plays, each sending what it sends for real: a worker reports runs, GitHub
-// reports CI and merges, the person taps a card (ref: the card), and the orchestrator sends the rest.
+// The parties a scripted host plays, each sending what it sends for real: a worker reports runs, the stand-in
+// answers, GitHub reports CI and merges, the person taps a card (ref: the card), and the orchestrator sends the rest.
 export function scripted(type, ref = 'sim') {
-  const party = { RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person' }[type];
+  const party = { RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
+  if (party === 'stand-in') return { actor: { kind: 'session', id: 'sim-stand-in' }, source: { kind: 'cli', ref } };
   if (party === 'worker') return { actor: { kind: 'session', id: 'sim-worker' }, source: { kind: 'cli', ref } };
   if (party === 'github') return { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
   if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref } };
