@@ -17,7 +17,7 @@ try {
       const dir = join(root, 'ledger', 'sessions');
       mkdirSync(dir, { recursive: true });
       const id = String(input.session_id ?? session.sessionId).replace(/[^A-Za-z0-9_-]/g, '');
-      const record = { filedAt: new Date().toISOString(), cwd: input.cwd ?? null, session };
+      const record = { filedAt: new Date().toISOString(), cwd: input.cwd ?? null, remoteSessionId: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null, session };
       const tmp = join(dir, `.${id}.${process.pid}.json.tmp`);
       writeFileSync(tmp, JSON.stringify(record));
       renameSync(tmp, join(dir, `${id}.json`));
