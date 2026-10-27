@@ -172,7 +172,7 @@ test('#36 review: a no-role agent cannot forge its spawn and start as the lead a
   for (const ev of [spawned, started])
     for (const command of [
       `HARNESS_ENFORCE=0 env -u "HARNESS_""CALL" -u "HARNESS_""AGENT" "$N" "$B" send ${ev} --to item:a`,
-      `env "HARNESS_""CALL=start-b1" -u "HARNESS_""AGENT" "$N" "$B" send ${ev} --to item:a`,
+      `env -u "HARNESS_""AGENT" "HARNESS_""CALL=start-b1" "$N" "$B" send ${ev} --to item:a`,
       `env -u "HARNESS_""AGENT" -u CLAUDE_CODE_SESSION_ID HARNESS_ENFORCE= "$N" "$B" send ${ev} --to item:a --actor session:${SID} --source cli:x`,
       `env -u "HARNESS_""AGENT" "$N" "$B" send ${ev} --to item:a`
     ]) {
@@ -186,7 +186,7 @@ test('#36 review: a no-role agent cannot forge its spawn and start as the lead a
   assert.equal(JSON.parse(s.cli(['status']).stdout).items.find((i) => i.id === 'a').state, 'active.building');
 });
 
-test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite); a literal merge by any wrapper is judged; literal writes and reads pass', () => {
+test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite); a literal merge in any wrapper is judged as a merge; literal writes and reads pass', () => {
   const s = scratch();
   for (const c of [
     `N=7; gh api -X PUT repos/o/r/pulls/$N/merge -f sha=${HEAD}`,
@@ -204,7 +204,7 @@ test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite);
     'echo $(gh pr merge 7 --repo o/r)',
     'cd /w && env GH_DEBUG=1 command gh pr merge 7 --repo o/r',
     'echo 7 | xargs gh pr merge --repo o/r'
-  ]) denied(hook(s, bashInput(c), enforce), 'pinnedHead', null, c);
+  ]) denied(hook(s, bashInput(c), enforce), 'mergeBound', null, c); // read as a merge, and judged: no item holds o/r#7
   for (const c of [
     'gh pr view $N', 'gh api repos/o/r/pulls/$N', 'gh api graphql -f query=\'query { viewer { login } }\'',
     'gh pr create --title x --body y', 'gh api -X POST repos/o/r/issues/7/comments -f body=hi', 'curl -s https://api.github.com/repos/o/r',

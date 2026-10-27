@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // PreToolUse (Bash) and SubagentStart hook: tells a session's subagents apart in the harness store. A subagent
 // shares its parent's CLAUDE_CODE_SESSION_ID; only hook input carries its agent_id and agent_type.
-// - PreToolUse: a command that names harness, from a subagent or the parent, is recorded first: { sessionId, agentId
-//   (null for the parent), agentType, toolUseId, commandSha256, at } at
-//   $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/<tool_use_id>.json. Then HARNESS_CALL=<tool_use_id> (and for
-//   a subagent HARNESS_AGENT=<agent_id>:<agent_type>) is exported read-only ahead of it through updatedInput. The
-//   CLI believes an agent only when that record names it (spec harness meta.invariants hookSawCall), so an
-//   obfuscated HARNESS_AGENT records nothing. A command that sets HARNESS_AGENT or HARNESS_CALL itself is denied
+// - PreToolUse: under HARNESS_ENFORCE=1 in this hook's own environment every Bash call, else a command that names
+//   harness, from a subagent or the parent, is recorded first: { sessionId, agentId (null for the parent), agentType,
+//   toolUseId, commandSha256, keySha256, enforced, at } at $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/
+//   <tool_use_id>.json. Then HARNESS_CALL=<tool_use_id>:<key> (and for a subagent HARNESS_AGENT=<agent_id>:<agent_type>)
+//   is exported read-only ahead of it through updatedInput. The CLI believes an actor only with that key and only
+//   when that record names it, and a call recorded under HARNESS_ENFORCE=1 marks its store enforced, after which a
+//   call the hook did not record writes nothing (spec harness meta.invariants hookSawCall): what the command itself
+//   sets, unsets or forges changes nothing. A command that sets HARNESS_AGENT or HARNESS_CALL itself is denied
 //   (setsHarnessAgent). Every other command is left as it is.
 // - SubagentStart: files { sessionId, agentId, agentType, at } at
 //   $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json, which harness verify-actors checks, and binds
@@ -17,7 +19,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { gate, libraryDir, deny, safeId, writeCall, callsDir, runHarness } from './host.js';
+import { gate, libraryDir, deny, enforced, safeId, writeCall, callsDir, runHarness } from './host.js';
 
 // Setting, exporting, clearing or passing HARNESS_AGENT or HARNESS_CALL, inline, by export/declare/unset or through env.
 const SETS = /HARNESS_(AGENT|CALL)\s*\+?=|\b(export|unset|declare|typeset|local|readonly|env)\b[^\n;&|]*\bHARNESS_(AGENT|CALL)\b/;
@@ -39,15 +41,15 @@ try {
     }
   } else if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'Bash' && typeof command === 'string') {
     const sets = SETS.test(command);
-    if ((sets || command.includes('harness')) && (await gate(1000)) === 'installed') {
+    if ((sets || enforced() || command.includes('harness')) && (await gate(1000)) === 'installed') {
       let out;
       if (sets) out = deny('setsHarnessAgent', 'this command sets HARNESS_AGENT or HARNESS_CALL itself. Only the harness plugin sets them, from its record of the call, so a session or subagent cannot record as another; run the command without them.');
       else {
         const session = id(input.session_id);
         const call = id(input.tool_use_id) || `cmd-${createHash('sha256').update(command).digest('hex').slice(0, 32)}`;
         const agent = input.agent_id ? `${id(input.agent_id)}:${String(input.agent_type ?? '').replace(/[^A-Za-z0-9_.:-]/g, '')}` : null;
-        writeCall(session, call, { kind: 'bash', agentId: id(input.agent_id) || null, agentType: input.agent_type ?? null, commandSha256: createHash('sha256').update(command).digest('hex') });
-        const vars = [`HARNESS_CALL='${call}'`, ...(agent ? [`HARNESS_AGENT='${agent}'`] : [])];
+        const stamp = writeCall(session, call, { kind: 'bash', agentId: id(input.agent_id) || null, agentType: input.agent_type ?? null, commandSha256: createHash('sha256').update(command).digest('hex') });
+        const vars = [`HARNESS_CALL='${stamp}'`, ...(agent ? [`HARNESS_AGENT='${agent}'`] : [])];
         out = { updatedInput: { ...input.tool_input, command: `export ${vars.join(' ')}; readonly ${vars.map((v) => v.split('=')[0]).join(' ')}\n${command}` } };
       }
       process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
@@ -69,8 +71,7 @@ function bind(session, agent, agentType, cwd) {
   } catch {}
   const [first] = spawns;
   if (!first) return;
-  const call = `start-${agent}`;
-  writeCall(session, call, { kind: 'start', agentId: null, agentType: null, item: first.r.item, agent: `${session}/${agent}` });
+  const call = writeCall(session, `start-${agent}`, { kind: 'start', agentId: null, agentType: null, item: first.r.item, agent: `${session}/${agent}` });
   const r = runHarness(['send', JSON.stringify({ type: 'WORKER_STARTED', agent: `${session}/${agent}`, agentType }), '--to', `item:${first.r.item}`, '--id', `start-${agent}`], { session, call, cwd });
   writeCall(session, first.r.toolUseId, { ...first.r, boundAgent: r.status === 0 ? `${session}/${agent}` : null, bindResult: r.out?.why ?? (r.status === 0 ? 'bound' : r.err) });
 }

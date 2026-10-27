@@ -241,8 +241,12 @@ test("CLI: HARNESS_CALL is believed only with the key the hook stamped on that c
 // An enforced store: a call the hook recorded under HARNESS_ENFORCE=1 marks it, and from then on it takes a write only
 // from a recorded call, whatever the caller's environment says.
 const leadCall = (enforced = false) => ({ ...parent, HARNESS_CALL: recordCall('lead', null, { enforced }) });
-function enforcedItem() {
+function enforcedItem({ building = false } = {}) {
   const dir = cliItem();
+  if (building) { // triaged at tier 0 by another session, before the store is enforced
+    const t = run({ CLAUDE_CODE_SESSION_ID: undefined }, 'send', '{"type":"TRIAGED","tier":0,"criteria":["a works"]}', '--to', 'item:a', '--actor', 'session:triager', '--source', 'cli:x', '--dir', dir);
+    assert.equal(t.status, 0, t.stderr);
+  }
   assert.equal(existsSync(join(dir, 'enforced.json')), false, 'a call recorded without HARNESS_ENFORCE marks nothing');
   const r = run(leadCall(true), 'send', JSON.stringify({ type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF }), '--to', 'item:a', '--dir', dir);
   assert.equal(r.status, 0, r.stderr);
@@ -260,7 +264,7 @@ test('CLI: an enforced store takes a write only from a recorded call; HARNESS_EN
     [parent, []],
     [{ ...parent, HARNESS_ENFORCE: '0' }, []],
     [{ ...parent, HARNESS_ENFORCE: '' }, []],
-    [{}, ['--actor', 'session:lead', '--source', 'cli:x']], // no CLAUDE_CODE_SESSION_ID: not "outside Claude Code" here
+    [{ CLAUDE_CODE_SESSION_ID: undefined }, ['--actor', 'session:lead', '--source', 'cli:x']], // no CLAUDE_CODE_SESSION_ID: not "outside Claude Code" here
     [{ ...parent, HARNESS_LIBRARY_DIR: fake, HARNESS_CALL: forged }, []] // a record filed in another Library
   ]) {
     const r = run(env, ...block, ...flags);
@@ -273,9 +277,10 @@ test('CLI: an enforced store takes a write only from a recorded call; HARNESS_EN
 });
 
 test('#36 review: a no-role agent cannot forge its spawn and start as the lead, then report a run, in an enforced store', () => {
-  const dir = enforcedItem();
+  const dir = enforcedItem({ building: true });
   const state = () => status(openStore(dir)).items.find((i) => i.id === 'a')?.state ?? JSON.stringify(status(openStore(dir)).items);
   const was = state();
+  assert.equal(was, 'active.building');
   const before = readFileSync(join(dir, 'events.jsonl'), 'utf8');
   recordCall('lead', null, { id: 'start-x1', kind: 'start', enforced: true }); // SubagentStart's own call for x1
   const own = () => ({ ...parent, HARNESS_AGENT: 'x1:general-purpose', HARNESS_CALL: recordCall('lead', 'x1', { enforced: true }) });

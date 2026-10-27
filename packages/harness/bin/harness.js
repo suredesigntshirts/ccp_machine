@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { createHash } from 'node:crypto';
 import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
 const HELP = `harness <command> [options]
 
@@ -28,9 +29,11 @@ const HELP = `harness <command> [options]
                                  that is not this session is refused. In a subagent's Bash call the plugin's
                                  hook sets HARNESS_AGENT and the actor is agent:<session_id>/<agent_id>; any
                                  --actor session or other agent is refused there, and --actor agent elsewhere.
-                                 The hook also sets HARNESS_CALL, its record of the call; an agent that
-                                 record does not name is refused, and under HARNESS_ENFORCE=1 so is a call
-                                 the hook did not record. Triage answers with
+                                 The hook also sets HARNESS_CALL=<tool_use_id>:<key>, its record of the
+                                 call; an agent that record does not name, or a call without its key, is
+                                 refused. A call the hook recorded under HARNESS_ENFORCE=1 marks the store
+                                 enforced (enforced.json), and an enforced store takes writes only from
+                                 recorded calls. Triage answers with
                                  {"type":"TRIAGED","tier":N,"criteria":[...]} --to item:<id>, from a session
                                  that is not the requester, the orchestrator or a worker; a reviewer who is
                                  neither sends {"type":"CRITERION_CHECKED","criterion":"...","verdict":
@@ -252,20 +255,33 @@ const platform = process.env.CLAUDE_CODE_SESSION_ID || null;
 const handed = process.env.HARNESS_AGENT || null;
 const [, agentId, agentType] = /^([A-Za-z0-9_-]+):(.+)$/.exec(handed ?? '') ?? [];
 const self = handed ? { kind: 'agent', id: `${platform}/${agentId}`, type: agentType } : platform ? { kind: 'session', id: platform } : null;
-// The call this runs in, as the plugin's PreToolUse hook recorded it (HARNESS_CALL names the record): the agent the
-// CLI records is believed only when that record names it (harness meta.invariants hookSawCall).
-const call = process.env.HARNESS_CALL || null;
-const enforce = process.env.HARNESS_ENFORCE === '1';
+// The call this runs in, as the plugin's PreToolUse hook recorded it and stamped it (HARNESS_CALL=<tool_use_id>:<key>,
+// the record holding the key's sha256): the actor is believed only when that record names it, and only with the key
+// the hook stamped, so an id the caller writes itself is refused (harness meta.invariants hookSawCall). A call the
+// hook recorded under HARNESS_ENFORCE=1 marks its store enforced (enforced.json, naming the Library that holds the
+// records); an enforced store takes a write only from a recorded call, whatever this process's environment says.
+// HARNESS_ENFORCE itself is never read here: only the hook's own environment decides.
+const [, callId, callKey] = /^([^:]*)(?::(.*))?$/.exec(process.env.HARNESS_CALL || '') ?? [];
+const call = process.env.HARNESS_CALL ? callId : null;
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+const enforcedFile = join(o.dir, 'enforced.json');
+const enforcedStore = (() => { try { return JSON.parse(readFileSync(enforcedFile, 'utf8')); } catch { return null; } })();
+const sha256 = (s) => createHash('sha256').update(String(s)).digest('hex');
 const hookSawCall = () => {
+  const locked = enforcedStore ? `store ${o.dir} is enforced (${enforcedFile}): it takes a write only from a call the plugin's PreToolUse hook recorded` : null;
   if (handed && !call) return `HARNESS_AGENT (${handed}) comes with no HARNESS_CALL: only the plugin's PreToolUse hook sets it, with its record of the call`;
-  if (!call) return enforce ? "this harness call has no HARNESS_CALL: under HARNESS_ENFORCE=1 a call the plugin's PreToolUse hook did not record sends nothing" : null;
-  const file = SAFE_ID.test(String(platform)) && SAFE_ID.test(call) ? join(ledgerDir(), platform, 'calls', `${call}.json`) : null;
+  if (!call) return locked ? `${locked}, and this one carries no HARNESS_CALL` : null;
+  if (!callKey) return `HARNESS_CALL ${call} carries no key: the plugin's PreToolUse hook stamps <tool_use_id>:<key> on the call it recorded${locked ? `; ${locked}` : ''}`;
+  const sessions = enforcedStore?.libraryDir ? join(enforcedStore.libraryDir, 'ledger', 'sessions') : ledgerDir();
+  const file = SAFE_ID.test(String(platform)) && SAFE_ID.test(call) ? join(sessions, platform, 'calls', `${call}.json`) : null;
   let record = null;
   try { record = file && JSON.parse(readFileSync(file, 'utf8')); } catch {}
-  if (!record) return `HARNESS_CALL ${call} names no record of the plugin's PreToolUse hook for session ${platform}${file ? ` (${file})` : ''}`;
+  if (!record) return `HARNESS_CALL ${call} names no record of the plugin's PreToolUse hook for session ${platform}${file ? ` (${file})` : ''}${locked ? `; ${locked}` : ''}`;
+  if (!record.keySha256 || sha256(callKey) !== record.keySha256) return `the key of HARNESS_CALL ${call} is not the one the plugin's hook stamped on that call`;
   if (record.sessionId !== platform || (record.agentId ?? null) !== (agentId ?? null))
     return `the plugin's record of call ${call} names ${record.agentId ? `agent ${record.sessionId}/${record.agentId}` : `session ${record.sessionId}`}, not ${agentId ? `agent ${platform}/${agentId}` : `session ${platform}`}`;
+  if (record.enforced === true && !enforcedStore) // one way: only removing the file by hand undoes it
+    writeFileSync(enforcedFile, JSON.stringify({ at: new Date().toISOString(), libraryDir: dirname(dirname(sessions)), session: platform, call }) + '\n');
   return null;
 };
 const by = (what) => {

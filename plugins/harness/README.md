@@ -52,19 +52,24 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   session. `ledger collect` merges the filed sessions into one ledger for the report.
 - **Agent hooks** (`scripts/agent-actor.js`, PreToolUse on Bash and SubagentStart): a subagent shares its
   parent's `CLAUDE_CODE_SESSION_ID`, and only hook input carries its `agent_id` and `agent_type`. Before a
-  Bash command that names `harness`, from a subagent or the parent, PreToolUse records the call at
+  Bash command that names `harness`, or before every Bash command when the hook's own environment has
+  `HARNESS_ENFORCE=1`, from a subagent or the parent, PreToolUse records the call at
   `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/<tool_use_id>.json` (`{ sessionId, toolUseId, at, kind,
-  agentId, agentType, commandSha256 }`, `agentId` null for the parent) and returns `updatedInput` with
-  `export HARNESS_CALL='<tool_use_id>' HARNESS_AGENT='<agent_id>:<agent_type>'; readonly ...` ahead of the
-  command (`HARNESS_AGENT` for a subagent only; no permission decision: the permission rules still apply). The
-  harness CLI records the agent only when that record names it, and under `HARNESS_ENFORCE=1` sends nothing
-  from a call the hook did not record (spec harness `meta.invariants` `hookSawCall`). Other commands are left
+  agentId, agentType, commandSha256, keySha256, enforced }`, `agentId` null for the parent) and returns
+  `updatedInput` with `export HARNESS_CALL='<tool_use_id>:<key>' HARNESS_AGENT='<agent_id>:<agent_type>';
+  readonly ...` ahead of the command (`HARNESS_AGENT` for a subagent only; no permission decision: the
+  permission rules still apply). The key is fresh per call and the record keeps only its sha256. The harness
+  CLI believes an actor only with that key and only when the record names it, so an id a command writes
+  itself (another call's, the SubagentStart record's) is refused. A call recorded under `HARNESS_ENFORCE=1`
+  marks its store enforced (`enforced.json` in the store, naming this Library), and from then on the store
+  takes a write only from a recorded call, whatever the command sets or unsets (spec harness
+  `meta.invariants` `hookSawCall`); to lift it, remove that file by hand. Other commands are left
   as they are; a command that sets, exports, clears or passes `HARNESS_AGENT` or `HARNESS_CALL` itself is
   denied with the reason (`setsHarnessAgent`), from either. SubagentStart writes `{ sessionId, agentId,
   agentType, at }` to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json`, which
   `harness verify-actors` checks, and binds the agent to the oldest spawn of its agent type the spawn gate
-  recorded for the session and the store took (`WORKER_STARTED`). The marker is read only for a command that
-  would be changed or denied, so other Bash calls pay nothing.
+  recorded for the session and the store took (`WORKER_STARTED`). Without `HARNESS_ENFORCE=1` the marker is
+  read only for a command that would be changed or denied, so other Bash calls pay nothing.
 - **Gates** (`scripts/gates.js`, PreToolUse on Agent, Bash and `mcp__github__merge_pull_request`): the spec
   decides (spec workItem, Workers; harness `meta.invariants`), asked through the harness CLI
   (`$HARNESS_BIN`, else `packages/harness/bin/harness.js` of the checkout the plugin sits in, with the
@@ -74,8 +79,13 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   refuses (no verifier brief yet, an edited verifier brief, a role or agent type the item does not take now).
   A malformed or repeated role line, an item not in the store, or a `harness:builder` or `harness:verifier`
   spawn without one is `roleLine`. A spawn with no role line is allowed and recorded nowhere: its agent can
-  send no item event. The **merge gate** sees the MCP merge tool, `gh pr merge` and `gh api` on a pull's
-  `/merge` endpoint, and asks `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
+  send no item event. The **merge gate** sees the MCP merge tool and reads every command a Bash call runs
+  (lists, pipelines, `$(...)` and backticks, `sh -c` and `eval` strings, `env`/`command`/`xargs` wrappers). A
+  GitHub write it cannot read is denied (`readableGitHubWrite`): a `gh` command, subcommand, method or path
+  built from a variable, a `gh` alias or extension, a GraphQL mutation or a GraphQL document it cannot read, a
+  merge or GraphQL write by `curl` or `wget`, or a command run by a variable name with `api`, `pr`, `-X` and
+  the like in it. Literal reads and other literal writes pass. A literal merge (`gh pr merge`, a `gh api`
+  write to a pull's `/merge` endpoint), however wrapped, asks `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
   (`expectedHeadSha`, `--match-head-commit` or `sha`: `pinnedHead`), the item's machine taking `MERGED` of
   that head, which needs its verifier's PASS (`machine`), and that PASS on GitHub as a review on the sha
   (`reviewOnHead`). Under `HARNESS_ENFORCE=1` both deny, the reason starting `harness (<rule>): `, and a gate
