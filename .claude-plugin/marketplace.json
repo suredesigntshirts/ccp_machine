@@ -1,0 +1,11 @@
+{
+  "name": "ccp-machine",
+  "owner": { "name": "suredesigntshirts" },
+  "plugins": [
+    {
+      "name": "harness-probe",
+      "source": "./plugins/harness-probe",
+      "description": "Throwaway install probe for testing per-project plugin loading and hooks."
+    }
+  ]
+}
