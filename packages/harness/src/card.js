@@ -1,5 +1,5 @@
 // A decision card: turns a postDecisionCard effect into the arguments of a request_decision card, so
-// the orchestrator posts it unchanged, then acks the effect with the card's message id
+// the orchestrator posts it unchanged to the effect's detail.address, then acks the effect with the card's message id
 // (harness ack <effect> --card <cmsg id>), which the decision records (CARD_POSTED). The options are the
 // decision's options in order; a tap on option i comes back as PERSON_DECIDED with choices[i], sent to
 // `address` as the person from a tap whose ref is that message id (--actor person:<id> --source tap:<cmsg id>);
@@ -23,9 +23,7 @@ const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 export function cardFor(effect, { itemUrl } = {}) {
   if (effect?.name !== 'postDecisionCard') throw new Error(`${effect?.id ?? 'effect'} is not a postDecisionCard effect`);
   const d = effect.detail ?? {};
-  const [, ...rest] = effect.subject.split(':');
-  const item = rest.slice(0, -2).join(':');
-  const gate = d.decisionClass ?? rest.at(-2);
+  const { item, decisionClass: gate } = d;
   const lean = d.standIn?.choice;
   const recommended = Math.max(0, CHOICES.findIndex(([c]) => c === lean));
   const context = [
@@ -36,7 +34,7 @@ export function cardFor(effect, { itemUrl } = {}) {
     .filter(Boolean)
     .join(' ');
   return {
-    address: `item:${item}/${effect.subject}`,
+    address: d.address,
     choices: CHOICES.map(([c]) => c),
     question: cut(`${gate === 'plan' ? 'Approve the plan for' : gate === 'accept' ? 'Accept the work on' : 'Merge'} ${d.title ?? item}?`, 90),
     options: CHOICES.map(([, label, by]) => ({ label, consequence: by[gate] ?? by.plan })),

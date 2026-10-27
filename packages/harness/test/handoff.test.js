@@ -8,7 +8,7 @@ import { apply, start } from './send.js';
 
 const PR = 'https://github.com/o/r/pull/7';
 
-test('the hand-off names every in-flight item with its stage and PR, the waiting card, the queue and the to-do', () => {
+test('the hand-off names every in-flight item with its stage and PR, the waiting card, the queue and the to-do', async () => {
   const store = openStore(tempDir('harness-'));
   init(store, { wipLimit: 2 });
   start(store);
@@ -31,12 +31,12 @@ test('the hand-off names every in-flight item with its stage and PR, the waiting
   ack(store, [ask.id], { note: 'judged' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.6, reason: 'unsure' } }, { to: `item:b/${ask.subject}` });
   const card = store.pending().find((e) => e.name === 'postDecisionCard');
-  ack(store, [card.id], { note: 'cmsg_123', by: { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness ack' } } });
+  ack(store, [card.id], { card: 'cmsg_123', by: { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness ack' } } });
   // c: queued behind the WIP limit, its triage not yet dispatched.
   req('c');
   writeFileSync(join(store.dir, HANDOFF_NOTES), '- audit card cmsg_9 waits on a tap');
 
-  const note = handoffNote(store, { now: '2026-10-26T20:00:00Z' });
+  const note = await handoffNote(store, { now: '2026-10-26T20:00:00Z' });
   assert.match(note, new RegExp(`\\*\\*a\\*\\* \\(tier 0\\) active\\.verifying, PR ${PR}`));
   assert.match(note, /\*\*b\*\* \(tier 1\) active\.awaitingPlanDecision/);
   assert.match(note, /- item:b\/decision:b:plan:1: .*\(card: cmsg_123\)/);
@@ -45,5 +45,5 @@ test('the hand-off names every in-flight item with its stage and PR, the waiting
   assert.match(note, /Check CI on https:\/\/github\.com\/o\/r\/pull\/7/);
   assert.match(note, /audit card cmsg_9/);
   for (const e of store.pending()) assert.ok(note.includes(e.id), `pending ${e.id} listed`);
-  assert.equal(readFileSync(writeHandoff(store), 'utf8').startsWith('# Harness hand-off'), true);
+  assert.equal(readFileSync(await writeHandoff(store), 'utf8').startsWith('# Harness hand-off'), true);
 });

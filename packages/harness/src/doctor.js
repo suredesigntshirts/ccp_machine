@@ -1,5 +1,7 @@
 // harness doctor: checks that a store is sound before a wake writes to it. Each problem names what is
-// wrong and where, so the orchestrator can stop and report instead of building on a broken store.
+// wrong and where, so the orchestrator can stop and report instead of building on a broken store; what
+// cannot be checked yet (GitHub unreachable, a ledger not filed yet for a session that has just acted) is
+// unverifiable, listed but not a problem.
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tryRestore } from './runtime.js';
@@ -11,10 +13,16 @@ import { verifyFacts, verifyFactsText } from './verify-facts.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
+// The Stop hook files a session's ledger after its turn: until then, its missing ledger is not yet a problem.
+const LEDGER_GRACE_MS = 10 * 60_000;
 
-/** Problems make the store unsafe to build on; warnings (`ok` stays true) are things to act on soon.
- * @returns {{ok: boolean, problems: string[], warnings: string[], checked: object}} */
-export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) {
+/**
+ * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers` and
+ * verify-facts with `fetcher`. Problems make the store unsafe to build on (`ok` false); unverifiable and warnings
+ * (an untested class) leave `ok` true.
+ * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], checked: object}>}
+ */
+export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, ledgers, fetcher, verify = true } = {}) {
   const problems = [];
   const events = store.events();
   // The first event is version 2 (init writes version 1 with no event).
@@ -47,22 +55,12 @@ export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) 
   const warnings = untestedRuns(readDecisionLog(store)).map(
     (w) => `${w.decisionClass}: ${w.untested} stand-in decisions in a row with none checked by the person (over ${UNTESTED_WARN}); run harness audit`
   );
-  return { ok: problems.length === 0, problems, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null } };
-}
-
-/**
- * `harness doctor`: the store's own checks, plus verify-actors (every session actor against its ledger in
- * `ledgers`) and verify-facts (every GitHub fact re-read with `fetcher`). A failure of either is a problem, so
- * the report is not ok; a fact GitHub could not be read counts too, since nothing confirmed it.
- */
-export async function doctorAll(store, { ledgers, fetcher, ...opts } = {}) {
-  const report = doctor(store, opts);
-  const actors = verifyActors(store, ledgers ? { dir: ledgers } : {});
-  const facts = await verifyFacts(store, fetcher ? { fetcher } : {});
-  const problems = [
-    ...report.problems,
-    ...actors.filter((r) => r.result !== 'ok').map((r) => `verify-actors: ${verifyActorsText([r])}`),
-    ...facts.filter((r) => r.result !== 'ok').map((r) => `verify-facts: ${verifyFactsText([r])}`)
-  ];
-  return { ...report, ok: problems.length === 0, problems, checked: { ...report.checked, actors: actors.length, facts: facts.length } };
+  const unverifiable = [];
+  const actors = verify ? verifyActors(store, ledgers ? { dir: ledgers } : {}) : [];
+  const facts = verify ? await verifyFacts(store, fetcher ? { fetcher } : {}) : [];
+  const lastAt = Object.fromEntries(events.filter((e) => e.actor?.kind === 'session').map((e) => [e.actor.id, Date.parse(e.at)]));
+  for (const r of actors.filter((r) => r.result !== 'ok'))
+    (r.result === 'no ledger' && /^no /.test(r.why) && now - lastAt[r.id] < LEDGER_GRACE_MS ? unverifiable : problems).push(`verify-actors: ${verifyActorsText([r])}`);
+  for (const r of facts.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`verify-facts: ${verifyFactsText([r])}`);
+  return { ok: problems.length === 0, problems, unverifiable, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length } };
 }

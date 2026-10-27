@@ -47,7 +47,8 @@ export function replay(store) {
     for (const e of events) {
       let effects;
       try {
-        const r = apply(scratch, { ...e.event, actor: e.actor, source: e.source }, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at });
+        // A tap logged before relayedBy was recorded replays as unrecorded, not refused.
+        const r = apply(scratch, { ...e.event, actor: e.actor, source: e.source, relayedBy: e.relayedBy ?? (e.source?.kind === 'tap' ? 'unrecorded' : undefined) }, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at });
         // A log from before refusals can hold ignored events; one from before the envelope has no actor.
         if (r.refused) notes.push(`${e.id}: ${r.why}`);
         ({ effects } = r);

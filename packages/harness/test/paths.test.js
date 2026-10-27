@@ -55,7 +55,7 @@ const homes = {
       ...(input.decisionClass !== 'accept' ? [] : [
         [{ type: 'STAND_IN_FAILED', ...orchestrator }, 'item:w/decision:w:plan:1'],
         [posted, 'item:w/decision:w:plan:1'],
-        [{ type: 'PERSON_DECIDED', choice: 'approve', actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, 'item:w/decision:w:plan:1'],
+        [{ type: 'PERSON_DECIDED', choice: 'approve', actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' }, relayedBy: 'host' }, 'item:w/decision:w:plan:1'],
         item({ type: 'RUN_SUCCEEDED', ...as('worker') }),
         ...(input.expectationsMet ? [item({ type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a', ...as('reviewer') })] : []),
         item({ type: 'CHECKS_PASSED', actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } })
@@ -66,18 +66,19 @@ const homes = {
   // The day's audit, opened by the harness when a session picks it.
   audit: {
     to: 'audit:2026-10-26',
-    setup: (input) => [started, [{ type: 'AUDIT_PICKED', day: input.day, picks: input.picks, ...orchestrator }]],
+    setup: (input) => [started, [{ type: 'AUDIT_PICKED', day: input.day, picks: input.picks, receivedAt: `${input.day}T12:00:00Z`, ...orchestrator }]],
     read: (snap) => child(snap, 'audit:2026-10-26')
   }
 };
 
-// Item ids are unique, so each REQUEST_RECEIVED the walk offers names a new item; each valid AUDIT_PICKED a new day.
+// Item ids are unique, so each REQUEST_RECEIVED the walk offers names a new item; each valid AUDIT_PICKED a new day,
+// received that day (the runtime sets receivedAt to the time it applies the event, so apply() is given it as now).
 let k = 0;
 const newDay = () => new Date(Date.UTC(2030, 0, 1) + ++k * 864e5).toISOString().slice(0, 10);
 const offer = (events) => () =>
   events.map((e) =>
     e.type === 'REQUEST_RECEIVED' ? { ...e, request: { ...e.request, id: `${e.request.id}-${++k}` } }
-    : e.type === 'AUDIT_PICKED' && /^\d{4}-\d{2}-\d{2}$/.test(e.day) ? { ...e, day: newDay() }
+    : e.type === 'AUDIT_PICKED' && /^\d{4}-\d{2}-\d{2}$/.test(e.day) ? ((day) => ({ ...e, day, receivedAt: `${day}T12:00:00Z` }))(newDay())
     : e
   );
 
@@ -90,13 +91,13 @@ const serializeState = (name) => (s) =>
 // the stand-in fails, the host posts the card and the person taps it. With no decision open it goes to the item, which refuses it.
 function deliver(store, name, event) {
   const to = homes[name].to;
-  if (event.type !== 'DECISION_MADE' || event.actor) return [apply(store, event, { to })];
+  if (event.type !== 'DECISION_MADE' || event.actor) return [apply(store, event, { to, ...(event.receivedAt && { now: event.receivedAt }) })];
   const decision = child(store.read().snapshot, 'w')?.context.decisionId;
   if (!decision) return [apply(store, { ...event, ...orchestrator }, { to })];
   return [
     apply(store, { type: 'STAND_IN_FAILED', ...orchestrator }, { to: `${to}/${decision}` }),
     apply(store, posted, { to: `${to}/${decision}` }),
-    apply(store, { type: 'PERSON_DECIDED', choice: event.choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, { to: `${to}/${decision}` })
+    apply(store, { type: 'PERSON_DECIDED', choice: event.choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' }, relayedBy: 'host' }, { to: `${to}/${decision}` })
   ];
 }
 
@@ -106,7 +107,7 @@ function freshStore(name, input) {
   init(store, { wipLimit: 0 }, '2026-10-26T00:00:00Z');
   // The decision takes its autonomy from the ladder when it opens: an input at act needs a log that earned it.
   if (name === 'decision' && input.autonomy === 'act') earn(store, input.decisionClass);
-  for (const [event, to] of homes[name].setup(input)) assert.ok(!apply(store, event, { to }).refused, `${name} setup ${event.type}`);
+  for (const [event, to] of homes[name].setup(input)) assert.ok(!apply(store, event, { to, ...(event.receivedAt && { now: event.receivedAt }) }).refused, `${name} setup ${event.type}`);
   return store;
 }
 const fork = (store) => {

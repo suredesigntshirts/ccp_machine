@@ -41,16 +41,16 @@ test('the card confirms all with option 0 and reverses pick i with option i', ()
 
 const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness audit' } };
 // The person's tap on the audit card the host posted for `day`.
-const answer = (store, day, option, now) => apply(store, { type: 'AUDIT_ANSWERED', option, actor: { kind: 'person', id: 'sd' }, source: { kind: 'tap', ref: `cmsg_audit_${day.replace(/-/g, '')}` } }, { to: `audit:${day}`, now });
+const answer = (store, day, option, now) => apply(store, { type: 'AUDIT_ANSWERED', option, actor: { kind: 'person', id: 'sd' }, source: { kind: 'tap', ref: `cmsg_audit_${day.replace(/-/g, '')}` }, relayedBy: 'host' }, { to: `audit:${day}`, now });
 
 test('an answer becomes the person\'s decisions, which calibration and the ladder learn from', () => {
   const store = storeWith([standIn(1, 'plan', 0.9, '2026-10-26T10:00:00Z'), standIn(2, 'plan', 0.8, '2026-10-26T10:01:00Z'), standIn(3, 'accept', 0.9, '2026-10-26T10:02:00Z')]);
   const day = '2026-10-26';
-  assert.equal(pickAudit(store, day, { by: orchestrator }).picks.length, 3);
+  assert.equal(pickAudit(store, { by: orchestrator, now: '2026-10-26T11:00:00Z' }).picks.length, 3);
   assert.equal(auditLine(store, day), '3 to check, about 1 minute');
   assert.match(renderDigest(status(store), { day, audit: auditLine(store, day) }), /\*\*Stand-in audit:\*\* 3 to check, about 1 minute\./);
   // Picks are fixed for the day: the card and the answer name the same decisions.
-  assert.deepEqual(pickAudit(store, day, { by: orchestrator }).picks, ['s2', 's3', 's1']);
+  assert.deepEqual(pickAudit(store, { by: orchestrator, now: '2026-10-26T11:00:00Z' }).picks, ['s2', 's3', 's1']);
   post(store, `audit:${day}`, `cmsg_audit_${day.replace(/-/g, '')}`);
   assert.equal(answer(store, day, 1, '2026-10-26T12:00:00Z').refused, undefined);
   assert.equal(answer(store, day, 1).refused, true, 'answered: the audit is done, and answering twice adds nothing');
@@ -72,11 +72,11 @@ test('the empty early effects are left out of the log, and the log is the store\
   assert.deepEqual(readDecisionLog(store).map((r) => r.effectId), ['s1']);
 });
 
-test('doctor warns, without failing, when a class goes 21 stand-in decisions unchecked', () => {
+test('doctor warns, without failing, when a class goes 21 stand-in decisions unchecked', async () => {
   const rows = Array.from({ length: 21 }, (_, i) => standIn(i, 'plan', 0.9, `2026-10-26T10:${String(i).padStart(2, '0')}:00Z`));
   assert.deepEqual(untestedRuns(rows), [{ decisionClass: 'plan', untested: 21 }]);
   assert.deepEqual(untestedRuns([...rows, { ...rows[0], effectId: 'p', decidedBy: 'person' }]), []);
-  const report = doctor(storeWith(rows));
+  const report = await doctor(storeWith(rows), { verify: false });
   assert.equal(report.ok, true);
   assert.match(report.warnings[0], /^plan: 21 stand-in decisions in a row/);
 });
@@ -86,7 +86,7 @@ test('an unanswered audit counts under Needs you on mission control until it is 
   const day = '2026-10-26';
   const page = () => renderPage(status(store), { audits: openAudits(store) });
   assert.match(page(), /Nothing is waiting on you/, 'no audit picked yet');
-  pickAudit(store, day, { by: orchestrator });
+  pickAudit(store, { by: orchestrator, now: '2026-10-26T11:00:00Z' });
   assert.equal(openAudits(store).length, 1);
   assert.match(page(), /Needs you<\/span><b>1<\/b>/);
   assert.match(page(), /Did the stand-in call these 1 right\?[\s\S]*AUDIT_ANSWERED[\s\S]*--to audit:2026-10-26/);

@@ -12,7 +12,7 @@ const failures = [];
 const check = (ok, what) => ok || failures.push(what);
 let busy;
 for (const wip of [3, Number(o.items)]) {
-  const r = simulate({ items: Number(o.items), wip });
+  const r = await simulate({ items: Number(o.items), wip });
   const ms = timeApplyAt(r.store, 500);
   console.log(`WIP ${wip}: ${r.done}/${r.items} done, peak ${r.peakInFlight} in flight and ${r.peakAsks} cards, ${r.events} events, ${JSON.stringify(r.counts)}, apply at 500 events ${ms.toFixed(1)} ms`);
   for (const x of r.refused) console.log(`  ${x}`);

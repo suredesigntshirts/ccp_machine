@@ -56,11 +56,12 @@ export function auditCard(picks) {
 }
 
 /**
- * Open the day's audit once, sent `by` the session that picks ({actor, source}): AUDIT_PICKED with up to `max`
+ * Open today's audit (the UTC day of `now`) once, sent `by` the session that picks ({actor, source}): AUDIT_PICKED with up to `max`
  * picks, which queues postAuditCard. A day already picked returns that audit; no picks, nothing is sent.
  * @returns {{day: string, address: string, picks: string[], effect: string|null}}
  */
-export function pickAudit(store, day, { by, now, max } = {}) {
+export function pickAudit(store, { by, now = new Date().toISOString(), max } = {}) {
+  const day = now.slice(0, 10);
   const address = `audit:${day}`;
   const effect = () => store.outbox().find((e) => e.name === 'postAuditCard' && e.subject === address)?.id ?? null;
   const prior = store.events().find((e) => e.event.type === 'AUDIT_PICKED' && e.event.day === day);
@@ -72,20 +73,16 @@ export function pickAudit(store, day, { by, now, max } = {}) {
   return { day, address, picks, effect: effect() };
 }
 
-/** Every audit waiting on the person, oldest first, its picks read from the decision log: mission control lists them under Needs you. */
+/** Every audit waiting on the person, oldest first, its picks read from one map of the decision log and its card's
+ * request_decision arguments (`ask`): mission control lists them under Needs you, auditCardFor prints one. */
 export function openAudits(store) {
   const rows = new Map(readDecisionLog(store).map((r) => [r.effectId, r]));
-  return (status(store)?.audits ?? [])
-    .filter((a) => a.state === 'awaitingPerson')
-    .sort((a, b) => a.day.localeCompare(b.day))
-    .map((a) => ({ ...a, picks: a.picks.map((id) => rows.get(id) ?? { effectId: id }) }));
+  return (status(store)?.audits ?? []).filter((a) => a.state === 'awaitingPerson').sort((a, b) => a.day.localeCompare(b.day))
+    .map((a) => ({ ...a, picks: a.picks.map((id) => rows.get(id) ?? { effectId: id, standIn: {} }) })).map((a) => ({ ...a, ask: auditCard(a.picks) }));
 }
 
-/** request_decision arguments for a postAuditCard effect, and the address its tap goes to. */
-export function auditCardFor(store, effect) {
-  const rows = new Map(readDecisionLog(store).map((r) => [r.effectId, r]));
-  return { address: effect.subject, ...auditCard((effect.detail?.picks ?? []).map((id) => rows.get(id) ?? { effectId: id, standIn: {} })) };
-}
+/** request_decision arguments for an open audit's postAuditCard effect, and the address its tap goes to. */
+export const auditCardFor = (store, effect) => ({ address: effect.subject, ...openAudits(store).find((a) => a.address === effect.subject)?.ask });
 
 /** Classes with more than UNTESTED_WARN stand-in decisions since their last tested one. */
 export function untestedRuns(rows, limit = UNTESTED_WARN) {

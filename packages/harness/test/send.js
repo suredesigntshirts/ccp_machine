@@ -35,5 +35,5 @@ export const decide = (store, to, choice, card, { to: _, ...opts } = {}) => {
   const posted = store.events().findLast((e) => e.event.type === 'CARD_POSTED' && e.to === to)?.event.card;
   const ref = card ?? posted ?? post(store, to, undefined, opts.now);
   if (!posted && card) post(store, to, card, opts.now);
-  return applyEvent(store, { type: 'PERSON_DECIDED', choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref } }, { to, ...opts });
+  return applyEvent(store, { type: 'PERSON_DECIDED', choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref }, relayedBy: 'host' }, { to, ...opts });
 };

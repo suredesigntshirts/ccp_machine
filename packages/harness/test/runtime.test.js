@@ -292,15 +292,15 @@ test('the digest goes out once per UTC day and says what finished, what runs and
   assert.equal(store.events().filter((e) => e.event.type === 'DIGEST_DUE').length, 1);
 });
 
-test('doctor passes a sound store and names each problem in a broken one', () => {
+test('doctor passes a sound store and names each problem in a broken one', async () => {
   const store = fresh();
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' } }, { now: '2026-10-20T00:00:00Z' });
   apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:a' });
   const soon = Date.parse('2026-10-20T01:00:00Z');
-  assert.deepEqual(doctor(store, { now: soon }).problems, []);
+  assert.deepEqual((await doctor(store, { now: soon, verify: false })).problems, []);
   store.appendAcks([{ effectId: 'ghost', outcome: 'done' }]);
   store.appendEvents([{ id: 'x', version: 9, at: '2026-10-20T00:00:00Z', to: 'harness', event: { type: 'X' } }]);
-  const { ok, problems } = doctor(store, { now: Date.parse('2026-10-26T00:00:00Z') });
+  const { ok, problems } = await doctor(store, { now: Date.parse('2026-10-26T00:00:00Z'), verify: false });
   assert.equal(ok, false);
   assert.ok(problems.some((p) => /unknown effect ghost/.test(p)));
   assert.ok(problems.some((p) => /version 9, expected 5/.test(p)));

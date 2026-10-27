@@ -14,13 +14,13 @@ const SEEN_IDS_KEPT = 500;
 export const ACTOR_KINDS = ['person', 'session', 'github', 'timer'];
 export const SOURCE_KINDS = ['tap', 'github-wake', 'cli', 'timer'];
 // No event says it is the person's: `person` is refused, and the person's touches are posted cards and taps.
-const envelopeError = ({ actor, source, ...event }) =>
+const envelopeError = ({ actor, source, relayedBy, ...event }) =>
   'person' in event ? 'carrying "person": no event marks itself as the person\'s; the person acts only by a tap on a card'
   : !actor ? 'without an actor'
   : !ACTOR_KINDS.includes(actor.kind) || typeof actor.id !== 'string' || !actor.id ? `with actor ${JSON.stringify(actor)} (kind ${ACTOR_KINDS.join('|')} and an id)`
   : !source ? 'without a source'
   : !SOURCE_KINDS.includes(source.kind) || typeof source.ref !== 'string' ? `with source ${JSON.stringify(source)} (kind ${SOURCE_KINDS.join('|')} and a ref)`
-  : null;
+  : source.kind === 'tap' && !relayedBy && process.env.CLAUDE_CODE_SESSION_ID ? 'from a tap without the session that relayed it (relayedBy)' : null;
 
 // The harness that applied an event, so a finding can be matched to the code that produced it.
 let applied;
@@ -92,6 +92,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
   if (!event?.type) throw new Error('an event needs a type');
   const bad = envelopeError(event);
   if (bad) return { version: store.read()?.version ?? 0, refused: true, why: `refused: ${event.type} ${bad}`, effects: [] };
+  event = { ...event, receivedAt: now }; // the machine reads the event's own time (AUDIT_PICKED's day), never the sender's
   return store.withLock(() => {
     const state = store.read();
     if (!state) throw new Error(`no harness in ${store.dir}; run init first`);
@@ -129,8 +130,8 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
     const version = state.version + 1;
     const queued = effects.map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
     store.write({ version, snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
-    const { actor: by, source, ...rest } = event;
-    store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, harness: harnessVersion(), event: rest }]);
+    const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
+    store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, ...(relayedBy && { relayedBy }), harness: harnessVersion(), event: rest }]);
     store.appendOutbox(queued);
     return { version, effects: queued };
   });
@@ -138,24 +139,23 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
 
 // Effects that ask the host to post a card, and where the card's decision or audit lives.
 const CARD_EFFECTS = ['postDecisionCard', 'postAuditCard'];
-export const cardAddress = (e) => (e.name === 'postDecisionCard' ? `item:${e.subject.split(':').slice(1, -2).join(':')}/${e.subject}` : e.subject);
+export const cardAddress = (e) => e.detail?.address || e.subject;
 
 /**
  * Mark effects as carried out (or failed), so they leave the pending list. The ack of a card effect, done, names
- * the card's message id (`card`, else `note`) and records it on its decision or audit as CARD_POSTED, sent `by`
- * the host session; a tap is taken only on that card. A card effect is acked alone, its id on no other card.
+ * the card's message id (`card`) and records it on its decision or audit as CARD_POSTED, sent `by` the host
+ * session; a tap is taken only on that card. A card effect is acked alone and once, its id on no other card.
  */
 export function ack(store, effectIds, { outcome = 'done', note, card, by, now = new Date().toISOString() } = {}) {
   const outbox = new Map(store.outbox().map((e) => [e.id, e]));
   const unknown = effectIds.filter((id) => !outbox.has(id));
   if (unknown.length) throw new Error(`unknown effects: ${unknown.join(', ')}`);
-  const [post, ...more] = effectIds.map((id) => outbox.get(id)).filter((e) => CARD_EFFECTS.includes(e.name) && outcome === 'done');
+  const post = outcome === 'done' && effectIds.map((id) => outbox.get(id)).find((e) => CARD_EFFECTS.includes(e.name));
   if (post) {
-    const id = card ?? note;
-    const taken = store.events().find((x) => x.event.type === 'CARD_POSTED' && x.event.card === id)?.to;
-    const why = more.length || effectIds.length > 1 ? 'a card effect is acked on its own' : taken ? `${id} is already the card of ${taken}` : !by ? 'the session that posted the card sends its ack'
-      : apply(store, { type: 'CARD_POSTED', card: id, effect: post.id, ...by }, { to: cardAddress(post), id: `card-${post.id}`, now }).why;
-    if (why) throw new Error(`${why}: ack ${post.id} alone with the card's message id (--card cmsg_... or --note cmsg_...), once. Nothing acked`);
+    const taken = store.events().find((x) => x.event.type === 'CARD_POSTED' && (x.event.effect === post.id || x.event.card === card));
+    const r = effectIds.length > 1 ? { why: 'a card effect is acked on its own' } : taken ? { why: taken.event.effect === post.id ? `${post.id} already has its card ${taken.event.card}` : `${card} is already the card of ${taken.to}` }
+      : !by ? { why: 'the session that posted the card sends its ack' } : apply(store, { type: 'CARD_POSTED', card, effect: post.id, ...by }, { to: cardAddress(post), id: `card-${post.id}`, now });
+    if (r.why || r.duplicate) throw new Error(`${r.why ?? `${post.id} already has its card`}: ack ${post.id} alone with the card's message id (--card cmsg_...), once. Nothing acked`);
   }
   store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now })));
   return { acked: effectIds.length };

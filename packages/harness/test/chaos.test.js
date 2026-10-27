@@ -17,9 +17,9 @@ const fresh = () => {
 };
 const soon = Date.parse('2026-10-26T11:00:00Z');
 const req = (id) => ({ type: 'REQUEST_RECEIVED', request: { id } });
-const problems = (store, now = soon) => doctor(store, { now }).problems;
+const problems = async (store, now = soon) => (await doctor(store, { now, verify: false })).problems;
 
-test('a crash after state.json and before the log: doctor says so, repair --rebuild undoes it and a resend applies', () => {
+test('a crash after state.json and before the log: doctor says so, repair --rebuild undoes it and a resend applies', async () => {
   const store = fresh();
   apply(store, req('a'), { id: 'req-a', now: '2026-10-26T10:01:00Z' });
   // The snapshot of the next event lands; the process dies before events.jsonl and outbox.jsonl.
@@ -28,25 +28,25 @@ test('a crash after state.json and before the log: doctor says so, repair --rebu
   apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:02:00Z' });
   writeFileSync(join(store.dir, 'events.jsonl'), before);
   writeFileSync(join(store.dir, 'outbox.jsonl'), outbox);
-  assert.ok(problems(store).some((p) => /state.json is version 4, the last event is 3 .*repair --rebuild/.test(p)));
+  assert.ok((await problems(store)).some((p) => /state.json is version 4, the last event is 3 .*repair --rebuild/.test(p)));
   assert.deepEqual(repair(store).left.length, 1, 'not rebuilt without --rebuild');
   assert.deepEqual(repair(store, { rebuild: true }).fixed, ['rebuilt state.json from events.jsonl at version 3']);
-  assert.deepEqual(problems(store), []);
+  assert.deepEqual((await problems(store)), []);
   const again = apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:03:00Z' });
   assert.equal(again.duplicate, undefined, 'the resent event applies');
   assert.deepEqual(again.effects.map((e) => e.params?.step), ['build']);
-  assert.deepEqual(problems(store), []);
+  assert.deepEqual((await problems(store)), []);
 });
 
-test('a stale lock: the next writer takes over, doctor names it, repair clears it', () => {
+test('a stale lock: the next writer takes over, doctor names it, repair clears it', async () => {
   const store = fresh();
   const lock = join(store.dir, 'lock');
   closeSync(openSync(lock, 'w'));
   const old = (Date.now() - 120_000) / 1000;
   utimesSync(lock, old, old);
-  assert.ok(problems(store, Date.now()).some((p) => /lock is older than 60s \(fix with harness repair\)/.test(p)));
+  assert.ok((await problems(store, Date.now())).some((p) => /lock is older than 60s \(fix with harness repair\)/.test(p)));
   assert.deepEqual(repair(store).fixed, ['cleared a stale lock']);
-  assert.deepEqual(problems(store, Date.now()), []);
+  assert.deepEqual((await problems(store, Date.now())), []);
   closeSync(openSync(lock, 'w'));
   utimesSync(lock, old, old);
   apply(store, req('a'));
@@ -82,11 +82,11 @@ test('two writer processes at once: every event lands once and the log stays con
   const events = store.events();
   assert.equal(events.length, 17, 'the orchestrator starting, then 8 from each writer');
   assert.equal(new Set(events.map((e) => e.id)).size, 17);
-  assert.deepEqual(problems(store, Date.now()), []);
+  assert.deepEqual((await problems(store, Date.now())), []);
   assert.equal(store.read().version, 18);
 });
 
-test('the same event twice, or out of order, changes nothing and leaves a sound store', () => {
+test('the same event twice, or out of order, changes nothing and leaves a sound store', async () => {
   const store = fresh();
   apply(store, req('a'), { id: 'req-a' });
   assert.equal(apply(store, req('a'), { id: 'req-a' }).duplicate, true);
@@ -94,28 +94,28 @@ test('the same event twice, or out of order, changes nothing and leaves a sound 
   assert.deepEqual(apply(store, { type: 'MERGED' }, { to: 'item:a', id: 'early-merge' }).effects, []);
   assert.deepEqual(apply(store, { type: 'CHECKS_PASSED' }, { to: 'item:a', id: 'early-ci' }).effects, []);
   assert.equal(status(store).items[0].state, 'active.triaging');
-  assert.deepEqual(problems(store, Date.now()), []);
+  assert.deepEqual((await problems(store, Date.now())), []);
 });
 
-test('a torn last line: doctor names it, the next append is not glued to it, repair drops it', () => {
+test('a torn last line: doctor names it, the next append is not glued to it, repair drops it', async () => {
   const store = fresh();
   apply(store, req('a'), { id: 'req-a' });
   appendFileSync(join(store.dir, 'acks.jsonl'), '{"effectId":"req-a.0","outc');
-  assert.ok(problems(store, Date.now()).some((p) => /acks.jsonl line 1 is not JSON \(a torn last write: fix with harness repair\)/.test(p)));
+  assert.ok((await problems(store, Date.now())).some((p) => /acks.jsonl line 1 is not JSON \(a torn last write: fix with harness repair\)/.test(p)));
   store.appendAcks([{ effectId: 'req-a.0', outcome: 'done', at: '2026-10-26T10:05:00Z' }]);
   assert.equal(store.acks().length, 1, 'the new row survives the torn one');
-  assert.ok(problems(store, Date.now()).some((p) => /line 1 is not JSON \(not the last line: repair by hand\)/.test(p)));
+  assert.ok((await problems(store, Date.now())).some((p) => /line 1 is not JSON \(not the last line: repair by hand\)/.test(p)));
   assert.equal(repair(store).left.length, 1, 'a torn middle line is left for a person');
 
   const other = fresh();
   apply(other, req('b'), { id: 'req-b' });
   appendFileSync(join(other.dir, 'outbox.jsonl'), '{"id":"half');
   assert.deepEqual(repair(other).fixed, ['dropped torn line 2 of outbox.jsonl']);
-  assert.deepEqual(problems(other, Date.now()), []);
+  assert.deepEqual((await problems(other, Date.now())), []);
   assert.equal(other.outbox().length, 1);
 });
 
-test('a slow mount whose lock looks stale mid-write: compare-and-set refuses the late writer', () => {
+test('a slow mount whose lock looks stale mid-write: compare-and-set refuses the late writer', async () => {
   const store = fresh();
   const lock = join(store.dir, 'lock');
   assert.throws(
@@ -132,5 +132,5 @@ test('a slow mount whose lock looks stale mid-write: compare-and-set refuses the
     /state changed: expected version 2, found 3/
   );
   assert.deepEqual(status(store).items.map((i) => i.id), ['b']);
-  assert.deepEqual(problems(store, Date.now()), []);
+  assert.deepEqual((await problems(store, Date.now())), []);
 });
