@@ -53,7 +53,8 @@ ${canaryAlarm ? '' : `**Canary:** ${canary.line}\n\n`}**Budget:** ${b ? `${b.mod
 
 /** Send today's DIGEST_DUE (once per day), write the digest and ack its publishDigest effects. */
 export function writeDigest(store, { day = new Date().toISOString().slice(0, 10) } = {}) {
-  apply(store, { type: 'DIGEST_DUE', day }, { id: `digest-${day}` });
+  const r = apply(store, { type: 'DIGEST_DUE', day }, { id: `digest-${day}` });
+  if (r.refused) throw new Error(r.why);
   const text = renderDigest(status(store), { events: store.events(), outbox: store.outbox(), decisions: readDecisionLog(store), day, audit: auditLine(store, day) });
   const dir = join(store.dir, 'digests');
   mkdirSync(dir, { recursive: true });

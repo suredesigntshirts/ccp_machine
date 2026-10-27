@@ -24,6 +24,12 @@ stateDiagram-v2
   note left of normal : from any state on DAY_STARTED
 ```
 
+States:
+
+- `normal`: Work may start.
+- `wrappingUp`: Soft limit reached: start nothing new, bring work in flight to a checkpoint.
+- `paused` (tags: `budget-stop`): Daily allowance spent or the 5-hour window nearly full: no turns except to save state.
+
 Effects and context updates: `applyConfig`, `recordUsage`, `reportMode`, `startDay`
 
 Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`, `usageStale`
@@ -46,6 +52,10 @@ stateDiagram-v2
   routing --> awaitingPerson : always
   awaitingPerson --> decided : PERSON_DECIDED
 ```
+
+States:
+
+- `awaitingPerson` (tags: `needs-human`): A decision card is in front of the person, with the stand-in's recommendation.
 
 Effects and context updates: `acceptStandInChoice`, `askStandIn`, `logPrecedent`, `notifyInboxClosed`, `notifyInboxOpened`, `postDecisionCard`, `recordPersonChoice`, `recordStandInAnswer`, `reportDecision`
 
@@ -111,6 +121,17 @@ stateDiagram-v2
   note left of cancelled : from any state on CANCEL
 ```
 
+States:
+
+- `active.queued`: Waiting for the scheduler to give it a slot.
+- `active.triaging`: Scope, project, and acceptance criteria in the person's words.
+- `active.awaitingPlanDecision` (tags: `gated`)
+- `active.building`: A worker thread builds on its own branch and opens a PR.
+- `active.verifying`: CI, spec checks and a reviewer run against the acceptance criteria.
+- `active.awaitingAcceptance` (tags: `gated`): Evidence against each acceptance criterion: is the work doing what the person expected?
+- `active.awaitingMergeDecision` (tags: `gated`): Merge to main: the person decides, the stand-in recommends.
+- `blocked`: Waiting on something outside the item (a dependency, a conflict, a failing check). Resumes where it stopped.
+
 Effects and context updates: `checkpoint`, `countRetry`, `dispatchRun`, `mergePullRequest`, `openDecision`, `recordChoice`, `recordRun`, `reportBlocked`, `reportFinished`, `withdrawDecision`
 
 Guards: `choiceIs`, `retriesLeft`, `tierBelow`
@@ -141,6 +162,14 @@ stateDiagram-v2
   [*] --> attention_quiet
   attention_needsPerson --> attention_quiet : always [inboxEmpty]
 ```
+
+States:
+
+- `scheduler.accepting`: Start ready items while fewer than wipLimit are in flight.
+- `scheduler.draining`: Soft budget limit: nothing new starts; items in flight are told to wrap up.
+- `scheduler.halted` (tags: `budget-stop`): Budget stop: nothing runs until usage allows.
+- `attention.quiet`: Nothing needs the person.
+- `attention.needsPerson` (tags: `needs-human`)
 
 Effects and context updates: `addToInbox`, `publishDigest`, `recordBudgetMode`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
 

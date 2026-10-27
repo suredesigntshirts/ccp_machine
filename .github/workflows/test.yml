@@ -26,6 +26,8 @@ jobs:
       - if: github.event_name == 'pull_request'
         run: node scripts/check-plugin-version.mjs origin/${{ github.base_ref }}
       - run: npm test
+      # SPEC.md is generated from the machine JSON; fail when the committed copy is not a fresh render.
+      - run: npm run spec:render -w @ccp/harness && git diff --exit-code
       - run: npm run scenarios
       # Browser only: ubuntu-latest already has Chromium's libraries, and --with-deps spent its whole
       # timeout fetching fonts from a slow apt mirror. Fail fast if the download stalls.

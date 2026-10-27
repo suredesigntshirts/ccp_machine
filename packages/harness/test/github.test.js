@@ -46,16 +46,18 @@ test('a failed check, then a green suite, then the merge drive the item to done'
   assert.deepEqual(prMap(store.events()), { [PR]: 'x' });
   const fail = fromGithub(store, wake('check_run.completed', { check: 'test', conclusion: 'failure', head_sha: '1111111aaa', pr: PR }));
   assert.deepEqual([fail.result, fail.event, fail.id], ['sent', 'CHECKS_FAILED', 'ci-1111111-failed']);
-  assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '1111111aaa', pr: PR })).result, 'stale', 'building again, not verifying');
+  assert.deepEqual(fromGithub(store, wake('check_suite.completed', { head_sha: '1111111aaa', pr: PR })), { result: 'refused', item: 'x', id: 'ci-1111111-passed', why: 'refused: CHECKS_PASSED in active.building' }, 'building again, not verifying');
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x' });
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'sent');
   assert.match(state(store), /merging/);
-  assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'stale');
+  assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'duplicate');
+  assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '3333333ccc', pr: PR })).why, 'refused: CHECKS_PASSED in active.merging');
   const merged = fromGithub(store, wake('pull_request.closed', { outcome: 'merged', pr: PR }));
   assert.deepEqual([merged.result, merged.id], ['sent', 'merge-pr7']);
   assert.equal(state(store), 'done');
   assert.deepEqual(store.pending().filter((e) => e.name === 'mergePullRequest'), [], 'the merge effect is acked');
-  assert.equal(fromGithub(store, wake('pull_request.closed', { outcome: 'merged', pr: PR })).result, 'stale');
+  assert.equal(fromGithub(store, wake('pull_request.closed', { outcome: 'merged', pr: PR })).result, 'duplicate');
+  assert.equal(fromGithub(store, wake('pull_request.closed', { outcome: 'closed', pr: PR })).why, 'refused: CANCEL in done');
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '3', pr: 'o/r#99' })).result, 'unknown');
 });
 
@@ -95,4 +97,15 @@ test('a failed check, then a passing re-run on the same commit, both reach the i
   const pass = fromGithub(store, wake('check_suite.completed', { head_sha: '1111111aaa', pr: PR }));
   assert.deepEqual([pass.result, pass.id], ['sent', 'ci-1111111-passed']);
   assert.match(state(store), /merging/);
+});
+
+test('a merge the item is not waiting for is refused, and the merge effect stays pending', () => {
+  const { store } = storeAtVerify();
+  const merged = fromGithub(store, wake('pull_request.closed', { outcome: 'merged', pr: PR }));
+  assert.deepEqual([merged.result, merged.why], ['refused', 'refused: MERGED in active.verifying']);
+  assert.match(state(store), /verifying/);
+  // A batch goes on after a refusal.
+  const text = [wake('pull_request.closed', { outcome: 'merged', pr: PR }), wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })].join('\n');
+  assert.deepEqual(fromGithubText(store, text).map((r) => r.result), ['refused', 'sent']);
+  assert.equal(store.pending().filter((e) => e.name === 'mergePullRequest').length, 1, 'the merge is still to do');
 });

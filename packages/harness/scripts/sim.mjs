@@ -14,6 +14,8 @@ for (const wip of [3, Number(o.items)]) {
   const r = simulate({ items: Number(o.items), wip });
   const ms = timeApplyAt(r.store, 500);
   console.log(`WIP ${wip}: ${r.done}/${r.items} done, peak ${r.peakInFlight} in flight and ${r.peakAsks} cards, ${r.events} events, ${JSON.stringify(r.counts)}, apply at 500 events ${ms.toFixed(1)} ms`);
+  for (const x of r.refused) console.log(`  ${x}`);
+  check(!r.refused.length, `WIP ${wip}: the host sent ${r.refused.length} events the machine refused`);
   check(r.peakInFlight <= wip, `WIP ${wip}: ${r.peakInFlight} in flight`);
   check(r.done === r.items && r.queued === 0 && r.inFlight === 0, `WIP ${wip}: queue did not drain`);
   check(r.pending === 0, `WIP ${wip}: ${r.pending} effects not acked`);

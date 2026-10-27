@@ -57,9 +57,8 @@ const dayStartOf = (iso, offsetMin) => {
 };
 
 /**
- * Budget status for the day of the latest sample, following budget.machine.json in the spec
- * (ccp_machine harness/spec): today's spend is the 7-day utilization gained since the day began,
- * compared with dailyShare; wrap up at softAt of it; pause at all of it or at a nearly full 5-hour window.
+ * Budget status for the day of the latest sample, following packages/harness/spec/budget.machine.json
+ * (its rules are there and in packages/harness/spec/SPEC.md).
  */
 export function budgetStatus(samples, config = {}) {
   const c = { ...DEFAULT_BUDGET, ...config };

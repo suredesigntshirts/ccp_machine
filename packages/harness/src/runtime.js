@@ -7,11 +7,12 @@ import { createMachines } from './machines.js';
 const SEEN_IDS_KEPT = 500;
 
 // Resolve an address: "harness" (the root), a system id ("item:a", "budget"), or a path of child
-// ids below one ("item:a/decision:a:plan:1").
+// ids below one ("item:a/decision:a:plan:1"). A finished child leaves the system but keeps its systemId.
 function resolve(root, to) {
   if (!to || to === 'harness') return root;
   const [head, ...rest] = to.split('/');
-  let actor = root.system.get(head) ?? root.getSnapshot().children[head];
+  const children = root.getSnapshot().children;
+  let actor = root.system.get(head) ?? Object.values(children).find((c) => c.systemId === head) ?? children[head];
   for (const id of rest) actor = actor?.getSnapshot().children[id];
   if (!actor) throw new Error(`no actor at "${to}"`);
   return actor;
@@ -49,7 +50,9 @@ export function init(store, input = {}, now = new Date().toISOString()) {
 /**
  * Apply one event. `id` makes it idempotent: an id already applied is skipped, so a retried wake or
  * a duplicated delivery cannot double-apply.
- * @returns {{version: number, duplicate?: boolean, effects: object[]}}
+ * An event the target actor would not take (`snapshot.can`) is refused: nothing is written, and the
+ * result says `refused: <EVENT> in <state>`.
+ * @returns {{version: number, duplicate?: boolean, refused?: boolean, why?: string, effects: object[]}}
  */
 export function apply(store, event, { to, id, now = new Date().toISOString() } = {}) {
   if (!event?.type) throw new Error('an event needs a type');
@@ -63,8 +66,15 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
     let collecting = false;
     const actor = restore(state, null, (e) => collecting && effects.push(e));
     actor.start();
+    const target = resolve(actor, to);
+    const snap = target.getSnapshot();
+    // The machine is the only judge of what an event may do: one it would not take changes nothing.
+    if (snap.status !== 'active' || !snap.can(event)) {
+      actor.stop();
+      return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}`, effects: [] };
+    }
     collecting = true;
-    resolve(actor, to).send(event);
+    target.send(event);
     collecting = false;
     const snapshot = actor.getPersistedSnapshot();
     actor.stop();

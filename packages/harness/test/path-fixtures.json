@@ -1,0 +1,57 @@
+{
+  "harness": {
+    "inputs": [{}],
+    "events": [
+      { "type": "REQUEST_RECEIVED", "request": { "id": "r1", "tier": 0 } },
+      { "type": "ITEM_FINISHED", "id": "r0", "outcome": "done" },
+      { "type": "BUDGET_MODE", "mode": "paused" },
+      { "type": "BUDGET_MODE", "mode": "wrappingUp" },
+      { "type": "BUDGET_MODE", "mode": "normal" },
+      { "type": "DECISION_PENDING", "decisionId": "d1" },
+      { "type": "DECISION_CLOSED", "decisionId": "d1" },
+      { "type": "DIGEST_DUE", "day": "2026-10-27" }
+    ]
+  },
+  "budget": {
+    "inputs": [{}],
+    "events": [
+      { "type": "DAY_STARTED", "sevenDay": 0.3, "fiveHour": 0, "at": "2026-10-26T01:00:00Z" },
+      { "type": "DAY_STARTED", "sevenDay": 0.3, "fiveHour": 0.96, "at": "2026-10-26T01:00:00Z" },
+      { "type": "USAGE_SAMPLED", "sevenDay": 0.31, "fiveHour": 0.1, "at": "2026-10-26T02:00:00Z" },
+      { "type": "USAGE_SAMPLED", "sevenDay": 0.385, "fiveHour": 0.1, "at": "2026-10-26T03:00:00Z" },
+      { "type": "USAGE_SAMPLED", "sevenDay": 0.31, "fiveHour": 0.97, "at": "2026-10-26T04:00:00Z" },
+      { "type": "TICK", "now": "2026-10-26T02:30:00Z", "costSince": 0 },
+      { "type": "TICK", "now": "2026-10-28T00:00:00Z" },
+      { "type": "CONFIGURE", "config": { "softAt": 0.8 } }
+    ]
+  },
+  "workItem": {
+    "inputs": [{ "id": "w", "tier": 0 }, { "id": "w", "tier": 1 }, { "id": "w", "tier": 2 }],
+    "events": [
+      { "type": "START" },
+      { "type": "RUN_SUCCEEDED" },
+      { "type": "RUN_FAILED" },
+      { "type": "CHECKS_PASSED" },
+      { "type": "CHECKS_FAILED" },
+      { "type": "DECISION_MADE", "choice": "approve" },
+      { "type": "DECISION_MADE", "choice": "revise" },
+      { "type": "DECISION_MADE", "choice": "reject" },
+      { "type": "BLOCK" },
+      { "type": "UNBLOCKED" },
+      { "type": "WRAP_UP" },
+      { "type": "MERGED" },
+      { "type": "MERGE_FAILED" },
+      { "type": "CANCEL" }
+    ]
+  },
+  "decision": {
+    "inputs": [{ "id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w" }, { "id": "decision:w:plan:1", "decisionClass": "plan", "tier": 2, "question": "plan: w" }],
+    "events": [
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.9, "autonomy": "act" } },
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.9, "autonomy": "recommend" } },
+      { "type": "STAND_IN_FAILED" },
+      { "type": "PERSON_DECIDED", "choice": "approve" },
+      { "type": "PERSON_DECIDED", "choice": "reject" }
+    ]
+  }
+}

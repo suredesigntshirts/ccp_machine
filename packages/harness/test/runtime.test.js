@@ -35,6 +35,23 @@ test('an event id is applied once, however often it is delivered', () => {
   assert.equal(status(store).items.length, 1);
 });
 
+test('an event the machine would not take is refused and changes nothing', () => {
+  const store = fresh();
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 } });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
+  const before = [store.read(), store.events(), store.outbox()];
+  const r = apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a', id: 'late-run' });
+  assert.deepEqual(r, { version: 4, refused: true, why: 'refused: RUN_SUCCEEDED in active.verifying', effects: [] });
+  assert.deepEqual([store.read(), store.events(), store.outbox()], before, 'no version, event row or effect');
+  // The id is not spent: the same id is taken once the machine would take it.
+  assert.equal(apply(store, { type: 'CHECKS_PASSED' }, { to: 'item:a', id: 'late-run' }).refused, undefined);
+  apply(store, { type: 'MERGED' }, { to: 'item:a' });
+  assert.equal(apply(store, { type: 'CANCEL' }, { to: 'item:a' }).why, 'refused: CANCEL in done', 'a finished item takes nothing');
+  assert.equal(apply(store, { type: 'TICK', now: '2026-10-26T18:30:00Z' }, { to: 'budget' }).refused, undefined, 'no reading yet: the TICK drains');
+  assert.equal(apply(store, { type: 'TICK', now: '2026-10-26T18:31:00Z' }, { to: 'budget' }).why, 'refused: TICK in wrappingUp');
+});
+
 test('a stale writer is refused by compare-and-set, and a held lock stops a second writer', () => {
   const store = fresh();
   const state = store.read();

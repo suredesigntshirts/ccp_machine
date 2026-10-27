@@ -53,4 +53,6 @@ standalone tools the harness can use; nothing is cloned from it at runtime.
   except the plugin bundle: `npm run build:plugin` copies `packages/ledger/src` into
   `plugins/harness/lib/ledger`, and both are committed together (CI fails when they differ).
 - Tests use `node:test`; `npm test` at the root runs every workspace's tests.
-- `packages/harness/spec/*.machine.json` is the source of truth for behaviour; the code follows it.
+- `packages/harness/spec/*.machine.json` is the only spec and the source of truth for behaviour; the code
+  follows it and the runtime refuses what it refuses. Prose points at it or at `spec/SPEC.md` instead of
+  restating its rules. The `spike/xstate-harness-model` branch is history, not a spec.

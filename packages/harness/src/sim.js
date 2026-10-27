@@ -30,7 +30,9 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
   const now = () => new Date((clock += 60_000)).toISOString();
   init(store, { wipLimit: wip }, now());
   let n = 0;
-  const send = (event, to) => apply(store, event, { to, id: `sim-${n++}`, now: now() });
+  // The host reports what the machine refuses and goes on; the scripted host should cause none.
+  const refused = [];
+  const send = (event, to) => { const r = apply(store, event, { to, id: `sim-${n++}`, now: now() }); if (r.refused) refused.push(`${to ?? 'harness'}: ${r.why}`); };
   const seen = {};
   const once = (key) => !seen[key] && (seen[key] = true);
   let peak = { inFlight: 0, asks: 0, html: '' };
@@ -83,6 +85,7 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
     peakAsks: peak.asks,
     counts: Object.fromEntries(['RUN_FAILED', 'CHECKS_FAILED', 'BLOCK', 'PERSON_DECIDED'].map((t) => [t, store.events().filter((x) => x.event.type === t).length])),
     queued: st.context.queued.length,
+    refused,
     inFlight: st.context.inFlight.length,
     pending: store.pending().length,
     events: store.events().length,
@@ -91,11 +94,10 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
   };
 }
 
-/** Pad the store to `events` events with clock ticks, then time one more apply (ms). */
+/** Pad the store to `events` events with budget settings (always taken), then time one more apply (ms). */
 export function timeApplyAt(store, events = 500) {
   let k = store.events().length;
-  let t = Date.parse('2026-10-27T00:00:00Z');
-  while (k < events) apply(store, { type: 'TICK', now: new Date((t += 60_000)).toISOString() }, { to: 'budget', id: `pad-${k++}`, now: new Date(t).toISOString() });
+  while (k < events) apply(store, { type: 'CONFIGURE', config: {} }, { to: 'budget', id: `pad-${k++}` });
   const start = performance.now();
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'timed', tier: 0 } }, { id: 'timed' });
   return performance.now() - start;

@@ -22,6 +22,7 @@ export function standinAnswer(store, item, { choice, reason, confidence = 0.9, t
   if (blocked) throw new Error(blocked);
   const id = `standin-${ask.subject}`;
   const r = apply(store, event, { to, id });
+  if (r.refused) throw new Error(r.why);
   ack(store, [ask.id], { note: `stand-in answered ${choice}` });
   logPrecedents(store);
   return { subject: ask.subject, id, duplicate: r.duplicate, effects: r.effects.map((e) => e.name) };

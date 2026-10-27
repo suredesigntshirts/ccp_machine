@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createActor, initialTransition, transition } from 'xstate';
 import { getShortestPaths } from 'xstate/graph';
+import { readFileSync } from 'node:fs';
 import { specs, machines, referencedNames } from '../src/machines.js';
 
 const implemented = (machine) => ({
@@ -12,13 +13,19 @@ const implemented = (machine) => ({
   actors: new Set(Object.keys(machine.implementations.actors))
 });
 
-test('the spec is plain data and every name it uses has a binding', () => {
+// Two ways: every guard, action and actor a machine JSON names is implemented, and every implementation
+// in src/machines.js is named by that machine's JSON. A spawned actor is named by its machine's spec id.
+test('the spec and the bindings name the same guards, actions and actors', () => {
+  const specIds = new Set(Object.values(specs).map((c) => c.id));
   for (const [name, config] of Object.entries(specs)) {
     assert.deepEqual(JSON.parse(JSON.stringify(config)), config, `${name} is not plain JSON`);
     const used = referencedNames(config);
     const bound = implemented(machines[name]);
-    for (const kind of ['actions', 'guards', 'actors'])
-      for (const n of used[kind]) assert.ok(bound[kind].has(n), `${name}: ${kind} "${n}" is not bound`);
+    for (const kind of ['actions', 'guards', 'actors']) {
+      for (const n of used[kind]) assert.ok(bound[kind].has(n), `${name}: ${kind} "${n}" is named in the JSON but not implemented`);
+      for (const n of bound[kind])
+        assert.ok(used[kind].has(n) || (kind === 'actors' && specIds.has(n)), `${name}: ${kind} "${n}" is implemented but no machine JSON names it`);
+    }
   }
 });
 
@@ -212,4 +219,16 @@ test('the whole system persists to JSON and resumes, children included', () => {
   const again = createActor(machines.harness, { systemId: 'harness', snapshot: stored }).start();
   assert.deepEqual(again.system.get('item:q').getSnapshot().value, { active: 'awaitingPlanDecision' });
   assert.ok(again.system.get('item:q').getSnapshot().children['decision:q:plan:1']);
+});
+
+test('SPEC.md is rendered from the JSON, with every state description and tag, and is current', async () => {
+  const { renderSpec } = await import('../spec/render.js');
+  const text = renderSpec();
+  const visit = (node, path) => {
+    if (node.description) assert.ok(text.includes(node.description), `${path}: description missing from SPEC.md`);
+    for (const t of node.tags ?? []) assert.ok(text.includes(t), `${path}: tag ${t} missing from SPEC.md`);
+    for (const [k, child] of Object.entries(node.states ?? {})) visit(child, `${path}.${k}`);
+  };
+  for (const [name, config] of Object.entries(specs)) visit(config, name);
+  assert.equal(readFileSync(new URL('../spec/SPEC.md', import.meta.url), 'utf8'), text, 'run npm run spec:render');
 });
