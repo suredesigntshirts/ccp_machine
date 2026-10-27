@@ -42,11 +42,14 @@ export function replay(store) {
     const outbox = new Map();
     for (const e of store.outbox()) outbox.set(e.eventId, [...(outbox.get(e.eventId) ?? []), effectKey(e)]);
     let firstDivergence = null;
+    const notes = [];
     const events = store.events();
     for (const e of events) {
       let effects;
       try {
-        ({ effects } = apply(scratch, e.event, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at }));
+        const r = apply(scratch, e.event, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at });
+        if (r.refused) notes.push(`${e.id}: ${r.why}`); // a log from before refusals can hold ignored events
+        ({ effects } = r);
       } catch (err) {
         firstDivergence ??= `${e.id}: ${err.message}`;
         continue;
@@ -54,7 +57,7 @@ export function replay(store) {
       if (!firstDivergence && !same(effects.map(effectKey), outbox.get(e.id) ?? [])) firstDivergence = `${e.id} (${e.event.type}): effects differ`;
     }
     const rebuilt = scratch.read();
-    const { differences, notes } = compare(state.snapshot, rebuilt.snapshot);
+    const { differences } = compare(state.snapshot, rebuilt.snapshot, 'harness', { differences: [], notes });
     return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, rebuilt };
   } finally {
     rmSync(dir, { recursive: true, force: true });

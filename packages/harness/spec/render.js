@@ -1,6 +1,7 @@
 // Renders the JSON spec as SPEC.md: one Mermaid state diagram per machine, plus the effects each
 // machine asks the host for. Run `npm run spec:render` after changing any *.machine.json.
 import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { specs, referencedNames } from '../src/machines.js';
 
 const asList = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
@@ -44,17 +45,36 @@ function diagram(config) {
   return lines.join('\n');
 }
 
-const out = [
-  '# Harness spec (generated)',
-  '',
-  'Generated from `packages/harness/spec/*.machine.json` by `npm run spec:render`. Do not edit by hand: change the JSON.',
-  ''
-];
-for (const [name, config] of Object.entries(specs)) {
-  const names = referencedNames(config);
-  out.push(`## ${name} (v${config.version})`, '', config.description ?? '', '', '```mermaid', diagram(config), '```', '');
-  out.push(`Effects and context updates: ${[...names.actions].sort().map((n) => `\`${n}\``).join(', ')}`, '');
-  out.push(`Guards: ${[...names.guards].sort().map((n) => `\`${n}\``).join(', ') || 'none'}`, '');
+// Every state with its description and tags, in document order: the promises the diagram cannot show.
+function states(node, path = [], rows = []) {
+  for (const [key, child] of Object.entries(node.states ?? {})) {
+    const p = [...path, key];
+    const tags = (child.tags ?? []).map((t) => `\`${t}\``).join(', ');
+    if (child.description || tags) rows.push(`- \`${p.join('.')}\`${tags ? ` (tags: ${tags})` : ''}${child.description ? `: ${child.description}` : ''}`);
+    states(child, p, rows);
+  }
+  return rows;
 }
-writeFileSync(new URL('./SPEC.md', import.meta.url), out.join('\n'));
-console.log('wrote packages/harness/spec/SPEC.md');
+
+export function renderSpec() {
+  const out = [
+    '# Harness spec (generated)',
+    '',
+    'Generated from `packages/harness/spec/*.machine.json` by `npm run spec:render`. Do not edit by hand: change the JSON.',
+    ''
+  ];
+  for (const [name, config] of Object.entries(specs)) {
+    const names = referencedNames(config);
+    out.push(`## ${name} (v${config.version})`, '', config.description ?? '', '', '```mermaid', diagram(config), '```', '');
+    const rows = states(config);
+    if (rows.length) out.push('States:', '', ...rows, '');
+    out.push(`Effects and context updates: ${[...names.actions].sort().map((n) => `\`${n}\``).join(', ')}`, '');
+    out.push(`Guards: ${[...names.guards].sort().map((n) => `\`${n}\``).join(', ') || 'none'}`, '');
+  }
+  return out.join('\n');
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  writeFileSync(new URL('./SPEC.md', import.meta.url), renderSpec());
+  console.log('wrote packages/harness/spec/SPEC.md');
+}

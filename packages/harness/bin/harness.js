@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
+import { openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -13,11 +13,12 @@ const HELP = `harness <command> [options]
   send <event-json> [--to ADDR] [--id ID]
                                  apply one event; ADDR is harness (default), a system id such as
                                  item:a or budget, or a child path such as item:a/decision:a:plan:1.
-                                 --id makes the send idempotent. Prints the effects it queued.
+                                 --id makes the send idempotent. Prints the effects it queued. An event
+                                 the machine would not take is refused: nothing is written, exit 1.
   usage [--samples FILE]         feed saved usage samples (ledger usage, default .ledger/usage.json)
-                                 to the budget actor; a stop or soft limit reaches the scheduler
+                                 to the budget actor, then tick
   stalled [--after 60m]          list in-flight items with no event for longer than --after, oldest first
-  tick [--now ISO]               tell the budget the time, so a reading older than 2 hours drains it
+  tick [--now ISO]               send the budget a TICK: the time and the cost filed since its last reading
   status                         print the summary as JSON
   effects                        print effects the host has not acknowledged
   ack <effect-id>... [--outcome done|failed] [--note TEXT]
@@ -52,7 +53,6 @@ const HELP = `harness <command> [options]
   issue-request FILE             file one backlog issue (gh api repos/O/R/issues/N JSON) as REQUEST_RECEIVED,
                                  id req-issue<N>: item id and tier from its "Item id: \`x\`, tier N" line,
                                  expect from its "Expect:" lines; refuses an issue without the item line
-  from-github FILE               turn one PR activity event (a wake's <event source="github"> text, or
   from-github FILE               turn each PR activity event in FILE, in order (wakes' <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
@@ -137,8 +137,9 @@ try {
 }
 const { values: o, positionals: [cmd, ...args] } = parsed;
 const store = openStore(o.dir);
-// The TICK carries the cost of the filed turns since the newest reading, so the budget judges an old
-// reading by the work done since it (an idle harness keeps accepting).
+// Every event goes through here: one the machine refuses is reported, and a batch goes on.
+function apply(...args) { const r = applyEvent(...args); if (r.refused) console.error(`harness: ${r.why}`); return r; }
+// The TICK carries the cost of the filed turns since the newest reading (spec/SPEC.md, budget).
 const tick = (now) => {
   const since = status(store).budget?.sampledAt;
   const costSince = since
@@ -173,7 +174,9 @@ try {
         const event = JSON.parse(args[0]);
         const blocked = acceptBlocked(store, event, o.to);
         if (blocked) throw new Error(blocked);
-        print(apply(store, event, { to: o.to, id: o.id }));
+        const r = apply(store, event, { to: o.to, id: o.id });
+        print(r);
+        if (r.refused) process.exitCode = 1;
       }
       break;
     case 'usage': {
@@ -266,7 +269,7 @@ try {
       const issue = JSON.parse(readFileSync(args[0], 'utf8'));
       const request = requestFromIssue(issue);
       const r = apply(store, { type: 'REQUEST_RECEIVED', request }, { id: `req-issue${issue.number}` });
-      print({ request, duplicate: r.duplicate, effects: r.effects.map((e) => e.name) });
+      print({ request, duplicate: r.duplicate, refused: r.why, effects: r.effects.map((e) => e.name) });
       break;
     }
     case 'intake': {
@@ -278,7 +281,7 @@ try {
       const day = o.day ?? new Date().toISOString().slice(0, 10);
       if (!o.check) {
         const r = apply(store, canaryRequest(day), { id: `req-canary-${day}` });
-        print({ item: `canary-${day}`, filed: !r.duplicate, effects: r.effects.map((e) => e.name) });
+        print({ item: `canary-${day}`, filed: !r.duplicate && !r.refused, effects: r.effects.map((e) => e.name) });
         break;
       }
       const report = canaryReport(store.events(), day);

@@ -51,7 +51,7 @@ test('a failed check, then a green suite, then the merge drive the item to done'
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'sent');
   assert.match(state(store), /merging/);
   assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222bbb', pr: PR })).result, 'duplicate');
-  assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '2222222ccc', pr: PR })).why, 'refused: CHECKS_PASSED in active.merging');
+  assert.equal(fromGithub(store, wake('check_suite.completed', { head_sha: '3333333ccc', pr: PR })).why, 'refused: CHECKS_PASSED in active.merging');
   const merged = fromGithub(store, wake('pull_request.closed', { outcome: 'merged', pr: PR }));
   assert.deepEqual([merged.result, merged.id], ['sent', 'merge-pr7']);
   assert.equal(state(store), 'done');

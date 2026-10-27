@@ -20,7 +20,10 @@ mkdirSync(shots, { recursive: true });
 const store = openStore(join(out, 'store'));
 init(store, { wipLimit: 3 }, '2026-10-26T08:00:00Z');
 const at = (h) => `2026-10-26T${String(h).padStart(2, '0')}:00:00Z`;
-const send = (event, to, h, id) => apply(store, event, { to, now: at(h), id });
+const send = (event, to, h, id) => {
+  const r = apply(store, event, { to, now: at(h), id });
+  if (r.refused) throw new Error(`fixture: ${r.why}`);
+};
 const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act', reason: 'small and covered by tests' };
 const pr = 'https://github.com/suredesigntshirts/ccp_machine_test/pull/1';
 send({ type: 'REQUEST_RECEIVED', request: { id: 'merged-item', title: 'A merged change with a long title that has to wrap on a phone screen without scrolling sideways', project: 'packages/harness', tier: 1, url: pr, expect: 'It merges' } }, undefined, 8);

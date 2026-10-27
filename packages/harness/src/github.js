@@ -1,7 +1,7 @@
 // PR activity events into harness events. The orchestrator is woken with GitHub events (a check suite
 // finished, a check failed, a PR merged); this maps each one to the item event it means, so the host stops
 // translating them by hand. Items are found through the PR links on their own events.
-import { apply, ack, status } from './runtime.js';
+import { apply, ack } from './runtime.js';
 
 /**
  * {kind, data, at?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
@@ -44,21 +44,21 @@ export function mapGithubEvent({ kind, data }) {
   const sha = String(data?.head_sha ?? '').slice(0, 7);
   if (!pr) return { ignore: `no PR in ${kind}` };
   const url = `https://github.com/${pr.replace('#', '/pull/')}`;
-  if (kind === 'check_suite.completed') return { pr, id: `ci-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha }, state: 'verifying' };
+  if (kind === 'check_suite.completed') return { pr, id: `ci-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha } };
   if (kind === 'check_run.completed') {
     if (!FAILED.includes(data.conclusion)) return { ignore: `check ${data.check ?? ''} ${data.conclusion}: the suite reports the result` };
-    return { pr, id: `ci-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion }, state: 'verifying' };
+    return { pr, id: `ci-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion } };
   }
   if (kind === 'pull_request.closed')
     return data.outcome === 'merged'
-      ? { pr, id: `merge-pr${pr.split('#')[1]}`, event: { type: 'MERGED', pr: url }, state: 'merging' }
-      : { pr, id: `closed-pr${pr.split('#')[1]}`, event: { type: 'CANCEL', reason: `PR closed without merging`, pr: url }, state: null };
+      ? { pr, id: `merge-pr${pr.split('#')[1]}`, event: { type: 'MERGED', pr: url } }
+      : { pr, id: `closed-pr${pr.split('#')[1]}`, event: { type: 'CANCEL', reason: `PR closed without merging`, pr: url } };
   return { ignore: `${kind} needs nothing from the harness` };
 }
 
 /**
  * Apply one GitHub event to the store. Returns what happened: sent (with the effects), duplicate,
- * stale (the item is not waiting for it), unknown PR, or ignored.
+ * refused (the item's machine would not take it), unknown PR, or ignored.
  */
 export function fromGithub(store, raw) {
   const ev = typeof raw === 'string' ? parseGithubEvent(raw) : raw;
@@ -66,17 +66,15 @@ export function fromGithub(store, raw) {
   if (m.ignore) return { result: 'ignored', why: m.ignore };
   const item = prMap(store.events())[m.pr];
   if (!item) return { result: 'unknown', why: `no item names ${m.pr}`, pr: m.pr };
-  const it = status(store).items.find((i) => i.id === item);
-  if (it?.done) return { result: 'stale', item, why: `${item} is already ${it.state}` };
-  if (m.state && !String(it?.state ?? '').endsWith(m.state)) return { result: 'stale', item, why: `${item} is ${it?.state}, not ${m.state}` };
-  if (m.event.type === 'MERGED') {
-    const merge = store.pending().filter((e) => e.name === 'mergePullRequest' && (e.subject === item || e.actor === item)).map((e) => e.id);
-    if (merge.length) ack(store, merge, { note: `merged: ${m.event.pr}` });
-  }
   // observedAt lets the retro tell CI's time from the host's delay in feeding the result.
   const at = Date.parse(ev.at);
   const event = Number.isNaN(at) ? m.event : { ...m.event, observedAt: new Date(at).toISOString() };
   const r = apply(store, event, { to: `item:${item}`, id: m.id });
+  if (r.refused) return { result: 'refused', item, id: m.id, why: r.why };
+  if (m.event.type === 'MERGED') {
+    const merge = store.pending().filter((e) => e.name === 'mergePullRequest' && (e.subject === item || e.actor === item)).map((e) => e.id);
+    if (merge.length) ack(store, merge, { note: `merged: ${m.event.pr}` });
+  }
   return { result: r.duplicate ? 'duplicate' : 'sent', item, id: m.id, event: m.event.type, effects: r.effects.map((e) => e.name) };
 }
 

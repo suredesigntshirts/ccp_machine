@@ -20,6 +20,7 @@ function observe(store, result, expect) {
   const got = {
     effects: () => result.effects.map(effectName),
     duplicate: () => Boolean(result.duplicate),
+    refused: () => result.why ?? null,
     scheduler: () => st.state.scheduler,
     budget: () => st.budget?.mode ?? null,
     inFlight: () => st.context.inFlight,
