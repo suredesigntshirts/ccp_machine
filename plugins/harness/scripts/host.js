@@ -3,9 +3,9 @@
 //
 // Plugins installed from a claude.ai marketplace load into every project of the account, so each hook
 // first asks installed() and does nothing (exit 0, no output, no writes) when it says no.
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -67,5 +67,65 @@ export async function behind({ root, commit }, ms = 2500) {
     return 'no';
   } catch {
     return `yes (origin/main ${remote.slice(0, 7)})`;
+  }
+}
+
+/** How often refresh() may fetch, per clone. */
+export const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+const gitEnv = () => ({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+/** git's trimmed output, or null on any failure. */
+const git = (root, args, ms = 2000) => {
+  try {
+    return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: ms, stdio: ['ignore', 'pipe', 'ignore'], env: gitEnv() }).trim();
+  } catch { return null; }
+};
+
+/** Commits HEAD is behind origin/main as of the last fetch (no network), or null when unknown. */
+export function behindCount(root = pluginRoot()) {
+  const n = git(root, ['rev-list', '--count', 'HEAD..refs/remotes/origin/main']);
+  return n === null ? null : Number(n);
+}
+
+/**
+ * Brings the clone that `root` sits in up to date with origin/main, only when that is safe: not a linked
+ * worktree, HEAD detached or on main, no uncommitted changes to tracked files, the fetch succeeds within
+ * `ms`, and the update is a fast-forward. Anything else is skipped. Fetches at most once per `interval`
+ * per clone (the time is saved before the fetch); in between it returns the last result. Returns
+ * { at, from, to } (from === to when already up to date) or { at, skipped: reason }. Never resets,
+ * never discards, never throws.
+ */
+export function refresh(root = pluginRoot(), { stateDir = join(tmpdir(), 'harness-refresh'), interval = REFRESH_INTERVAL_MS, ms = 5000, now = Date.now() } = {}) {
+  const at = new Date(now).toISOString();
+  const skip = (skipped) => ({ at, skipped });
+  try {
+    const common = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!common) return skip('not a git checkout');
+    if (git(root, ['rev-parse', '--absolute-git-dir']) !== common) return skip('a linked worktree');
+    const file = join(stateDir, `${common.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+    let state = {};
+    try { state = JSON.parse(readFileSync(file, 'utf8')); } catch {}
+    if (state.last && now - (Date.parse(state.checkedAt) || 0) < interval) return state.last;
+    const save = (last) => {
+      mkdirSync(stateDir, { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ checkedAt: at, last }));
+      renameSync(tmp, file);
+      return last;
+    };
+    save(skip('started; did not finish')); // before the fetch, so a killed run is not retried at once
+    const branch = git(root, ['symbolic-ref', '-q', '--short', 'HEAD']); // null when detached
+    if (branch && branch !== 'main') return save(skip(`on branch ${branch}, not main or detached`));
+    if (git(root, ['status', '--porcelain', '--untracked-files=no']) !== '') return save(skip('the working tree has uncommitted changes'));
+    const fetched = spawnSync('git', ['-C', root, 'fetch', '-q', 'origin', '+refs/heads/main:refs/remotes/origin/main'], { stdio: 'ignore', timeout: ms, env: gitEnv() });
+    if (fetched.status !== 0) return save(skip('git fetch failed or timed out'));
+    const from = git(root, ['rev-parse', 'HEAD']), to = git(root, ['rev-parse', 'refs/remotes/origin/main']);
+    if (!from || !to) return save(skip('git rev-parse failed'));
+    if (from === to) return save({ at, from, to });
+    if (git(root, ['merge-base', '--is-ancestor', from, to]) === null) return save(skip('not a fast-forward of origin/main'));
+    if (git(root, ['merge', '-q', '--ff-only', to], 10000) === null) return save(skip('git merge --ff-only failed'));
+    return save({ at, from, to });
+  } catch {
+    return skip('error');
   }
 }

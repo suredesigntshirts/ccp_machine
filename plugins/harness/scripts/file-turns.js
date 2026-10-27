@@ -5,19 +5,37 @@
 // (.claude/settings.json). `hooks` keeps every registration seen for the session, so a session where
 // both fire shows both from its second turn (on one turn they run at once and the last write wins),
 // and `updates` what the UserPromptSubmit hook did about newer harness versions (notice-behind.js).
+// With no argument it is `settings` when ~/.claude/settings.json registers this script as a Stop hook
+// (the old setup.sh did, without the argument), else `unknown`. A session whose `hooks` lacks `plugin`
+// started before the plugin hooks shipped and cannot load them without a restart.
+// Before filing, it refreshes the clone this code runs from (host.js refresh(): at most every 10
+// minutes, fast-forward only, never in a worktree) and stamps `refreshed` (the result) and `behind`
+// (commits behind origin/main as of the last fetch, null when unknown).
 // It does nothing unless the project has installed the harness (host.js), and
 // it must never get in the session's way, so every failure is swallowed and it always exits 0.
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { buildLedger } from '../lib/ledger/index.js';
-import { gate, libraryDir, version, updatesPath } from './host.js';
+import { gate, libraryDir, version, updatesPath, refresh, behindCount } from './host.js';
 
-const hook = ['plugin', 'settings'].includes(process.argv[2]) ? process.argv[2] : 'unknown';
+/** True when ~/.claude/settings.json registers file-turns.js as a Stop hook. */
+function fromSettings() {
+  try {
+    const { hooks } = JSON.parse(readFileSync(join(homedir(), '.claude', 'settings.json'), 'utf8'));
+    return (hooks?.Stop ?? []).flatMap((h) => h.hooks ?? [])
+      .some((h) => [h.command, ...(h.args ?? [])].some((s) => typeof s === 'string' && s.includes('scripts/file-turns.js')));
+  } catch { return false; }
+}
+const arg = process.argv[2];
+const hook = ['plugin', 'settings'].includes(arg) ? arg : !arg && fromSettings() ? 'settings' : 'unknown';
 
 try {
   const input = JSON.parse(readFileSync(0, 'utf8') || '{}');
-  if (input.transcript_path && (await gate(5000)) === 'installed') {
-    const [session] = buildLedger([input.transcript_path]).sessions;
+  if ((await gate(5000)) === 'installed') {
+    const ran = version(); // the code that runs this hook, before the refresh moves the clone
+    const refreshed = refresh(ran.root);
+    const [session] = !input.transcript_path ? [] : buildLedger([input.transcript_path]).sessions;
     if (session) {
       const dir = join(libraryDir(), 'ledger', 'sessions');
       mkdirSync(dir, { recursive: true });
@@ -27,7 +45,7 @@ try {
       try { seen = JSON.parse(readFileSync(file, 'utf8')).harness?.hooks ?? []; } catch {}
       let updates = []; // what notice-behind.js did when this session's harness fell behind
       try { updates = JSON.parse(readFileSync(updatesPath(id), 'utf8')).updates ?? []; } catch {}
-      const harness = { ...version(), hook, hooks: [...new Set([...seen, hook])].sort(), ...(updates.length && { updates }) };
+      const harness = { ...ran, hook, hooks: [...new Set([...seen, hook])].sort(), behind: behindCount(ran.root), refreshed, ...(updates.length && { updates }) };
       const record = { filedAt: new Date().toISOString(), cwd: input.cwd ?? null, remoteSessionId: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null, harness, session };
       const tmp = join(dir, `.${id}.${process.pid}.json.tmp`);
       writeFileSync(tmp, JSON.stringify(record));
