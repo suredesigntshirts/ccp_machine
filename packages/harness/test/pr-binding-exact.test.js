@@ -158,7 +158,7 @@ test('verify-facts on a store with no events.jsonl exits non-zero with a clear m
 
 test('other commands still open (and create) the store as before', () => {
   const dir = join(tempDir('harness-m1d-other-'), 'fresh');
-  const r = spawnSync(process.execPath, [bin, 'init', '--dir', dir], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [bin, 'init', '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orch' } });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(existsSync(join(dir, 'events.jsonl')), true);
 });
