@@ -7,8 +7,8 @@ harness can use live in `suredesigntshirts/ccp_machine_test`. Rules for working 
 ## What is here
 
 **`packages/harness` (`@ccp/harness`).** The harness itself: XState v5 JSON machines for the harness, each
-work item and the budget (`spec/*.machine.json`, the source of truth for behaviour), and a
-restore-apply-persist runtime over a file store. The `harness` CLI applies events, lists and acks
+work item and the budget (`spec/*.machine.json`, the only spec, rendered as `spec/SPEC.md`), and a
+restore-apply-persist runtime over a file store that refuses any event the machines refuse. The `harness` CLI applies events, lists and acks
 effects, and renders mission control and the item pages. See [its README](packages/harness/README.md).
 
 **`packages/ledger` (`@ccp/ledger`).** A turn-level audit ledger of Claude Code sessions: turns, requests,

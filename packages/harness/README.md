@@ -2,12 +2,16 @@
 
 The harness spec and the runtime that drives it.
 
-- `spec/*.machine.json`: the XState machines as plain JSON (the SPEC the harness is built against).
-  `npm run spec:render -w @ccp/harness` regenerates `spec/SPEC.md` (Mermaid diagrams). The JSON also
-  loads in XState v6 (`machineFromJSON`); the v6 check lives in ccp_machine `harness/spec/portable.test.js`.
+- `spec/*.machine.json`: the XState machines as plain JSON, the only spec: what each state takes, from
+  whom and with which guard is there and nowhere else. `npm run spec:render -w @ccp/harness` regenerates
+  `spec/SPEC.md` (diagrams, state descriptions and tags); a test and CI fail when it is not a fresh render.
 - `src/machines.js`: binds the JSON to XState v5. Effects that leave the machine go to a sink as data.
+  `test/spec.test.js` fails when a name in the JSON has no implementation here, or the other way round.
 - `src/runtime.js`: the backend-workflow loop. Every wake restores the root actor from the store,
   applies one event, persists, and queues the effects that event asked for. Event ids make it idempotent.
+  An event the addressed actor would not take (`snapshot.can`) is refused: nothing is written and the
+  result says `refused: <EVENT> in <state>`. `test/paths.test.js` replays generated paths through all four
+  machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
@@ -84,7 +88,8 @@ The harness spec and the runtime that drives it.
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.
 - `src/scenario.js` and `scenarios/*.json`: golden event stories. Each step is an event (with `to`, `id`,
   `now`) and an `expect` of `effects` (exact, `dispatchRun:<step>`), `items` `{id: state}`, `scheduler`,
-  `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate` or `standin` `{class: autonomy}`.
+  `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate`, `refused` (`refused: <EVENT> in
+  <state>`) or `standin` `{class: autonomy}`.
   `npm run scenarios` (`harness scenarios [FILE...]`) plays each on a scratch store; CI runs it.
 
 ## Use
