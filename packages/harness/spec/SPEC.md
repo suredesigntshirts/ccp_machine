@@ -36,7 +36,7 @@ Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`, `usageStale`
 
 ## decision (v0.1.0)
 
-One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation. Each input of standInMayDecide has one supplier, and none of them is the stand-in's caller: tier is the item's (still the filer's, from the request, until M2b); autonomy is the ladder's rung for the class over the decision log, which the harness reads when it spawns the decision (recommend if the log cannot be read, so the person decides); threshold is the constant in this machine's context; confidence is the stand-in's, the only number its answer carries. Only a person's tap decides for the person: the machine checks that PERSON_DECIDED says actor person and source tap with the card's message id; that the tap is real is checked afterwards against the platform.
+One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation. Each input of standInMayDecide has one supplier, and none of them is the stand-in's caller: tier is the item's (still the filer's, from the request, until M2b); autonomy is the ladder's rung for the class over the store's own decided decisions (its logPrecedent effects and answered audits dated at or before the spawn; no log file kept by hand), which the harness reads when it spawns the decision (recommend if they cannot be read, so the person decides); threshold is the constant in this machine's context; confidence is the stand-in's, the only number its answer carries. Only a person's tap decides for the person: the machine checks that PERSON_DECIDED says actor person and source tap with the card's message id; that the tap is real is checked afterwards against the platform.
 
 ```mermaid
 stateDiagram-v2
@@ -71,7 +71,7 @@ Guards: `answerOverreaches`, `answeredByOrchestratorOrWorker`, `standInMayDecide
 
 ## workItem (v0.1.0)
 
-One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); each run's worker is recorded (workers), and both ids go to every decision the item opens, so neither can answer as the stand-in; CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.
+One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); every worker that reports a run, succeeded or failed, is recorded (workers), and both ids go to every decision the item opens, so neither can answer as the stand-in; CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.
 
 ```mermaid
 stateDiagram-v2
@@ -154,7 +154,7 @@ Refused (nothing changes and nothing is written):
 - `DECISION_MADE` in `active.awaitingMergeDecision`, when `fromOutside`: Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused.
 - `MERGED` in `active.merging`, when `unattested` {"actor":"github","source":"github-wake"}: Refused unless a merge comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names.
 
-Effects and context updates: `checkpoint`, `countRetry`, `dispatchRun`, `mergePullRequest`, `openDecision`, `recordChoice`, `recordOrchestrator`, `recordRun`, `reportBlocked`, `reportFinished`, `withdrawDecision`
+Effects and context updates: `checkpoint`, `countRetry`, `dispatchRun`, `mergePullRequest`, `openDecision`, `recordChoice`, `recordOrchestrator`, `recordRun`, `recordWorker`, `reportBlocked`, `reportFinished`, `withdrawDecision`
 
 Guards: `choiceIs`, `fromOutside`, `reportedByOrchestrator`, `retriesLeft`, `tierBelow`, `unattested`
 

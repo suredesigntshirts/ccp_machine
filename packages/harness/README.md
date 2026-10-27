@@ -24,12 +24,13 @@ The harness spec and the runtime that drives it.
   harness. The trust model is below.
 - The stand-in's gate (`standInMayDecide`): each input has one supplier, and the stand-in's caller supplies
   none of the rules. Tier is the item's (still the filer's, from the request, until M2b). Autonomy is the
-  ladder's rung for the class over `decisions.jsonl` (rows before the decision opened), set on the decision
-  when it is spawned; a log that cannot be read gives `recommend`, so the person decides. Threshold is the
+  ladder's rung for the class over the store's own decided decisions (its `logPrecedent` effects and
+  answered audits, dated at or before the spawn), set on the decision when it is spawned, so a reversal
+  lowers the very next decision's rung with no command run; a log that cannot be read gives `recommend`. Threshold is the
   constant in `decision.machine.json`'s context. Confidence is the stand-in's: `STAND_IN_ANSWERED` carries
   only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, and is
-  refused from the orchestrator and from every worker that reported a run for the item (both recorded on the
-  decision at spawn). `test/paths.test.js` replays generated paths through all four
+  refused from the orchestrator and from every worker that reported a run for the item, succeeded or failed
+  (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all four
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
@@ -39,8 +40,10 @@ The harness spec and the runtime that drives it.
   the request (`request.expect` if given, else its title), how it ended (state, CI, acceptance, PR),
   every gate with who decided and the stand-in's reason, each effect with the host's ack note, and the
   item's events. The host can put the PR link on any event it sends for the item (`"pr": "<url>"`).
-- `src/decision-log.js`: `harness decisions` appends each `logPrecedent` effect to `decisions.jsonl` in
-  the store (once per effect, backfilling acknowledged ones) and acks it. `decisions.html` shows, per
+- `src/decision-log.js`: the decision log is the store's own records, with no file of its own: each
+  `logPrecedent` effect in the outbox (a row as soon as it is queued) and each answered audit
+  (`audits/<day>.json`). `harness decisions` only acks the effects; `decisions.jsonl` is no longer written
+  or read. `decisions.html` shows, per
   decision class, how often the stand-in's lean matched the final choice and the class's rung, then every
   decision. `harness standin <class>` prints the rung (`ladder()`): a class starts at `recommend`, climbs
   one rung (to `act`) after 20 of the person's decisions since its last change at 90% agreement with the

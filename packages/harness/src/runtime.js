@@ -44,8 +44,8 @@ function resolve(root, to) {
   return actor;
 }
 
-// A decision opening now takes its class's rung from the log rows before now; an unreadable log gives recommend.
-const rungAt = (store, now) => (cls) => { try { return ladder(readDecisionLog(store).filter((r) => r.at < now), cls).autonomy; } catch { return 'recommend'; } };
+// A decision opening now takes its class's rung from the store's decided decisions up to now; unreadable gives recommend.
+const rungAt = (store, now) => (cls) => { try { return ladder(readDecisionLog(store).filter((r) => r.at <= now), cls).autonomy; } catch { return 'recommend'; } };
 
 function restore(state, input, sink, rung) {
   const { harness } = createMachines(sink, { rung });

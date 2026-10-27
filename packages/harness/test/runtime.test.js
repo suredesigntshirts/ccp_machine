@@ -4,7 +4,7 @@ import { tempDir } from './tmp.js';
 import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
 import { openStore, init, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { apply, start, earn } from './send.js';
 const fresh = (input) => {
   const store = openStore(tempDir('harness-'));
@@ -157,14 +157,15 @@ test('an item page shows what was asked, how it ended, who decided and what the 
   assert.match(renderPage(status(store), { itemLinks: true }), /href="items\/p\.html"/);
 });
 
-test('logPrecedent effects become the decision log once, and the page shows agreement per class', () => {
+test('logPrecedent effects are the decision log as soon as they are queued; harness decisions only acks them', () => {
   const store = fresh();
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 1 } });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:p' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { ...sure, reason: '<why>' } }, { to: 'item:p/decision:p:plan:1' });
   apply(store, { type: 'PERSON_DECIDED', choice: 'approve' }, { to: 'item:p/decision:p:plan:1' });
-  assert.deepEqual(logPrecedents(store), { added: 1, acked: 1 });
-  assert.deepEqual(logPrecedents(store), { added: 0, acked: 0 });
+  assert.equal(readDecisionLog(store).length, 1, 'logged before anyone runs harness decisions');
+  assert.deepEqual(logPrecedents(store), { acked: 1 });
+  assert.deepEqual(logPrecedents(store), { acked: 0 });
   const rows = readDecisionLog(store);
   assert.equal(rows[0].item, 'p');
   assert.deepEqual([rows[0].decidedBy, rows[0].autonomy], ['person', 'recommend'], 'the log keeps the rung the decision opened with');
@@ -208,7 +209,8 @@ test('a decision takes its autonomy from the ladder when it opens; no log, an un
 
   // A log that cannot be read counts as no log.
   const broken = fresh();
-  writeFileSync(join(broken.dir, 'decisions.jsonl'), 'not json\n');
+  mkdirSync(join(broken.dir, 'audits'));
+  writeFileSync(join(broken.dir, 'audits', '2026-01-01.json'), 'not json');
   earn(broken, 'plan');
   assert.equal(open(broken, 'p').autonomy, 'recommend');
 
@@ -216,6 +218,44 @@ test('a decision takes its autonomy from the ladder when it opens; no log, an un
   const before = none.read().version;
   const r = apply(none, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve' } }, { to: plan(none, 'p2') });
   assert.deepEqual([r.refused, none.read().version], [true, before]);
+});
+
+const planRung = (store, id) => store.read().snapshot.children[id].snapshot.children[`decision:${id}:plan:1`].snapshot.context.autonomy;
+// The person decides one plan decision on item id, agreeing with the stand-in's lean or reversing it; returns the rung it opened with.
+const decidePlan = (store, id, choice, now) => {
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 1 } }, { now });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}`, now });
+  const to = `item:${id}/decision:${id}:plan:1`;
+  const rung = planRung(store, id);
+  apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.5 } }, { to, now });
+  assert.ok(!apply(store, { type: 'PERSON_DECIDED', choice }, { to, now }).refused);
+  return rung;
+};
+
+test('a reversal lowers the rung of the very next decision with no extra command, and replay agrees', () => {
+  const store = fresh({ wipLimit: 100 });
+  for (let i = 0; i < 20; i++) decidePlan(store, `a${i}`, 'approve', `2026-10-27T10:${String(i).padStart(2, '0')}:00Z`);
+  // Nobody runs harness decisions: the store's own records are the log.
+  assert.ok(store.pending().some((e) => e.name === 'logPrecedent'));
+  assert.equal(decidePlan(store, 'r', 'revise', '2026-10-27T11:00:00Z'), 'act', 'earned before the reversal');
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'next', tier: 1 } }, { now: '2026-10-27T11:00:01Z' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:next', now: '2026-10-27T11:00:01Z' });
+  assert.equal(planRung(store, 'next'), 'recommend', 'the reversal dropped plan a rung at once');
+  const r = replay(store);
+  assert.deepEqual([r.ok, r.firstDivergence, r.differences], [true, null, []]);
+});
+
+test('a record dated after a decision opens does not count toward its rung', () => {
+  const store = fresh({ wipLimit: 100 });
+  earn(store, 'plan');
+  // A reversal recorded at noon; a decision opening at eleven (a backdated event) still sees act.
+  decidePlan(store, 'r', 'revise', '2026-10-27T12:00:00Z');
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'early', tier: 1 } }, { now: '2026-10-27T11:00:00Z' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:early', now: '2026-10-27T11:00:00Z' });
+  assert.equal(planRung(store, 'early'), 'act');
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'late', tier: 1 } }, { now: '2026-10-27T12:00:01Z' });
+  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:late', now: '2026-10-27T12:00:01Z' });
+  assert.equal(planRung(store, 'late'), 'recommend');
 });
 
 test('the stand-in ladder climbs after 20 agreeing decisions and drops a rung on each reversal', () => {

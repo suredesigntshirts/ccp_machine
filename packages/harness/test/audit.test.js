@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDir } from './tmp.js';
-import { writeFileSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { logged } from './send.js';
 import { join } from 'node:path';
 import { openStore, init, readDecisionLog, logPrecedents, auditPicks, auditCard, dayAudit, answerAudit, untestedRuns, auditLine, openAudits, renderPage, calibrateClass, ladder, doctor, renderDigest, status } from '../src/index.js';
 
@@ -11,7 +12,7 @@ const standIn = (n, cls, confidence, at) => ({ effectId: `s${n}`, at, item: `i${
 function storeWith(rows) {
   const store = openStore(tempDir('harness-'));
   init(store, {}, '2026-10-26T09:00:00Z');
-  writeFileSync(join(store.dir, 'decisions.jsonl'), rows.map((r) => JSON.stringify(r) + '\n').join(''));
+  logged(store, rows);
   return store;
 }
 
@@ -57,12 +58,13 @@ test('an answer becomes the person\'s decisions, which calibration and the ladde
   assert.throws(() => answerAudit(store, day, 4), /answer is 0/);
 });
 
-test('the empty early rows are left out of the log but still dedupe logPrecedents', () => {
+test('the empty early effects are left out of the log, and the log is the store\'s own records: no decisions.jsonl', () => {
   const empty = { effectId: 'e7.0', at: '2026-10-26T17:55:44Z', item: 'ledger', decision: 'decision:ledger:plan:1', decisionClass: 'plan', tier: null, question: null, choice: null, decidedBy: null, standIn: null };
   const store = storeWith([empty, standIn(1, 'plan', 0.9, '2026-10-26T18:00:00Z')]);
   assert.deepEqual(readDecisionLog(store).map((r) => r.effectId), ['s1']);
   logPrecedents(store);
-  assert.equal(readFileSync(join(store.dir, 'decisions.jsonl'), 'utf8').split('\n').filter(Boolean).length, 2);
+  assert.equal(existsSync(join(store.dir, 'decisions.jsonl')), false);
+  assert.deepEqual(readDecisionLog(store).map((r) => r.effectId), ['s1']);
 });
 
 test('doctor warns, without failing, when a class goes 21 stand-in decisions unchecked', () => {
