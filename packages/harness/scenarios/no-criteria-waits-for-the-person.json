@@ -1,13 +1,14 @@
 {
   "name": "no-criteria-waits-for-the-person",
-  "description": "Triage gives no criteria: the item waits for the person with the needs-human tag, no run, check or merge moves it, and only a cancel ends it.",
+  "description": "Triage gives no criteria: the item waits for the person with the needs-human tag, in the person's inbox and without a work-in-progress slot; no run, check, merge or unblock moves it, and only a cancel ends it.",
   "steps": [
     {"event":{"type":"ORCHESTRATOR_STARTED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"id":"orchestrator-started"},
     {"event":{"type":"REQUEST_RECEIVED","request":{"id":"n","title":"Make it better"},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"],"items":{"n":"active.triaging"}}},
-    {"event":{"type":"TRIAGED","tier":0,"criteria":[],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"effects":["reportBlocked"],"items":{"n":"active.needsCriteria"},"inFlight":["n"]}},
+    {"event":{"type":"TRIAGED","tier":0,"criteria":[],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"effects":["reportBlocked"],"items":{"n":"active.needsCriteria"},"inFlight":[],"inbox":["needsCriteria:n"],"needsPerson":true}},
     {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"refused":"refused: RUN_SUCCEEDED in active.needsCriteria","effects":[]}},
     {"event":{"type":"TRIAGED","tier":0,"criteria":["n works"],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"refused":"refused: TRIAGED in active.needsCriteria","effects":[]}},
     {"event":{"type":"CHECKS_PASSED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-1"}},"to":"item:n","expect":{"refused":"refused: CHECKS_PASSED in active.needsCriteria","items":{"n":"active.needsCriteria"}}},
-    {"event":{"type":"CANCEL","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"items":{"n":"cancelled"},"inFlight":[]}}
+    {"event":{"type":"UNBLOCKED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"refused":"refused: UNBLOCKED in active.needsCriteria","effects":[]}},
+    {"event":{"type":"CANCEL","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:n","expect":{"items":{"n":"cancelled"},"inFlight":[],"inbox":[],"needsPerson":false}}
   ]
 }

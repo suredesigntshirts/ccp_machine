@@ -2,6 +2,7 @@
 // where each item stands, and what the harness has asked the host to do. Rebuilt from the store on
 // every change; no scripts are needed to read it.
 import { lastMoved } from './stalled.js';
+import { waitingOnPerson } from './runtime.js';
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -62,6 +63,13 @@ function decisionCard(item, d) {
   <div class="m">Answer on the card in the thread, or: <code>harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to ${esc(d.address)} --actor person:&lt;you&gt; --source tap:&lt;card-message-id&gt;</code></div></div>`;
 }
 
+function needsCriteriaCard(item) {
+  return `<div class="card"><span class="eyebrow">no criteria · tier ${esc(item.tier)}</span>
+  <b>${esc(item.title ?? item.id)}</b>${item.url ? ` <a href="${esc(item.url)}">${esc(item.url)}</a>` : ''}
+  <div>Triage found nothing that would show this is done, so it cannot go on. Cancel it and ask again with what done looks like.</div>
+  <div class="m">To cancel: <code>harness send '{"type":"CANCEL"}' --to ${esc(item.address)}</code></div></div>`;
+}
+
 function auditCardHtml(a) {
   return `<div class="card"><span class="eyebrow">stand-in audit · ${esc(a.day)}</span>
   <b>Did the stand-in call these ${a.picks.length} right?</b>
@@ -81,7 +89,10 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   const live = st.items.filter((i) => !i.done);
   const finished = st.items.filter((i) => i.done);
   const asks = [
-    ...live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => decisionCard(i, d))),
+    ...waitingOnPerson(st.items).map((w) => {
+      const i = st.items.find((x) => x.id === w.item);
+      return w.why === 'no criteria' ? needsCriteriaCard(i) : decisionCard(i, i.decisions.find((d) => d.address === w.address));
+    }),
     ...audits.map(auditCardHtml)
   ];
   const scheduler = st.state.scheduler;
@@ -102,7 +113,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
   const body = `<div class="wrap">
 <header><span class="eyebrow">Harness · v${esc(st.version)} · updated ${esc(time(st.updatedAt))} UTC</span><h1>${esc(title)}</h1>${itemLinks ? '<a class="m" href="decisions.html">Decision log</a>' : ''}</header>
 <div class="tiles">
-  <div class="tile${asks.length ? ' ask' : ''}"><span class="eyebrow">Needs you</span><b>${asks.length}</b><small>${asks.length ? 'decisions waiting below' : 'nothing to decide'}</small></div>
+  <div class="tile${asks.length ? ' ask' : ''}"><span class="eyebrow">Needs you</span><b>${asks.length}</b><small>${asks.length ? 'waiting below' : 'nothing to decide'}</small></div>
   <div class="tile"><span class="eyebrow">In flight</span><b>${st.context.inFlight.length} / ${st.context.wipLimit}</b><small>${st.context.queued.length} queued</small></div>
   <div class="tile"><span class="eyebrow">Finished</span><b>${finished.length}</b><small>${finished.filter((i) => i.state === 'done').length} merged</small></div>
   <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${esc(scheduler)}">${esc(scheduler)}</span></b><small>budget ${esc(budget?.mode ?? 'unknown')}${budget?.sevenDay != null ? ` · 7-day ${pct(budget.sevenDay)}` : ''} · ${budget?.sampledAt ? `${budget.estimated ? 'estimated' : 'reading'} ${esc(ago(st.updatedAt, budget.sampledAt))} old` : 'no reading yet'}</small></div>

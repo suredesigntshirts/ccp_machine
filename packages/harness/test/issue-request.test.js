@@ -8,7 +8,7 @@ import { openStore, init, requestFromIssue, issueBody, expectFrom } from '../src
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
 // The issue is written by the writer, so the body is in the one format.
-const issue = {
+const base = {
   number: 88,
   title: 'File a backlog issue as a request',
   html_url: 'https://github.com/o/r/issues/88',
@@ -17,7 +17,10 @@ const issue = {
 };
 const filed = (dir, id) => openStore(dir).events().find((e) => e.event.type === 'REQUEST_RECEIVED' && e.event.request?.id === id)?.event.request;
 
-test('round trip: an issue body the writer writes is filed and parsed back to the same id and expect lines, with no tier', () => {
+for (const [eol, name] of [['\n', '\\n'], ['\r\n', '\\r\\n']])
+test(`round trip (${name} line ends): an issue body the writer writes is filed and parsed back to the same id and expect lines, with no tier`, () => {
+  const issue = { ...base, body: base.body.replace(/\n/g, eol) };
+  if (eol !== '\n') assert.match(issue.body, /\r\n## Expect\r\n/);
   assert.deepEqual(requestFromIssue(issue), { id: 'issue-request', title: issue.title, project: 'r', url: issue.html_url, expect: 'a works\nb is refused' });
   const dir = tempDir('harness-');
   init(openStore(dir));
@@ -52,5 +55,5 @@ test('the issue template is in the writer\'s format and parses with the parser',
 });
 
 test('an issue without an item id line is refused', () => {
-  assert.throws(() => requestFromIssue({ ...issue, body: 'no item line' }), /#88 has no "Item id/);
+  assert.throws(() => requestFromIssue({ ...base, body: 'no item line' }), /#88 has no "Item id/);
 });

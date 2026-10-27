@@ -17,7 +17,8 @@ const out = o.out ?? mkdtempSync(join(tmpdir(), 'harness-pages-'));
 const shots = o.shots ?? join(out, 'shots');
 mkdirSync(shots, { recursive: true });
 
-// A fixture with every kind of row: merged, cancelled, in flight, queued and one waiting on the person.
+// A fixture with every kind of row: merged, cancelled, in flight, queued, one decision waiting on the person
+// and one item waiting on the person because triage gave it no criteria (needsCriteria).
 const store = openStore(join(out, 'store'));
 init(store, { wipLimit: 3 }, '2026-10-26T08:00:00Z');
 const at = (h) => `2026-10-26T${String(h).padStart(2, '0')}:00:00Z`;
@@ -47,6 +48,8 @@ send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:dropped/decision:dropped
 send({ type: 'PERSON_DECIDED', choice: 'reject', person: true }, 'item:dropped/decision:dropped:plan:1', 12);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'building', project: 'packages/ledger' } }, undefined, 13);
 send({ type: 'TRIAGED', tier: 0, criteria: ['it works'] }, 'item:building', 13);
+send({ type: 'REQUEST_RECEIVED', request: { id: 'no-criteria', title: 'Make the harness better', project: 'packages/harness' } }, undefined, 13);
+send({ type: 'TRIAGED', tier: 1, criteria: [] }, 'item:no-criteria', 13);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'in-queue' } }, undefined, 13);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'in-queue-2' } }, undefined, 13);
 logPrecedents(store);
@@ -56,9 +59,17 @@ const page = join(out, 'site', 'mission-control.html');
 const { files } = JSON.parse(execFileSync(process.execPath, [bin, 'page', '--dir', store.dir, '--html', page, '--sessions', join(out, 'no-sessions')], { encoding: 'utf8' }));
 const pages = [page, ...files.map((f) => join(dirname(page), f))];
 
+// The needsCriteria item is counted and listed under Needs you, beside the decision that waits on the person.
+const failures = [];
+{
+  const html = readFileSync(page, 'utf8');
+  const needsYou = html.slice(html.indexOf('<h2>Needs you'), html.indexOf('<h2>In flight'));
+  if (!/<span class="eyebrow">Needs you<\/span><b>2<\/b>/.test(html)) failures.push('mission-control.html: Needs you does not count the needsCriteria item and the decision (2)');
+  if (!needsYou.includes('Make the harness better') || !needsYou.includes('no criteria')) failures.push('mission-control.html: the needsCriteria item is not listed under Needs you');
+}
+
 const { chromium } = await import('playwright');
 const browser = await chromium.launch();
-const failures = [];
 const warnings = [];
 let checked = 0;
 for (const file of pages) {

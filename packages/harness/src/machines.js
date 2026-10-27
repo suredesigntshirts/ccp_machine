@@ -161,6 +161,8 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       ...provenance,
       reportedByOrchestrator: ({ context, event }) => !context.orchestrator || event.actor?.id === context.orchestrator,
       triagedByParty: ({ context: c, event }) => !c.orchestrator || !event.actor?.id || [c.requester, c.orchestrator, ...(c.workers ?? [])].includes(event.actor?.id),
+      // A tier, once set, is a floor: a re-triage (after a revise) may keep or raise it, never lower it.
+      tierLowered: ({ context: c, event: e }) => typeof c.tier === 'number' && !(typeof e.tier === 'number' && e.tier >= c.tier),
       triageOverreaches: ({ event: e }) => ![0, 1, 2].includes(e.tier) || (e.criteria != null && !(Array.isArray(e.criteria) && e.criteria.every(isText))),
       noCriteria: ({ event }) => !event.criteria?.length,
       checkedByParty: ({ context: c, event }) => !c.orchestrator || !event.actor?.id || [c.orchestrator, ...(c.workers ?? [])].includes(event.actor?.id),
@@ -195,6 +197,16 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       withdrawDecision: enqueueActions(({ enqueue, context }) => {
         if (context.decisionId) enqueue.stopChild(context.decisionId);
         enqueue.assign({ decisionId: null });
+      }),
+      // needsCriteria: the item waits on the person, in the person's inbox, and gives its slot back.
+      giveUpSlot: toParent(({ context }) => ({ type: 'ITEM_PARKED', id: context.id })),
+      notifyInboxOpened: enqueueActions(({ enqueue, context, system }) => {
+        const harness = system.get('harness');
+        if (harness) enqueue.sendTo(harness, { type: 'DECISION_PENDING', decisionId: `needsCriteria:${context.id}` });
+      }),
+      notifyInboxClosed: enqueueActions(({ enqueue, context, system }) => {
+        const harness = system.get('harness');
+        if (harness) enqueue.sendTo(harness, { type: 'DECISION_CLOSED', decisionId: `needsCriteria:${context.id}` });
       }),
       reportFinished: toParent(({ context }, params) => ({
         type: 'ITEM_FINISHED',
