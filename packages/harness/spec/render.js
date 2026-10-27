@@ -82,6 +82,10 @@ export function renderSpec() {
     const actors = Object.entries(config.meta?.actors ?? {});
     if (actors.length)
       out.push('Actors:', '', ...actors.map(([kind, a]) => `- \`${kind}\`${a.id ? ` (id \`${a.id}\`)` : ''}${a.roles ? ', holds roles' : ''}: ${a.description}`), '', config.meta.roles ?? '', '');
+    // The store layout pages read (meta.store) and how pages refresh (meta.pages).
+    if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
+    if (config.meta?.pages)
+      out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
     out.push('```mermaid', diagram(config), '```', '');
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');

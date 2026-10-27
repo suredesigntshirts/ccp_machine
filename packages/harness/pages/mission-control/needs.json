@@ -1,0 +1,54 @@
+{
+  "page": "mission-control",
+  "title": "Mission control",
+  "description": "What needs the person, what is in flight and where each item stands. The page reads one file, the store's state.json, and only the fields below; harness page --live renders it, and its refresh button reads the file again through the Artifact files capability.",
+  "reads": {
+    "file": "state.json",
+    "schemaVersion": { "min": 1, "max": 1 }
+  },
+  "kinds": {
+    "item": "workItem",
+    "decision": "decision",
+    "budget": "budget",
+    "audit": "audit"
+  },
+  "fields": {
+    "store": ["schemaVersion", "version", "updatedAt", "snapshot.children"],
+    "harness": ["value.scheduler", "context.wipLimit", "context.inFlight", "context.queued"],
+    "item": ["value", "status", "children", "context.id", "context.title", "context.project", "context.tier", "context.runs", "context.retries", "context.url"],
+    "decision": ["value", "context.decisionClass", "context.tier", "context.question", "context.standIn", "context.card"],
+    "budget": ["value", "context.sevenDay", "context.sampledAt"],
+    "audit": ["value", "context.day", "context.picks", "context.card"]
+  },
+  "spec": {
+    "workItem": {
+      "states": ["active.queued", "active.triaging", "active.needsCriteria", "active.planGate", "active.awaitingPlanDecision", "active.building", "active.verifying", "active.acceptGate", "active.awaitingAcceptance", "active.integrationGate", "active.awaitingMergeDecision", "active.merging", "done", "failed", "cancelled"],
+      "events": ["CANCEL"]
+    },
+    "decision": { "states": ["awaitingPerson"], "events": ["PERSON_DECIDED"] },
+    "audit": { "states": ["awaitingPerson"], "events": ["AUDIT_ANSWERED"] },
+    "harness": { "states": ["scheduler.draining", "scheduler.halted"] }
+  },
+  "view": {
+    "stages": [
+      ["queued", ["active.queued"]],
+      ["triage", ["active.triaging", "active.needsCriteria"]],
+      ["plan", ["active.planGate", "active.awaitingPlanDecision"]],
+      ["build", ["active.building"]],
+      ["verify", ["active.verifying"]],
+      ["accept", ["active.acceptGate", "active.awaitingAcceptance"]],
+      ["merge", ["active.integrationGate", "active.awaitingMergeDecision", "active.merging"]],
+      ["done", ["done"]]
+    ],
+    "finished": ["done", "failed", "cancelled"],
+    "merged": "done",
+    "needsCriteria": "active.needsCriteria",
+    "awaitingPerson": { "decision": "awaitingPerson", "audit": "awaitingPerson" },
+    "scheduler": { "warn": ["scheduler.draining"], "bad": ["scheduler.halted"] },
+    "events": { "decide": "PERSON_DECIDED", "audit": "AUDIT_ANSWERED", "cancel": "CANCEL" }
+  },
+  "db": {
+    "collection": "refreshes",
+    "fields": ["page", "at", "ms", "storeVersion", "schemaVersion", "bytes", "ok"]
+  }
+}
