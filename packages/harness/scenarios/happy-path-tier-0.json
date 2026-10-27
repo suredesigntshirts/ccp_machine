@@ -2,10 +2,11 @@
   "name": "happy-path-tier-0",
   "description": "A tier-0 item runs triage, build and verify, then merges with no decision.",
   "steps": [
-    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}},"expect":{"effects":["dispatchRun:triage"],"items":{"a":"active.triaging"},"inFlight":["a"]}},
-    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:a","expect":{"effects":["dispatchRun:build"],"items":{"a":"active.building"}}},
-    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:a","expect":{"effects":["dispatchRun:verify"],"items":{"a":"active.verifying"}}},
-    {"event":{"type":"CHECKS_PASSED"},"to":"item:a","expect":{"effects":["mergePullRequest"],"items":{"a":"active.merging"}}},
-    {"event":{"type":"MERGED"},"to":"item:a","expect":{"effects":[],"items":{"a":"done"},"inFlight":[]}}
+    {"event":{"type":"ORCHESTRATOR_STARTED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"id":"orchestrator-started"},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"],"items":{"a":"active.triaging"},"inFlight":["a"]}},
+    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":["dispatchRun:build"],"items":{"a":"active.building"}}},
+    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":["dispatchRun:verify"],"items":{"a":"active.verifying"}}},
+    {"event":{"type":"CHECKS_PASSED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-1"}},"to":"item:a","expect":{"effects":["mergePullRequest"],"items":{"a":"active.merging"}}},
+    {"event":{"type":"MERGED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-2"}},"to":"item:a","expect":{"effects":[],"items":{"a":"done"},"inFlight":[]}}
   ]
 }

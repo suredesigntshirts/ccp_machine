@@ -2,13 +2,14 @@
   "name": "ci-failure-then-retry",
   "description": "Failing checks send the item back to build; a second report from the build is refused while it verifies; the retry passes and merges.",
   "steps": [
-    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"c","tier":0}},"expect":{"effects":["dispatchRun:triage"]}},
-    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"effects":["dispatchRun:build"]}},
-    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"effects":["dispatchRun:verify"]}},
-    {"event":{"type":"CHECKS_FAILED"},"to":"item:c","expect":{"effects":["dispatchRun:build"],"items":{"c":"active.building"}}},
-    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"effects":["dispatchRun:verify"],"items":{"c":"active.verifying"}}},
-    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"refused":"refused: RUN_SUCCEEDED in active.verifying","effects":[],"items":{"c":"active.verifying"}}},
-    {"event":{"type":"CHECKS_PASSED"},"to":"item:c","expect":{"effects":["mergePullRequest"]}},
-    {"event":{"type":"MERGED"},"to":"item:c","expect":{"items":{"c":"done"},"inFlight":[]}}
+    {"event":{"type":"ORCHESTRATOR_STARTED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"id":"orchestrator-started"},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"c","tier":0},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
+    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:build"]}},
+    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:verify"]}},
+    {"event":{"type":"CHECKS_FAILED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-1"}},"to":"item:c","expect":{"effects":["dispatchRun:build"],"items":{"c":"active.building"}}},
+    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:verify"],"items":{"c":"active.verifying"}}},
+    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"refused":"refused: RUN_SUCCEEDED in active.verifying","effects":[],"items":{"c":"active.verifying"}}},
+    {"event":{"type":"CHECKS_PASSED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-2"}},"to":"item:c","expect":{"effects":["mergePullRequest"]}},
+    {"event":{"type":"MERGED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-3"}},"to":"item:c","expect":{"items":{"c":"done"},"inFlight":[]}}
   ]
 }

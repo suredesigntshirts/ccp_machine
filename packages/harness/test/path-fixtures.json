@@ -2,56 +2,68 @@
   "harness": {
     "inputs": [{}],
     "events": [
-      { "type": "REQUEST_RECEIVED", "request": { "id": "r1", "tier": 0 } },
-      { "type": "ITEM_FINISHED", "id": "r0", "outcome": "done" },
-      { "type": "BUDGET_MODE", "mode": "paused" },
-      { "type": "BUDGET_MODE", "mode": "wrappingUp" },
-      { "type": "BUDGET_MODE", "mode": "normal" },
-      { "type": "DECISION_PENDING", "decisionId": "d1" },
-      { "type": "DECISION_CLOSED", "decisionId": "d1" },
-      { "type": "DIGEST_DUE", "day": "2026-10-27" }
+      { "type": "ORCHESTRATOR_STARTED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "REQUEST_RECEIVED", "request": { "id": "r1", "tier": 0 }, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "ITEM_FINISHED", "id": "r0", "outcome": "done", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "BUDGET_MODE", "mode": "paused", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "BUDGET_MODE", "mode": "wrappingUp", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "BUDGET_MODE", "mode": "normal", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "DECISION_PENDING", "decisionId": "d1", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "DECISION_CLOSED", "decisionId": "d1", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "DIGEST_DUE", "day": "2026-10-27", "actor": { "kind": "timer", "id": "tick" }, "source": { "kind": "timer", "ref": "2026-10-26T02:30:00Z" } },
+      { "type": "ORCHESTRATOR_STARTED", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } }
     ]
   },
   "budget": {
     "inputs": [{}],
     "events": [
-      { "type": "DAY_STARTED", "sevenDay": 0.3, "fiveHour": 0, "at": "2026-10-26T01:00:00Z" },
-      { "type": "DAY_STARTED", "sevenDay": 0.3, "fiveHour": 0.96, "at": "2026-10-26T01:00:00Z" },
-      { "type": "USAGE_SAMPLED", "sevenDay": 0.31, "fiveHour": 0.1, "at": "2026-10-26T02:00:00Z" },
-      { "type": "USAGE_SAMPLED", "sevenDay": 0.385, "fiveHour": 0.1, "at": "2026-10-26T03:00:00Z" },
-      { "type": "USAGE_SAMPLED", "sevenDay": 0.31, "fiveHour": 0.97, "at": "2026-10-26T04:00:00Z" },
-      { "type": "TICK", "now": "2026-10-26T02:30:00Z", "costSince": 0 },
-      { "type": "TICK", "now": "2026-10-28T00:00:00Z" },
-      { "type": "CONFIGURE", "config": { "softAt": 0.8 } }
+      { "type": "DAY_STARTED", "sevenDay": 0.3, "fiveHour": 0, "at": "2026-10-26T01:00:00Z", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "DAY_STARTED", "sevenDay": 0.3, "fiveHour": 0.96, "at": "2026-10-26T01:00:00Z", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "USAGE_SAMPLED", "sevenDay": 0.31, "fiveHour": 0.1, "at": "2026-10-26T02:00:00Z", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "USAGE_SAMPLED", "sevenDay": 0.385, "fiveHour": 0.1, "at": "2026-10-26T03:00:00Z", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "USAGE_SAMPLED", "sevenDay": 0.31, "fiveHour": 0.97, "at": "2026-10-26T04:00:00Z", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "TICK", "now": "2026-10-26T02:30:00Z", "costSince": 0, "actor": { "kind": "timer", "id": "tick" }, "source": { "kind": "timer", "ref": "2026-10-26T02:30:00Z" } },
+      { "type": "TICK", "now": "2026-10-28T00:00:00Z", "actor": { "kind": "timer", "id": "tick" }, "source": { "kind": "timer", "ref": "2026-10-26T02:30:00Z" } },
+      { "type": "CONFIGURE", "config": { "softAt": 0.8 }, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } }
     ]
   },
   "workItem": {
-    "inputs": [{ "id": "w", "tier": 0 }, { "id": "w", "tier": 1 }, { "id": "w", "tier": 2 }],
+    "inputs": [{"id": "w", "tier": 0, "orchestrator": "orchestrator"},{"id": "w", "tier": 1, "orchestrator": "orchestrator"},{"id": "w", "tier": 2, "orchestrator": "orchestrator"}],
     "events": [
-      { "type": "START" },
-      { "type": "RUN_SUCCEEDED" },
-      { "type": "RUN_FAILED" },
-      { "type": "CHECKS_PASSED" },
-      { "type": "CHECKS_FAILED" },
+      { "type": "START", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_SUCCEEDED", "actor": { "kind": "session", "id": "worker" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_FAILED", "actor": { "kind": "session", "id": "worker" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "CHECKS_PASSED", "actor": { "kind": "github", "id": "github" }, "source": { "kind": "github-wake", "ref": "delivery-1" } },
+      { "type": "CHECKS_FAILED", "actor": { "kind": "github", "id": "github" }, "source": { "kind": "github-wake", "ref": "delivery-1" } },
       { "type": "DECISION_MADE", "choice": "approve" },
       { "type": "DECISION_MADE", "choice": "revise" },
       { "type": "DECISION_MADE", "choice": "reject" },
-      { "type": "BLOCK" },
-      { "type": "UNBLOCKED" },
-      { "type": "WRAP_UP" },
-      { "type": "MERGED" },
-      { "type": "MERGE_FAILED" },
-      { "type": "CANCEL" }
+      { "type": "BLOCK", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "UNBLOCKED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "WRAP_UP", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "MERGED", "actor": { "kind": "github", "id": "github" }, "source": { "kind": "github-wake", "ref": "delivery-1" } },
+      { "type": "MERGE_FAILED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "CANCEL", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_SUCCEEDED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_FAILED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "CHECKS_PASSED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "CHECKS_FAILED", "actor": { "kind": "github", "id": "github" }, "source": { "kind": "github-wake", "ref": "" } },
+      { "type": "MERGED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "DECISION_MADE", "choice": "approve", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "ORCHESTRATOR_STARTED", "orchestrator": "someone", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } }
     ]
   },
   "decision": {
-    "inputs": [{ "id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w" }, { "id": "decision:w:plan:1", "decisionClass": "plan", "tier": 2, "question": "plan: w" }],
+    "inputs": [{"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w"},{"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 2, "question": "plan: w"}],
     "events": [
-      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.9, "autonomy": "act" } },
-      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.9, "autonomy": "recommend" } },
-      { "type": "STAND_IN_FAILED" },
-      { "type": "PERSON_DECIDED", "choice": "approve" },
-      { "type": "PERSON_DECIDED", "choice": "reject" }
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.9, "autonomy": "act" }, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "threshold": 0.9, "autonomy": "recommend" }, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "STAND_IN_FAILED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "PERSON_DECIDED", "choice": "reject", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
+      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "cli", "ref": "cmsg_card" } },
+      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "" } }
     ]
   }
 }

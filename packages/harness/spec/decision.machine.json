@@ -1,7 +1,7 @@
 {
   "id": "decision",
   "version": "0.1.0",
-  "description": "One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation.",
+  "description": "One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation. Only a person's tap decides for the person: the machine checks that PERSON_DECIDED says actor person and source tap with the card's message id; that the tap is real is checked afterwards against the platform.",
   "initial": "askingStandIn",
   "context": {
     "id": "",
@@ -66,14 +66,26 @@
         }
       ],
       "on": {
-        "PERSON_DECIDED": {
-          "target": "decided",
-          "actions": [
-            {
-              "type": "recordPersonChoice"
-            }
-          ]
-        }
+        "PERSON_DECIDED": [
+          {
+            "guard": {
+              "type": "unattested",
+              "params": {
+                "actor": "person",
+                "source": "tap"
+              }
+            },
+            "description": "Refused unless the actor is a person and the source a tap whose ref is the decision card's message id. The machine checks the kinds and that the id is there; whether the tap happened is checked afterwards against the platform."
+          },
+          {
+            "target": "decided",
+            "actions": [
+              {
+                "type": "recordPersonChoice"
+              }
+            ]
+          }
+        ]
       }
     },
     "decided": {
