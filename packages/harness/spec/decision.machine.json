@@ -42,10 +42,13 @@
             "guard": {
               "type": "unattested",
               "params": {
-                "actor": "session"
+                "actor": [
+                  "session",
+                  "agent"
+                ]
               }
             },
-            "description": "Refused unless a session sends it: the stand-in is a session."
+            "description": "Refused unless a session or an agent sends it: the stand-in is a session or a subagent of one (harness meta.actors)."
           },
           {
             "guard": {
@@ -60,7 +63,7 @@
                 "role": "answerer"
               }
             },
-            "description": "Refused when the sender, a session, already holds another role on the item (requester, triager, worker or criterion checker; the item passes them in when it opens the decision): the stand-in that answers played no other part. The person and GitHub are exempt. The machine compares the session ids it is given; harness verify-actors checks them against the platform's ledger."
+            "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on the item (requester, triager, worker or criterion checker; the item passes them in when it opens the decision): the stand-in that answers played no other part. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
           },
           {
             "guard": {

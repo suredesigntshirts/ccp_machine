@@ -2,6 +2,30 @@
   "id": "harness",
   "version": "0.1.0",
   "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit).",
+  "meta": {
+    "actors": {
+      "person": {
+        "description": "The person: acts only by a tap on a card the machine asked for, and holds no role."
+      },
+      "session": {
+        "id": "^[^/]+$",
+        "roles": true,
+        "description": "A Claude Code session (a thread): id CLAUDE_CODE_SESSION_ID, which the CLI takes from the platform. It never contains '/'."
+      },
+      "agent": {
+        "id": "^[^/]+/[^/]+$",
+        "roles": true,
+        "description": "A subagent of a session: id <session_id>/<agent_id>, the session's CLAUDE_CODE_SESSION_ID and the agent_id of the hook input, so it names both; type is its agent_type. The plugin's PreToolUse hook hands it to every harness call a subagent runs (HARNESS_AGENT=<agent_id>:<agent_type>) and the CLI records it as this actor; its SubagentStart hook files a record that harness verify-actors checks it against. Two subagents of one session are two actors, and neither is the session."
+      },
+      "github": {
+        "description": "GitHub: only through harness from-github, after its REST API agrees."
+      },
+      "timer": {
+        "description": "The harness's own clock (tick, digest, canary)."
+      }
+    },
+    "roles": "Actors marked roles (session and agent) are recorded in an item's roles and compared there by the whole actor, kind and id: the id patterns are disjoint, so the recorded id names one actor. An event whose actor is not one of these kinds, or whose id does not match its kind's pattern, is refused before any machine sees it."
+  },
   "type": "parallel",
   "context": {
     "wipLimit": 3,
