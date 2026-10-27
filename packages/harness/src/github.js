@@ -3,6 +3,9 @@
 // translating them by hand. Items are found through the PR links on their own events.
 import { apply, ack } from './runtime.js';
 import { readFact, FAILED } from './github-read.js';
+import { prKey, prMap, requestedAt } from './pr-binding.js';
+
+export { prKey, prMap };
 
 /**
  * {kind, data, at?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
@@ -21,33 +24,17 @@ export function parseGithubEvent(text) {
   return { kind: o.kind, data: o.data ?? o, ...(o.at && { at: o.at }) };
 }
 
-/** "owner/repo#12" or ".../owner/repo/pull/12" as "owner/repo#12". */
-export const prKey = (ref) => {
-  const m = /([\w.-]+\/[\w.-]+)(?:#|\/pull\/)(\d+)/.exec(String(ref ?? ''));
-  return m ? `${m[1]}#${m[2]}` : null;
-};
-
-/** PR to item, from the `pr` each item's events carry (the build's RUN_SUCCEEDED, CI and merge events). */
-export function prMap(events) {
-  const map = {};
-  for (const e of events) {
-    const key = prKey(e.event.pr);
-    const item = /^item:([^/]+)/.exec(e.to ?? '')?.[1];
-    if (key && item) map[key] = item;
-  }
-  return map;
-}
-
 /** The harness event a GitHub event means, or {ignore: why}. */
 export function mapGithubEvent({ kind, data }) {
   const pr = prKey(data?.pr);
-  const sha = String(data?.head_sha ?? '').slice(0, 7);
+  const head = String(data?.head_sha ?? '');
+  const sha = head.slice(0, 7);
   if (!pr) return { ignore: `no PR in ${kind}` };
   const url = `https://github.com/${pr.replace('#', '/pull/')}`;
-  if (kind === 'check_suite.completed') return { pr, id: `ci-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha } };
+  if (kind === 'check_suite.completed') return { pr, head, id: `ci-${sha}-passed`, event: { type: 'CHECKS_PASSED', pr: url, sha } };
   if (kind === 'check_run.completed') {
     if (!FAILED.includes(data.conclusion)) return { ignore: `check ${data.check ?? ''} ${data.conclusion}: the suite reports the result` };
-    return { pr, id: `ci-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion } };
+    return { pr, head, id: `ci-${sha}-failed`, event: { type: 'CHECKS_FAILED', pr: url, sha, check: data.check, conclusion: data.conclusion } };
   }
   if (kind === 'pull_request.closed')
     return data.outcome === 'merged'
@@ -58,7 +45,9 @@ export function mapGithubEvent({ kind, data }) {
 
 /**
  * Apply one GitHub event to the store, sent by github from a github-wake, once GitHub agrees: before a CI
- * result or a merge, the PR is read from GitHub's REST API (fetcher, see github-read.js) and the ref is the
+ * result or a merge, the PR is read from GitHub's REST API (fetcher, see github-read.js). It must be the
+ * item's own PR (the item that named it first; created at or after the item's request; its branch name
+ * contains the item id), a CI result must name the PR's full 40-character head sha, and the ref is the
  * fact read, such as o/r#7@<head sha>:checks=success or o/r#7:merged@<merge sha>. Returns what happened: sent
  * (with the effects), duplicate, refused (GitHub disagrees or cannot be read, or the item's machine would
  * not take it; nothing written), unknown PR, or ignored.
@@ -67,9 +56,10 @@ export async function fromGithub(store, raw, { fetcher } = {}) {
   const ev = typeof raw === 'string' ? parseGithubEvent(raw) : raw;
   const m = mapGithubEvent(ev);
   if (m.ignore) return { result: 'ignored', why: m.ignore };
-  const item = prMap(store.events())[m.pr];
+  const events = store.events();
+  const item = prMap(events)[m.pr];
   if (!item) return { result: 'unknown', why: `no item names ${m.pr}`, pr: m.pr };
-  const fact = m.event.type === 'CANCEL' ? { ref: m.pr } : await readFact({ type: m.event.type, pr: m.pr, sha: m.event.sha }, fetcher);
+  const fact = m.event.type === 'CANCEL' ? { ref: m.pr } : await readFact({ type: m.event.type, pr: m.pr, sha: m.head, item, requestedAt: requestedAt(events, item) }, fetcher);
   if (fact.why) return { result: 'refused', item, id: m.id, why: fact.why };
   if (fact.sha) m.event.sha = fact.sha.slice(0, 7);
   const id = fact.sha ? m.id.replace(/^ci-[^-]*-/, `ci-${m.event.sha}-`) : m.id;

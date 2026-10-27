@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
+import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -65,8 +65,17 @@ const HELP = `harness <command> [options]
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
                                  the merge effect); ids ci-<sha7>-passed|failed and merge-pr<N> dedupe replays.
                                  Each CI result or merge is applied only if GitHub agrees, read with
-                                 \`gh api\` (REST; GH_TOKEN and fetch without gh); the ref is the fact read.
-                                 Otherwise it is refused with the reason, nothing written, exit 1
+                                 \`gh api\` (REST; gh by absolute path, /usr/local/bin/gh else \`command -v gh\`;
+                                 GH_TOKEN and fetch without gh); the ref is the fact read. The PR must be
+                                 the item's own: the item that named it first (an item's PR is bound once,
+                                 one PR to one item), created at or after the item's request, on a branch
+                                 whose name contains the item id; a CI result must name the full 40-character
+                                 head sha. Otherwise it is refused with the reason, nothing written, exit 1
+  verify-facts [--store DIR]     re-read GitHub for every github-wake event in the log, one line per fact:
+                                 ok, mismatch (GitHub does not back it, or it is not the item's PR) or
+                                 unreachable. Never writes to the store. Exits 1 on any mismatch, else 3
+                                 when any could not be read. The check against a session that forged a
+                                 fact: run it from outside that session
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -77,11 +86,13 @@ const HELP = `harness <command> [options]
   digest [--day YYYY-MM-DD]      send DIGEST_DUE once per UTC day, write digests/<day>.md in the store
                                  and ack publishDigest; the host posts the text
   replay                         rebuild the harness from events.jsonl on a scratch copy and compare state
-                                 and effects with the store; exits 1 on a difference
+                                 and effects with the store; exits 1 on a difference. It re-applies github
+                                 refs as logged without reading GitHub: verify-facts re-checks them
   doctor                         check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore); exits 1 on a problem
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also
-                                 rebuilds a state.json that is ahead of events.jsonl; exits 1 if any is left
+                                 rebuilds a state.json that is ahead of events.jsonl; exits 1 if any is left.
+                                 It re-applies github refs as logged: verify-facts re-checks them
   scenarios [FILE...]            play golden event stories (default packages/harness/scenarios/*.json) on
                                  scratch stores and check each step; exits 1 on a failure
   card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard effect; a tap on
@@ -97,7 +108,7 @@ const HELP = `harness <command> [options]
                                  who sent the event (person, session, github, timer) and where it came
                                  from (tap, cli, timer; github and github-wake only via from-github);
                                  the event log keeps both
-  --dir DIR                      store folder (default $HARNESS_DIR, else .harness); an orchestrator
+  --dir DIR, --store DIR         store folder (default $HARNESS_DIR, else .harness); an orchestrator
                                  thread keeps it in the Library so the next thread can pick it up`;
 
 const argv = process.argv.slice(2);
@@ -117,6 +128,7 @@ try {
     allowPositionals: true,
     options: {
       dir: { type: 'string', default: process.env.HARNESS_DIR ?? '.harness' },
+      store: { type: 'string' },
       wip: { type: 'string' },
       ledger: { type: 'string' },
       text: { type: 'boolean' },
@@ -153,6 +165,7 @@ try {
   usageError(e.message);
 }
 const { values: o, positionals: [cmd, ...args] } = parsed;
+if (o.store) o.dir = o.store;
 const store = openStore(o.dir);
 // Every event goes through here: one the machine refuses is reported, and a batch goes on.
 function apply(...args) { const r = applyEvent(...args); if (r.refused) console.error(`harness: ${r.why}`); return r; }
@@ -318,6 +331,14 @@ try {
       const results = [await fromGithubText(store, readFileSync(args[0], 'utf8'))].flat();
       print(results.length === 1 ? results[0] : results);
       if (results.some((r) => r.result === 'refused')) process.exitCode = 1;
+      break;
+    }
+    case 'verify-facts': {
+      const results = await verifyFacts(store);
+      if (results.length) console.log(verifyFactsText(results));
+      const n = (k) => results.filter((r) => r.result === k).length;
+      console.error(`harness: ${results.length} GitHub facts: ${n('ok')} ok, ${n('mismatch')} mismatch, ${n('unreachable')} unreachable`);
+      process.exitCode = n('mismatch') ? 1 : n('unreachable') ? 3 : 0;
       break;
     }
     case 'issue-request': {
