@@ -15,8 +15,8 @@ test('a scenario names the step and expectation that broke', () => {
     name: 'wrong',
     steps: [
       { event: { type: 'ORCHESTRATOR_STARTED', ...orchestrator } },
-      { event: { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 }, ...orchestrator }, expect: { effects: ['dispatchRun:triage'] } },
-      { event: { type: 'RUN_SUCCEEDED', actor: { kind: 'session', id: 'worker' }, source: orchestrator.source }, to: 'item:a', expect: { items: { a: 'active.verifying' }, colour: 'blue' } }
+      { event: { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...orchestrator }, expect: { effects: ['dispatchRun:triage'] } },
+      { event: { type: 'TRIAGED', tier: 0, criteria: ['a works'], actor: { kind: 'session', id: 'triager' }, source: orchestrator.source }, to: 'item:a', expect: { items: { a: 'active.verifying' }, colour: 'blue' } }
     ]
   });
   assert.equal(r.ok, false);

@@ -43,9 +43,17 @@ const worker = { actor: { kind: 'session', id: 'worker' }, source: { kind: 'cli'
 const github = { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } };
 const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } };
 const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness send' } };
+// Triage and the criteria checks come from parties of their own: not the requester, the orchestrator or a worker.
+const triager = { actor: { kind: 'session', id: 'triager' }, source: { kind: 'cli', ref: 'harness send' } };
+const reviewer = { actor: { kind: 'session', id: 'reviewer' }, source: { kind: 'cli', ref: 'harness send' } };
+const triaged = (tier, criteria = ['a works']) => ({ type: 'TRIAGED', tier, criteria, ...triager });
+const met = (criterion = 'a works', by = reviewer) => ({ type: 'CRITERION_CHECKED', criterion, verdict: 'met', evidence: 'test a', ...by });
 
-const itemEvents = [
+const itemEvents = (tier) => [
   { type: 'START' },
+  triaged(tier),
+  triaged(tier, []),
+  met(),
   { type: 'RUN_SUCCEEDED', ...worker },
   { type: 'RUN_FAILED', ...worker },
   { type: 'CHECKS_PASSED', ...github },
@@ -63,18 +71,114 @@ const itemEvents = [
 // Graph states are the state value plus the retry count (bounded by the retriesLeft guard); the run
 // counter grows without bound and would make the graph infinite.
 const byValue = (s) => JSON.stringify([s.value, s.context.retries]);
-const walkItem = (input) =>
-  getShortestPaths(machines.workItem, { input, events: itemEvents, serializeState: byValue, limit: 5000 });
+const walkItem = (input, tier) =>
+  getShortestPaths(machines.workItem, { input, events: itemEvents(tier), serializeState: byValue, limit: 5000 });
 
-test('every work item state is reachable, and every tier can finish', () => {
+test('every work item state is reachable, and every tier triage can give finishes', () => {
   for (const tier of [0, 1, 2]) {
-    const paths = walkItem({ id: `t${tier}`, tier, orchestrator: 'orchestrator' });
+    const paths = walkItem({ id: `t${tier}`, orchestrator: 'orchestrator', requester: 'orchestrator' }, tier);
     const reached = new Set(paths.map((p) => JSON.stringify(p.state.value)));
     assert.ok(reached.has('"done"'), `tier ${tier} cannot reach done`);
     assert.ok(reached.has('"blocked"') && reached.has('"failed"') && reached.has('"cancelled"'));
+    assert.ok(reached.has(JSON.stringify({ active: 'needsCriteria' })), 'no criteria is a state');
   }
-  const tier2 = walkItem({ id: 'x', tier: 2, orchestrator: 'orchestrator' });
+  const tier2 = walkItem({ id: 'x', orchestrator: 'orchestrator' }, 2);
   assert.ok(tier2.some((p) => p.state.matches({ active: 'awaitingMergeDecision' })));
+});
+
+test('the tier comes from triage: an item does not leave triage until TRIAGED, and the filer cannot set it', () => {
+  assert.equal(specs.workItem.context.tier, null, 'no tier until triage');
+  const [s0] = initialTransition(machines.workItem, { id: 'a', orchestrator: 'orchestrator', requester: 'filer' });
+  const [s1] = transition(machines.workItem, s0, { type: 'START' });
+  assert.equal(s1.can({ type: 'RUN_SUCCEEDED', ...worker }), false, 'a run result does not leave triage');
+  for (const [why, actor] of [['the requester', 'filer'], ['the orchestrator', 'orchestrator']])
+    assert.equal(s1.can({ ...triaged(0), actor: { kind: 'session', id: actor } }), false, why);
+  const [failed] = transition(machines.workItem, s1, { type: 'RUN_FAILED', ...worker });
+  assert.equal(failed.can({ ...triaged(1), ...worker }), false, 'a worker on the item');
+  for (const [why, over] of [['no tier', { tier: undefined }], ['tier 3', { tier: 3 }], ['tier as text', { tier: '0' }], ['criteria as text', { criteria: 'a works' }], ['an empty criterion', { criteria: [' '] }]])
+    assert.equal(s1.can({ ...triaged(1), ...over }), false, why);
+  const [s2] = transition(machines.workItem, s1, triaged(2, ['a works', 'b is refused']));
+  assert.deepEqual([s2.value, s2.context.tier, s2.context.criteria], [{ active: 'awaitingPlanDecision' }, 2, ['a works', 'b is refused']]);
+
+  // The harness refuses a request that sets the tier, the criteria or anything else the item holds.
+  const [h0] = initialTransition(machines.harness);
+  for (const over of [{ tier: 0 }, { criteria: ['x'] }, { checks: {} }, { workers: [] }, { requester: 'me' }, { expectationsMet: true }])
+    assert.equal(h0.can({ type: 'REQUEST_RECEIVED', request: { id: 'a', ...over }, ...orchestrator }), false, JSON.stringify(over));
+  assert.equal(h0.can({ type: 'REQUEST_RECEIVED', request: { title: 'no id' }, ...orchestrator }), false, 'no id');
+  assert.equal(h0.can({ type: 'REQUEST_RECEIVED', request: { id: 'a', project: 'web', title: 'A', expect: 'a works' }, ...orchestrator }), true);
+});
+
+test('no criteria is a state: TRIAGED with none waits for the person, and nothing proceeds from it', () => {
+  for (const criteria of [[], undefined]) {
+    const [s0] = initialTransition(machines.workItem, { id: 'a', orchestrator: 'orchestrator' });
+    const [s, effects] = step(machines.workItem, s0, [{ type: 'START' }, { ...triaged(0), criteria }]);
+    assert.deepEqual(s.value, { active: 'needsCriteria' });
+    assert.ok(s.hasTag('needs-human'));
+    assert.ok(effects.includes('reportBlocked'));
+    for (const e of [{ type: 'RUN_SUCCEEDED', ...worker }, triaged(0), met(), { type: 'CHECKS_PASSED', ...github }, { type: 'MERGED', ...github }, { type: 'DECISION_MADE', choice: 'approve' }])
+      assert.equal(s.can(e), false, `${e.type} proceeds from needsCriteria`);
+    assert.equal(transition(machines.workItem, s, { type: 'CANCEL' })[0].value, 'cancelled');
+  }
+});
+
+// An item at its accept gate after a tier-1 triage, its plan approved and its build verified.
+const atAccept = (checks = [], criteria = ['a works', 'b is refused']) => {
+  const [s0] = initialTransition(machines.workItem, { id: 'a', orchestrator: 'orchestrator', requester: 'orchestrator' });
+  return step(machines.workItem, s0, [
+    { type: 'START' },
+    triaged(1, criteria),
+    { type: 'DECISION_MADE', choice: 'approve' },
+    { type: 'RUN_SUCCEEDED', ...worker },
+    ...checks,
+    { type: 'CHECKS_PASSED', ...github }
+  ])[0];
+};
+
+test('the accept gate: expectationsMet only when every criterion is met, with evidence, by someone who is not a worker', () => {
+  const all = [met('a works'), met('b is refused')];
+  const yes = atAccept(all);
+  assert.deepEqual(yes.value, { active: 'awaitingAcceptance' });
+  assert.equal(yes.context.expectationsMet, true);
+  for (const [why, checks] of [
+    ['nothing checked', []],
+    ['one missing', [met('a works')]],
+    ['one unmet', [met('a works'), { ...met('b is refused'), verdict: 'unmet' }]],
+    ['one unclear', [met('a works'), { ...met('b is refused'), verdict: 'unclear' }]],
+    ['met, then unmet', [...all, { ...met('b is refused'), verdict: 'unmet' }]]
+  ])
+    assert.equal(atAccept(checks).context.expectationsMet, false, why);
+
+  // Refused outright: a worker or the orchestrator checking, an unknown criterion, met without evidence, an unknown verdict.
+  const [s0] = initialTransition(machines.workItem, { id: 'a', orchestrator: 'orchestrator' });
+  const [verifying] = step(machines.workItem, s0, [{ type: 'START' }, triaged(0), { type: 'RUN_SUCCEEDED', ...worker }]);
+  assert.deepEqual(verifying.value, { active: 'verifying' });
+  for (const [why, e] of [
+    ['the worker', met('a works', worker)],
+    ['the orchestrator', met('a works', orchestrator)],
+    ['not a criterion', met('c')],
+    ['met without evidence', { ...met(), evidence: '' }],
+    ['a verdict that is not met, unmet or unclear', { ...met(), verdict: 'pass' }]
+  ])
+    assert.equal(verifying.can(e), false, why);
+  assert.equal(verifying.can(met()), true);
+  assert.equal(verifying.can({ ...met(), verdict: 'unclear', evidence: undefined }), true, 'unclear needs no evidence');
+
+  // A reviewer who later reports a run is a worker by then, and its checks stop counting.
+  const [s1] = step(machines.workItem, s0, [{ type: 'START' }, triaged(1), { type: 'DECISION_MADE', choice: 'approve' }, { type: 'RUN_SUCCEEDED', ...worker }, met('a works'), { type: 'CHECKS_FAILED', ...github }]);
+  assert.deepEqual([s1.value, s1.context.checks], [{ active: 'building' }, {}], 'a new build clears the checks');
+
+  // A check that arrives at the gate reopens the decision with the new answer.
+  const late = transition(machines.workItem, atAccept([met('a works')]), met('b is refused'))[0];
+  assert.deepEqual([late.value, late.context.expectationsMet, late.context.decisionId], [{ active: 'awaitingAcceptance' }, true, 'decision:a:accept:3']);
+});
+
+test('the stand-in cannot approve accept unless expectationsMet: the decision goes to the person', () => {
+  for (const [why, expectationsMet, value] of [['met', true, 'decided'], ['not met', false, 'awaitingPerson'], ['unknown', null, 'awaitingPerson'], ['not given', undefined, 'awaitingPerson']]) {
+    const s = decide({ ...spawned, tier: 1, decisionClass: 'accept', ...(expectationsMet !== undefined && { expectationsMet }) }, [answered()]);
+    assert.equal(s.value, value, why);
+  }
+  assert.equal(decide({ ...spawned, tier: 1, decisionClass: 'plan' }, [answered()]).value, 'decided', 'a plan decision has no criteria to meet');
+  assert.equal(decide({ ...spawned, tier: null, decisionClass: 'plan' }, [answered()]).value, 'awaitingPerson', 'an unknown tier is not below 2');
 });
 
 const step = (machine, snapshot, events) => {
@@ -89,10 +193,10 @@ const step = (machine, snapshot, events) => {
 };
 
 test('a tier-0 item runs to merge with no decision, emitting its effects as data', () => {
-  const [s0] = initialTransition(machines.workItem, { id: 'a', tier: 0, orchestrator: 'orchestrator' });
+  const [s0] = initialTransition(machines.workItem, { id: 'a', orchestrator: 'orchestrator' });
   const [s, effects] = step(machines.workItem, s0, [
     { type: 'START' },
-    { type: 'RUN_SUCCEEDED', ...worker },
+    triaged(0),
     { type: 'RUN_SUCCEEDED', ...worker },
     { type: 'CHECKS_PASSED', ...github },
     { type: 'MERGED', ...github }
@@ -165,23 +269,27 @@ test('only the stand-in answers: not the orchestrator, not a worker on the item,
   // The work item records each run's worker and hands both ids to the decision it opens.
   const root = createActor(machines.harness, { systemId: 'harness' }).start();
   root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
-  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'b', tier: 1 } });
+  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'b' }, ...orchestrator });
   const item = root.system.get('item:b');
-  item.send({ type: 'RUN_SUCCEEDED', actor: { kind: 'session', id: 'triager' }, source: worker.source });
+  item.send({ type: 'RUN_FAILED', actor: { kind: 'session', id: 'first-triager' }, source: worker.source });
+  item.send(triaged(1));
   const d = item.getSnapshot().children['decision:b:plan:1'].getSnapshot();
-  assert.deepEqual([d.context.orchestrator, d.context.workers, d.context.autonomy, d.context.threshold], ['orchestrator', ['triager'], 'recommend', 0.9]);
-  assert.equal(d.can({ ...answered(), actor: { kind: 'session', id: 'triager' } }), false);
+  assert.deepEqual([d.context.orchestrator, d.context.workers, d.context.autonomy, d.context.threshold], ['orchestrator', ['first-triager'], 'recommend', 0.9]);
+  assert.equal(d.can({ ...answered(), actor: { kind: 'session', id: 'first-triager' } }), false);
 });
 
 test('every run a worker reports, failed or succeeded, records the worker, so none of them can answer', () => {
   const root = createActor(machines.harness, { systemId: 'harness' }).start();
   root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
-  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'f', tier: 1 } });
+  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'f' }, ...orchestrator });
   const item = root.system.get('item:f');
   const as = (id) => ({ actor: { kind: 'session', id }, source: worker.source });
+  item.send(triaged(2));
+  item.send({ type: 'DECISION_MADE', choice: 'approve' });
   item.send({ type: 'RUN_FAILED', ...as('wA') });
   item.send({ type: 'RUN_SUCCEEDED', ...as('wB') });
-  const d = item.getSnapshot().children['decision:f:plan:1'].getSnapshot();
+  item.send({ type: 'CHECKS_PASSED', ...github });
+  const d = item.getSnapshot().children['decision:f:accept:2'].getSnapshot();
   assert.deepEqual(d.context.workers, ['wA', 'wB']);
   assert.equal(d.can({ ...answered(), ...as('wA') }), false, 'the worker whose run failed');
   assert.equal(d.can({ ...answered(), ...as('wB') }), false);
@@ -241,7 +349,7 @@ test('budget: an old reading is judged by the work since it, not by its age', ()
 
 test('the harness keeps at most wipLimit items in flight and pauses starts on a budget stop', () => {
   const root = createActor(machines.harness, { systemId: 'harness', input: { wipLimit: 2 } }).start();
-  for (const id of ['a', 'b', 'c']) root.send({ type: 'REQUEST_RECEIVED', request: { id, project: 'web', tier: 1 } });
+  for (const id of ['a', 'b', 'c']) root.send({ type: 'REQUEST_RECEIVED', request: { id, project: 'web' } });
   let ctx = root.getSnapshot().context;
   assert.deepEqual([ctx.inFlight, ctx.queued], [['a', 'b'], ['c']]);
   assert.equal(root.system.get('item:a').getSnapshot().value.active, 'triaging');
@@ -259,9 +367,9 @@ test('the harness keeps at most wipLimit items in flight and pauses starts on a 
 test('an escalated decision shows in the person\'s inbox and leaves it when decided', () => {
   const root = createActor(machines.harness, { systemId: 'harness' }).start();
   root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
-  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 2 } });
+  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'p' }, ...orchestrator });
   const item = root.system.get('item:p');
-  item.send({ type: 'RUN_SUCCEEDED', ...worker }); // triage done -> plan decision opened
+  item.send(triaged(2)); // triage done -> plan decision opened
   const decisionId = 'decision:p:plan:1';
   const decision = item.getSnapshot().children[decisionId];
   decision.send(answered());
@@ -276,8 +384,8 @@ test('an escalated decision shows in the person\'s inbox and leaves it when deci
 test('the whole system persists to JSON and resumes, children included', () => {
   const root = createActor(machines.harness, { systemId: 'harness' }).start();
   root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
-  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'q', tier: 1 } });
-  root.system.get('item:q').send({ type: 'RUN_SUCCEEDED', ...worker });
+  root.send({ type: 'REQUEST_RECEIVED', request: { id: 'q' }, ...orchestrator });
+  root.system.get('item:q').send(triaged(1));
   const stored = JSON.parse(JSON.stringify(root.getPersistedSnapshot()));
   root.stop();
   const again = createActor(machines.harness, { systemId: 'harness', snapshot: stored }).start();

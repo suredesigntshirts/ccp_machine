@@ -140,10 +140,9 @@ const REQUEST_BOX = `<section id="rb"><h2>Ask for work</h2>
 <label>What to do<input name="title" required maxlength="200" placeholder="Fix the Safari export button"></label>
 <label>Project<input name="project" maxlength="100" placeholder="packages/harness"></label>
 <label>What done looks like<textarea name="done" rows="2" maxlength="1000" placeholder="Export works in Safari 18, with a test"></textarea></label>
-<label>Tier<select name="tier"><option value="0">0: just do it</option><option value="1" selected>1: the stand-in checks the plan</option><option value="2">2: ask me at the plan and the merge</option></select></label>
 <div><button type="submit">Send</button> <span class="m" id="rb-msg" role="status"></span></div>
 </form>
-<div class="tablewrap" id="rb-list" hidden><table><thead><tr><th>Asked</th><th>Tier</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+<div class="tablewrap" id="rb-list" hidden><table><thead><tr><th>Asked</th><th>Status</th></tr></thead><tbody></tbody></table></div>
 </section>
 <script>(async () => {
   const db = await window.claude?.use?.('db');
@@ -156,14 +155,14 @@ const REQUEST_BOX = `<section id="rb"><h2>Ask for work</h2>
   col.orderBy('at', 'desc').limit(10).onSnapshot((snap) => {
     const body = list.querySelector('tbody'); body.replaceChildren();
     for (const d of snap.docs) { const r = d.data() || {}; const tr = document.createElement('tr');
-      tr.append(cell(String(r.title || '')), cell(String(r.tier ?? '')), cell(r.status === 'taken' ? 'filed as ' + r.item : 'waiting for the next tick', r.status === 'taken' && /^items\\/[\\w%.-]+\\.html$/.test(r.href || '') ? r.href : null));
+      tr.append(cell(String(r.title || '')), cell(r.status === 'taken' ? 'filed as ' + r.item : 'waiting for the next tick', r.status === 'taken' && /^items\\/[\\w%.-]+\\.html$/.test(r.href || '') ? r.href : null));
       body.append(tr); }
     list.hidden = snap.empty;
   }, () => { list.hidden = true; });
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault(); const f = new FormData(form); const btn = form.querySelector('button'); btn.disabled = true; msg.textContent = 'Sending…';
     try {
-      await col.add({ title: String(f.get('title')).trim(), project: String(f.get('project')).trim(), done: String(f.get('done')).trim(), tier: Number(f.get('tier')), status: 'new', at: new Date().toISOString() });
+      await col.add({ title: String(f.get('title')).trim(), project: String(f.get('project')).trim(), done: String(f.get('done')).trim(), status: 'new', at: new Date().toISOString() });
       form.reset(); msg.textContent = 'Sent. The harness files it on its next tick.';
     } catch (e) { msg.textContent = e?.code === 'permission_denied' || e?.code === 'not_granted' ? 'You can view this page but not add to it.' : 'Not sent: ' + (e?.message || 'try again'); }
     btn.disabled = false;

@@ -25,7 +25,7 @@ const withInput = (config) => ({
 // the sink as data ({ name, actor, params, subject, detail }); the host's outbox carries it out
 // later, so detail holds what the host needs to do it without reading the snapshot.
 // The default sink drops them, and pure transition() returns them by name either way.
-const DETAIL = ['title', 'url', 'project', 'tier', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy'];
+const DETAIL = ['title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy'];
 const external = (sink, ...names) =>
   Object.fromEntries(
     names.map((name) => [
@@ -56,6 +56,16 @@ const usage = (c, e) => {
   return { sevenDay, fiveHour: e.fiveHour ?? c.fiveHour, sevenDayResetsAt: resetsAt, spentToday, sampledAt: e.at ?? c.sampledAt ?? null, estimated: e.type === 'USAGE_SAMPLED' ? e.estimated === true : (c.estimated ?? false) };
 };
 const spentShare = (c, u) => u.spentToday / c.dailyShare;
+
+const isText = (s) => typeof s === 'string' && s.trim() !== '';
+export const VERDICTS = ['met', 'unmet', 'unclear'];
+/** Every criterion's latest check says met, with evidence, from neither the orchestrator nor a worker on the item now. */
+export const expectationsMet = ({ context: c }) =>
+  c.criteria.length > 0 &&
+  c.criteria.every((k) => {
+    const v = c.checks?.[k];
+    return v?.verdict === 'met' && isText(v.evidence) && v.by != null && v.by !== c.orchestrator && !(c.workers ?? []).includes(v.by);
+  });
 
 // Who sent an event. runtime.apply() takes only events with an actor and a source; the machines send each
 // other events without them. These guards are the refusing first transition of an event (true refuses).
@@ -117,7 +127,9 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       answerOverreaches: ({ event: { answer: a } }) =>
         !a || typeof a.choice !== 'string' || typeof a.confidence !== 'number' || !(a.confidence >= 0 && a.confidence <= 1) || Object.keys(a).some((k) => !['choice', 'confidence', 'reason'].includes(k)),
       // Tier from the item, autonomy and threshold from this decision's context, confidence from the stand-in.
-      standInMayDecide: ({ context }) => context.tier < 2 && context.autonomy === 'act' && context.standIn.confidence >= context.threshold
+      // An unknown tier is not below 2, and an accept decision needs the item's expectationsMet to be true.
+      standInMayDecide: ({ context: c }) =>
+        typeof c.tier === 'number' && c.tier < 2 && c.autonomy === 'act' && c.standIn.confidence >= c.threshold && (c.decisionClass !== 'accept' || c.expectationsMet === true)
     },
     actions: {
       recordStandInAnswer: assign({ standIn: ({ event }) => event.answer }),
@@ -148,12 +160,23 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     guards: {
       ...provenance,
       reportedByOrchestrator: ({ context, event }) => !context.orchestrator || event.actor?.id === context.orchestrator,
+      triagedByParty: ({ context: c, event }) => !c.orchestrator || !event.actor?.id || [c.requester, c.orchestrator, ...(c.workers ?? [])].includes(event.actor?.id),
+      triageOverreaches: ({ event: e }) => ![0, 1, 2].includes(e.tier) || (e.criteria != null && !(Array.isArray(e.criteria) && e.criteria.every(isText))),
+      noCriteria: ({ event }) => !event.criteria?.length,
+      checkedByParty: ({ context: c, event }) => !c.orchestrator || !event.actor?.id || [c.orchestrator, ...(c.workers ?? [])].includes(event.actor?.id),
+      checkOverreaches: ({ context, event: e }) =>
+        !context.criteria.includes(e.criterion) || !VERDICTS.includes(e.verdict) || (e.verdict === 'met' && !isText(e.evidence)) || (e.evidence != null && typeof e.evidence !== 'string'),
+      expectationsMet,
       retriesLeft: ({ context }, params) => context.retries < params.max,
-      tierBelow: ({ context }, params) => context.tier < params.tier,
+      tierBelow: ({ context }, params) => typeof context.tier === 'number' && context.tier < params.tier,
       choiceIs: ({ event }, params) => event.choice === params.choice
     },
     actions: {
       recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
+      recordTriage: assign(({ event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {} })),
+      recordCheck: assign({ checks: ({ context, event: e }) => ({ ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }) }),
+      clearChecks: assign({ checks: {} }),
+      recordExpectations: assign((_, params) => ({ expectationsMet: params.met })),
       recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
       recordWorker: assign({ workers: ({ context, event }) => [...new Set([...(context.workers ?? []), event.actor?.id].filter(Boolean))] }),
       countRetry: assign({ retries: ({ context }) => context.retries + 1 }),
@@ -166,7 +189,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         enqueue.spawnChild('decision', {
           id,
           input: { id, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
-            workers: context.workers ?? [], ...(rung && { autonomy: rung(params.gate) }) }
+            workers: context.workers ?? [], ...(params.gate === 'accept' && { expectationsMet: context.expectationsMet }), ...(rung && { autonomy: rung(params.gate) }) }
         });
       }),
       withdrawDecision: enqueueActions(({ enqueue, context }) => {
@@ -186,6 +209,8 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     actors: { budget: budgetMachine, workItem: workItemMachine },
     guards: {
       ...provenance,
+      // The filer names the work; a request that sets anything the item's machine holds is refused.
+      requestOverreaches: ({ event: { request: r } }) => !r || typeof r.id !== 'string' || !r.id || Object.keys(r).some((k) => k in specs.workItem.context && !['id', 'project'].includes(k)),
       modeIs: ({ event }, params) => event.mode === params.mode,
       inboxEmpty: ({ context }) => context.inbox.length === 0
     },
@@ -197,7 +222,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       }),
       spawnWorkItem: enqueueActions(({ enqueue, context, event }) => {
         const id = event.request.id;
-        enqueue.spawnChild('workItem', { id, systemId: `item:${id}`, input: { ...event.request, orchestrator: context.orchestrator } });
+        enqueue.spawnChild('workItem', { id, systemId: `item:${id}`, input: { ...event.request, orchestrator: context.orchestrator, requester: event.actor?.id ?? null } });
         enqueue.assign({ queued: ({ context }) => [...context.queued, id] });
       }),
       startReadyItems: enqueueActions(({ enqueue, context }) => {

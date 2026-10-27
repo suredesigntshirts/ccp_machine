@@ -1,7 +1,6 @@
 // One call for a stand-in answer: find the item's pending askStandIn, send STAND_IN_ANSWERED to its
 // decision, ack the ask and log the precedent. The host used to do these three steps by hand.
 import { apply, ack } from './runtime.js';
-import { acceptBlocked } from './expect-check.js';
 import { logPrecedents } from './decision-log.js';
 
 /**
@@ -16,8 +15,6 @@ export function standinAnswer(store, item, { choice, reason, confidence, by }) {
   if (!ask) throw new Error(`${item} has no pending stand-in question`);
   const to = `item:${item}/${ask.subject}`;
   const event = { type: 'STAND_IN_ANSWERED', answer: { choice, confidence, reason }, ...by };
-  const blocked = acceptBlocked(store, event, to);
-  if (blocked) throw new Error(blocked);
   const id = `standin-${ask.subject}`;
   const r = apply(store, event, { to, id });
   if (r.refused) throw new Error(r.why);

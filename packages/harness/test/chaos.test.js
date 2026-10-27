@@ -16,7 +16,7 @@ const fresh = () => {
   return store;
 };
 const soon = Date.parse('2026-10-26T11:00:00Z');
-const req = (id) => ({ type: 'REQUEST_RECEIVED', request: { id, tier: 0 } });
+const req = (id) => ({ type: 'REQUEST_RECEIVED', request: { id } });
 const problems = (store, now = soon) => doctor(store, { now }).problems;
 
 test('a crash after state.json and before the log: doctor says so, repair --rebuild undoes it and a resend applies', () => {
@@ -25,14 +25,14 @@ test('a crash after state.json and before the log: doctor says so, repair --rebu
   // The snapshot of the next event lands; the process dies before events.jsonl and outbox.jsonl.
   const before = readFileSync(join(store.dir, 'events.jsonl'), 'utf8');
   const outbox = readFileSync(join(store.dir, 'outbox.jsonl'), 'utf8');
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:02:00Z' });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:02:00Z' });
   writeFileSync(join(store.dir, 'events.jsonl'), before);
   writeFileSync(join(store.dir, 'outbox.jsonl'), outbox);
   assert.ok(problems(store).some((p) => /state.json is version 4, the last event is 3 .*repair --rebuild/.test(p)));
   assert.deepEqual(repair(store).left.length, 1, 'not rebuilt without --rebuild');
   assert.deepEqual(repair(store, { rebuild: true }).fixed, ['rebuilt state.json from events.jsonl at version 3']);
   assert.deepEqual(problems(store), []);
-  const again = apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:03:00Z' });
+  const again = apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:a', id: 'run-a', now: '2026-10-26T10:03:00Z' });
   assert.equal(again.duplicate, undefined, 'the resent event applies');
   assert.deepEqual(again.effects.map((e) => e.params?.step), ['build']);
   assert.deepEqual(problems(store), []);
@@ -69,7 +69,7 @@ test('two writer processes at once: every event lands once and the log stays con
         const store = openStore(${JSON.stringify(store.dir)});
         for (let i = 0; i < 8; i++) {
           for (let tries = 0; ; tries++) {
-            try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i, tier: 0 }, actor: { kind: 'session', id: 'writer-${tag}' }, source: { kind: 'cli', ref: 'test' } }, { id: 'req-${tag}' + i }); break; }
+            try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i }, actor: { kind: 'session', id: 'writer-${tag}' }, source: { kind: 'cli', ref: 'test' } }, { id: 'req-${tag}' + i }); break; }
             catch (e) { if (tries > 2000 || !/another writer|state changed/.test(e.message)) throw e; }
           }
         }`;

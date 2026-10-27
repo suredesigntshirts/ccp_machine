@@ -9,8 +9,8 @@ import { apply, start } from './send.js';
 // One tier-0 item run to merge, with `ci` minutes of CI wait and `retry` failed checks.
 const run = (store, id, day, { ci = 10, retry = 0 } = {}) => {
   const t = (m) => new Date(Date.parse(`${day}T10:00:00Z`) + m * 60e3).toISOString();
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 0 } }, { now: t(0) });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}`, now: t(2) });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id } }, { now: t(0) });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: `item:${id}`, now: t(2) });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}`, now: t(10) });
   let m = 10;
   for (let i = 0; i < retry; i++) {
@@ -61,8 +61,8 @@ test('a CI result fed late splits its wait into CI and the host', () => {
   init(store, {}, '2026-10-24T00:00:00Z');
   start(store, '2026-10-24T00:00:00Z');
   const t = (m) => new Date(Date.parse('2026-10-24T10:00:00Z') + m * 60e3).toISOString();
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'late', tier: 0 } }, { now: t(0) });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:late', now: t(2) });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'late' } }, { now: t(0) });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:late', now: t(2) });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:late', now: t(10) });
   apply(store, { type: 'CHECKS_PASSED', observedAt: t(15) }, { to: 'item:late', now: t(70) });
   apply(store, { type: 'MERGED' }, { to: 'item:late', now: t(71) });

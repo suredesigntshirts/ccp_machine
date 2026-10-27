@@ -12,11 +12,11 @@ test('attention counts the person\'s touches, the stand-in\'s decisions, turns a
   init(store, {}, '2026-10-26T09:00:00Z');
   start(store, '2026-10-26T09:00:00Z');
   const send = (event, to, now) => apply(store, event, { to, now });
-  send({ type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 2 } }, undefined, '2026-10-26T10:00:00Z');
-  send({ type: 'RUN_SUCCEEDED', session: 's1' }, 'item:p', '2026-10-26T10:05:00Z');
+  send({ type: 'REQUEST_RECEIVED', request: { id: 'p' } }, undefined, '2026-10-26T10:00:00Z');
+  send({ type: 'TRIAGED', tier: 2, criteria: ['it works'], session: 's1' }, 'item:p', '2026-10-26T10:05:00Z');
   send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:p/decision:p:plan:1', '2026-10-26T10:06:00Z');
   send({ type: 'PERSON_DECIDED', choice: 'revise', person: true }, 'item:p/decision:p:plan:1', '2026-10-26T10:30:00Z');
-  send({ type: 'RUN_SUCCEEDED' }, 'item:p', '2026-10-26T10:40:00Z');
+  send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:p', '2026-10-26T10:40:00Z');
   send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:p/decision:p:plan:2', '2026-10-26T10:41:00Z');
   send({ type: 'PERSON_DECIDED', choice: 'approve' }, 'item:p/decision:p:plan:2', '2026-10-26T10:42:00Z');
   send({ type: 'RUN_SUCCEEDED' }, 'item:p', '2026-10-26T10:50:00Z');

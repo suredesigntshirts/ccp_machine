@@ -3,8 +3,8 @@
   "description": "Failing checks send the item back to build; a second report from the build is refused while it verifies; the retry passes and merges.",
   "steps": [
     {"event":{"type":"ORCHESTRATOR_STARTED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"id":"orchestrator-started"},
-    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"c","tier":0},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
-    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:build"]}},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"c"},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
+    {"event":{"type":"TRIAGED","tier":0,"criteria":["c works"],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:build"]}},
     {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:verify"]}},
     {"event":{"type":"CHECKS_FAILED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-1"}},"to":"item:c","expect":{"effects":["dispatchRun:build"],"items":{"c":"active.building"}}},
     {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:c","expect":{"effects":["dispatchRun:verify"],"items":{"c":"active.verifying"}}},

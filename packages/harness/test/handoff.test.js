@@ -12,26 +12,28 @@ test('the hand-off names every in-flight item with its stage and PR, the waiting
   const store = openStore(tempDir('harness-'));
   init(store, { wipLimit: 2 });
   start(store);
-  const req = (id, tier) => apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier, title: `Item ${id}` } }, { id: `req-${id}` });
+  // The request names the item; triage sets its tier.
+  const req = (id) => apply(store, { type: 'REQUEST_RECEIVED', request: { id, title: `Item ${id}` } }, { id: `req-${id}` });
+  const triage = (id, tier) => apply(store, { type: 'TRIAGED', tier, criteria: [`${id} works`] }, { to: `item:${id}` });
   const ackAll = (note) => ack(store, store.pending().map((e) => e.id), { note });
   // a: tier 0, built, its PR in CI.
-  req('a', 0);
+  req('a');
   ackAll('triage dispatched');
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:a' });
+  triage('a', 0);
   ackAll('build dispatched');
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR }, { to: 'item:a' });
   ackAll('CI started');
   // b: tier 1, its plan card posted to the person.
-  req('b', 1);
+  req('b');
   ackAll('triage dispatched');
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:b' });
+  triage('b', 1);
   const ask = store.pending().find((e) => e.name === 'askStandIn');
   ack(store, [ask.id], { note: 'judged' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.6, reason: 'unsure' } }, { to: `item:b/${ask.subject}` });
   const card = store.pending().find((e) => e.name === 'postDecisionCard');
   ack(store, [card.id], { note: 'cmsg_123' });
   // c: queued behind the WIP limit, its triage not yet dispatched.
-  req('c', 0);
+  req('c');
   writeFileSync(join(store.dir, HANDOFF_NOTES), '- audit card cmsg_9 waits on a tap');
 
   const note = handoffNote(store, { now: '2026-10-26T20:00:00Z' });

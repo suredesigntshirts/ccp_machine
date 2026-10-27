@@ -51,11 +51,10 @@ const slug = (s) =>
     .slice(0, 4)
     .join('-') || 'request';
 
-/** The item a row files: tier 0 to 2 (anything else is 1, which asks the stand-in at the plan gate). */
+/** The item a row files. A row's tier is not the filer's to set: triage sets it, so it is dropped here. */
 export function requestFor(row) {
-  const tier = [0, 1, 2].includes(Number(row.tier)) && row.tier !== '' && row.tier != null ? Number(row.tier) : 1;
   const id = `ask-${slug(row.title)}-${row.id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6)}`;
-  const request = { id, title: String(row.title ?? '').slice(0, 200) || id, tier, source: `request-box:${row.id}` };
+  const request = { id, title: String(row.title ?? '').slice(0, 200) || id, source: `request-box:${row.id}` };
   if (row.project) request.project = String(row.project).slice(0, 100);
   if (row.done) request.expect = String(row.done).slice(0, 1000);
   return request;

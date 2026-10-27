@@ -162,7 +162,7 @@ export function status(store) {
         address: id,
         state: valueText(snap.value),
         done: snap.status === 'done' || ['done', 'failed', 'cancelled'].includes(snap.value),
-        ...pick(snap.context, ['project', 'title', 'tier', 'runs', 'retries', 'choice', 'url']),
+        ...pick(snap.context, ['project', 'title', 'tier', 'criteria', 'checks', 'runs', 'retries', 'choice', 'url']),
         decisions
       };
     });

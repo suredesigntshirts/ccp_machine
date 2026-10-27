@@ -26,8 +26,8 @@ function itemAtVerify(id, pr, at = '2026-10-27T12:00:00.000Z') {
   const store = openStore(dir);
   init(store);
   start(store);
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 0 } }, { id: `req-${id}`, now: at });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}` });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id } }, { id: `req-${id}`, now: at });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: `item:${id}` });
   const r = apply(store, { type: 'RUN_SUCCEEDED', pr: `https://github.com/${pr.replace('#', '/pull/')}` }, { to: `item:${id}` });
   assert.ok(!r.refused, r.why);
   return { dir, store };
@@ -60,8 +60,8 @@ test('an item\'s PR is bound by the first event that names it; a later event nam
 
 test('one PR binds to at most one item', () => {
   const { store } = itemAtVerify('x', 'o/r#7');
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y', tier: 0 } }, { id: 'req-y' });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:y' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y' } }, { id: 'req-y' });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:y' });
   const before = counts(store);
   const r = apply(store, { type: 'RUN_SUCCEEDED', pr: 'o/r#7' }, { to: 'item:y' });
   assert.equal(r.refused, true);
@@ -206,8 +206,8 @@ test('verify-facts catches a forged fact: a ref GitHub does not back, written st
   const { store } = await doneThroughGithub();
   const github = { actor: { kind: 'github', id: 'github' } };
   // A session can call apply() itself and write any ref (the M1b lesson); only a later re-read sees it.
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y', tier: 0 } }, { id: 'req-y' });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:y' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y' } }, { id: 'req-y' });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:y' });
   apply(store, { type: 'RUN_SUCCEEDED', pr: URL21 }, { to: 'item:y' });
   apply(store, { type: 'CHECKS_PASSED', pr: URL21, ...github, source: { kind: 'github-wake', ref: `${R21}@${HEAD}:checks=success` } }, { to: 'item:y', id: 'forged-ci' });
   apply(store, { type: 'MERGED', pr: URL21, ...github, source: { kind: 'github-wake', ref: `${R21}:merged@${'f'.repeat(40)}` } }, { to: 'item:y', id: 'forged-merge' });

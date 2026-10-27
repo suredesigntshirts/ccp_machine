@@ -2,6 +2,16 @@
 
 The harness spec and the runtime that drives it.
 
+Who supplies what an item is judged by. The filer (a person's request box row, a backlog issue, the canary)
+names the work and says what it expects in its own words; a request that sets a tier, criteria or anything
+else the item's machine holds is refused. A triager, who is not the requester, the orchestrator or a worker,
+sends `TRIAGED {tier, criteria}`; until it does, nothing leaves triage, and with no criteria the item waits
+for the person (`needsCriteria`, tagged `needs-human`) and only a cancel ends it. A reviewer, who is neither
+the orchestrator nor a worker, sends `CRITERION_CHECKED {criterion, verdict, evidence}` per criterion; a new
+build clears them. The stand-in may approve accept only when every criterion is met with evidence from such a
+reviewer (`expectationsMet`); an unmet, unclear or missing check sends the accept to the person. Tier 0 still
+skips the plan and accept gates; that is acceptable for now because triage, not the filer, sets the tier.
+
 - `spec/*.machine.json`: the XState machines as plain JSON, the only spec: what each state takes, from
   whom and with which guard is there and nowhere else. `npm run spec:render -w @ccp/harness` regenerates
   `spec/SPEC.md` (diagrams, state descriptions and tags); a test and CI fail when it is not a fresh render.
@@ -21,9 +31,11 @@ The harness spec and the runtime that drives it.
   (ref: the card's message id), a run result only from an actor other than the orchestrator (its id is
   in context, set by `ORCHESTRATOR_STARTED`), CI and merge results only from a GitHub wake (ref: the
   GitHub fact `harness from-github` read), and `DECISION_MADE` and `BUDGET_MODE` only from inside the
-  harness. The trust model is below.
+  harness. `TRIAGED` is refused from the requester, the orchestrator and every worker on the item, and
+  `CRITERION_CHECKED` from the orchestrator and every worker. The trust model is below.
 - The stand-in's gate (`standInMayDecide`): each input has one supplier, and the stand-in's caller supplies
-  none of the rules. Tier is the item's (still the filer's, from the request, until M2b). Autonomy is the
+  none of the rules. Tier is the item's, set by triage (`TRIAGED`), never by the request. For an accept
+  decision, `expectationsMet` is the item's, worked out at its accept gate from the criteria checks. Autonomy is the
   ladder's rung for the class over the store's own decided decisions (its `logPrecedent` effects and
   answered audits, dated at or before the spawn), set on the decision when it is spawned, so a reversal
   lowers the very next decision's rung with no command run; a log that cannot be read gives `recommend`. Threshold is the
@@ -37,7 +49,8 @@ The harness spec and the runtime that drives it.
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":
-  the request (`request.expect` if given, else its title), how it ended (state, CI, acceptance, PR),
+  the request (`request.expect` if given, else its title), triage's criteria each with its latest check,
+  how it ended (state, CI, acceptance, PR),
   every gate with who decided and the stand-in's reason, each effect with the host's ack note, and the
   item's events. The host can put the PR link on any event it sends for the item (`"pr": "<url>"`).
 - `src/decision-log.js`: the decision log is the store's own records, with no file of its own: each
@@ -76,8 +89,8 @@ The harness spec and the runtime that drives it.
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
   `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, duplicates,
   torn lines and a slow mount.
-- `src/canary.js`: `harness canary` files the day's tier-0 canary item (bump `canary/last.txt`, PR, CI,
-  merge) once per UTC day. `harness canary --check` times each stage and exits 1 with one attention line
+- `src/canary.js`: `harness canary` files the day's canary item (bump `canary/last.txt`, PR, CI,
+  merge) once per UTC day, with no tier: its triager gives it tier 0. `harness canary --check` times each stage and exits 1 with one attention line
   when the canary failed or is not merged 2 hours after the request. The digest leads with the canary when
   a stage is slow (triage over 15m, build over 30m, verify over 30m, merge over 15m) or failed.
 - `src/calibration.js`: `harness calibration [class]` asks, per decision class, whether the person can trust the
@@ -92,12 +105,14 @@ The harness spec and the runtime that drives it.
   change. It writes `<DIR>/<day>.md` and `.json`, and the next retro checks the last one's expectations.
 - `src/intake.js`: the request box. `harness page --request-box` adds an "Ask for work" form to mission
   control that saves to the Artifact `db` collection `requests`; `harness intake PATH` (an ArtifactData `out_dir` folder, its inline list text, or JSON) files each new row
-  as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken.
-- `src/expect-check.js`: `harness check <item> --init` writes `checks/<item>.md` from the request's `expect`, one
-  line each, to mark `[met]`, `[unmet]` or `[unclear]` with evidence. `harness send` refuses a stand-in approve
-  on an accept gate until every line is met, and the item page shows the check beside the ask.
-- `src/sim.js`: `npm run sim` drives 12 synthetic items (every tier, a failed run, failed checks, a block,
-  a person's revise) through a scratch store at WIP 3 and at WIP 12 with a scripted host. It checks the
+  as `REQUEST_RECEIVED` (`req-<row id>`, idempotent) and prints the updates that mark rows taken. A row
+  carries no tier.
+- `src/issue-request.js`: the one issue format, written by `issueBody` and read by `requestFromIssue`: an
+  ``Item id: `x`.`` line and a `## Expect` section of bullets. `harness issue-request FILE` files an issue
+  in it; `harness retro` prints its issue drafts in it; `.github/ISSUE_TEMPLATE/harness-backlog.md` is in it,
+  and a test reads that file and checks the writer writes it exactly.
+- `src/sim.js`: `npm run sim` drives 12 synthetic items (a triager giving every tier, a reviewer checking
+  every criterion with one unmet, a failed run, failed checks, a block, a person's revise) through a scratch store at WIP 3 and at WIP 12 with a scripted host. It checks the
   WIP limit, the queue, the outbox, doctor, the page size and an apply at 500 events, and saves the
   busiest mission control to `--out` (default a temp folder).
 - `src/audit.js`: `harness audit` picks up to 3 decisions the stand-in made alone (untested classes, low
@@ -151,8 +166,11 @@ The harness spec and the runtime that drives it.
 ```sh
 harness init --wip 3                # this session ($CLAUDE_CODE_SESSION_ID) is the orchestrator
 harness send '{"type":"DAY_STARTED","sevenDay":0.07,"fiveHour":0.04}' --to budget --id day-2026-10-26
-harness send '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":1,"title":"Fix login"}}' --id req-a
+harness send '{"type":"REQUEST_RECEIVED","request":{"id":"a","title":"Fix login","expect":"login works"}}' --id req-a
+harness send '{"type":"TRIAGED","tier":1,"criteria":["login works in Safari"]}' --to item:a --actor session:<triager id>
 harness send '{"type":"RUN_SUCCEEDED"}' --to item:a --actor session:<worker id> --source cli:<handback ref>
+harness send '{"type":"CRITERION_CHECKED","criterion":"login works in Safari","verdict":"met","evidence":"test/login.test.js"}' \
+  --to item:a --actor session:<reviewer id>
 harness status                      # summary JSON; decisions carry their address
 harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1 \
   --actor person:<id> --source tap:<card message id>

@@ -26,8 +26,8 @@ function storeAtVerify() {
   const store = openStore(dir);
   init(store);
   start(store);
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', tier: 0 } }, { now: '2026-10-27T12:00:00.000Z' });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:x' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x' } }, { now: '2026-10-27T12:00:00.000Z' });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:x' });
   apply(store, { type: 'RUN_SUCCEEDED', pr: PR_URL }, { to: 'item:x' });
   return { dir, store };
 }

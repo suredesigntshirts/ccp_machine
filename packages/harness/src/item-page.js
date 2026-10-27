@@ -52,16 +52,16 @@ function verdict(item, events, decided) {
  * @param {object} item one entry of status().items
  * @param {{events?: object[], outbox?: object[], acks?: object[], back?: string}} records the whole store's rows
  */
-// The expectation check beside the ask: each expected line with its status and evidence.
-function checkList(lines, expect) {
-  if (!expect) return '';
-  if (!lines) return '<span class="m">Not yet checked against these expectations.</span>';
-  return `<ul class="verdict expect">${lines
-    .map((l) => `<li class="${l.status === 'met' && l.evidence ? 'ok' : l.status === 'unmet' ? 'bad' : 'warn'}"><b>${esc(l.status)}</b> ${esc(l.line)}${l.evidence ? `<br><span class="m">${esc(l.evidence)}</span>` : ''}</li>`)
+// Triage's criteria beside the ask, each with its latest CRITERION_CHECKED verdict and evidence.
+function checkList({ tier, criteria = [], checks = {} }) {
+  if (tier == null) return '<span class="m">Not triaged yet: no tier and no criteria.</span>';
+  if (!criteria.length) return '<span class="m">Triage gave no criteria; the person decides what done looks like.</span>';
+  return `<ul class="verdict expect">${criteria
+    .map((c) => [c, checks[c] ?? { verdict: 'unchecked' }])
+    .map(([c, v]) => `<li class="${v.verdict === 'met' ? 'ok' : v.verdict === 'unmet' ? 'bad' : 'warn'}"><b>${esc(v.verdict)}</b> ${esc(c)}${v.evidence ? `<br><span class="m">${esc(v.evidence)}${v.by ? ` (${esc(v.by)})` : ''}</span>` : ''}</li>`)
     .join('')}</ul>`;
 }
 
-/** records.checks: {itemId: parsed check lines}, from checks/<id>.md (harness check). */
 export function renderItemPage(item, records = {}) {
   const { events, effects } = itemRecords(item.id, records);
   const request = events.find((e) => e.event.type === 'REQUEST_RECEIVED')?.event.request ?? {};
@@ -98,7 +98,7 @@ export function renderItemPage(item, records = {}) {
 <header><span class="eyebrow">${records.back ? `<a href="${esc(records.back)}">Mission control</a> · ` : ''}${esc(item.project ?? '')} · tier ${esc(item.tier)}</span><h1>${esc(item.title ?? item.id)}</h1>${track(item)}</header>
 <section><h2>What was asked</h2><div class="card ask-card"><b>${esc(request.expect ?? request.title ?? item.title ?? item.id)}</b>${
     request.url ? `<a href="${esc(request.url)}">${esc(request.url)}</a>` : ''
-  }${checkList(records.checks?.[item.id], request.expect)}</div></section>
+  }${checkList(item)}</div></section>
 <section><h2>Did it do that?</h2><ul class="verdict">${verdict(item, events, decided)
     .map(([k, t]) => `<li class="${k}">${esc(t)}</li>`)
     .join('')}${pr ? `<li><a href="${esc(pr)}">${esc(pr)}</a></li>` : ''}</ul></section>

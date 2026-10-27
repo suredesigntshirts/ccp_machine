@@ -3,8 +3,8 @@
   "description": "A blocked item keeps its slot and resumes the step it stopped at.",
   "steps": [
     {"event":{"type":"ORCHESTRATOR_STARTED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"id":"orchestrator-started"},
-    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"b","tier":0},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
-    {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:b","expect":{"effects":["dispatchRun:build"],"items":{"b":"active.building"}}},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"b"},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
+    {"event":{"type":"TRIAGED","tier":0,"criteria":["b works"],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:b","expect":{"effects":["dispatchRun:build"],"items":{"b":"active.building"}}},
     {"event":{"type":"BLOCK","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:b","expect":{"effects":["reportBlocked"],"items":{"b":"blocked"},"inFlight":["b"]}},
     {"event":{"type":"UNBLOCKED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:b","expect":{"effects":["dispatchRun:build"],"items":{"b":"active.building"}}},
     {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:b","expect":{"effects":["dispatchRun:verify"],"items":{"b":"active.verifying"}}}

@@ -11,20 +11,23 @@ import { renderPage } from './page.js';
 
 const sure = { choice: 'approve', confidence: 0.95, reason: 'simulated' };
 
-// The parties a scripted host plays, each sending what it sends for real: a worker reports runs, the stand-in
-// answers, GitHub reports CI and merges, the person taps a card (ref: the card), and the orchestrator sends the rest.
+// The parties a scripted host plays, each sending what it sends for real: a triager sets tier and criteria, a
+// worker reports runs, a reviewer checks the criteria, the stand-in answers, GitHub reports CI and merges, the
+// person taps a card (ref: the card), and the orchestrator sends the rest (requests included).
+const SESSIONS = { triager: 'sim-triager', worker: 'sim-worker', reviewer: 'sim-reviewer', 'stand-in': 'sim-stand-in' };
 export function scripted(type, ref = 'sim') {
-  const party = { RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
-  if (party === 'stand-in') return { actor: { kind: 'session', id: 'sim-stand-in' }, source: { kind: 'cli', ref } };
-  if (party === 'worker') return { actor: { kind: 'session', id: 'sim-worker' }, source: { kind: 'cli', ref } };
+  const party = { TRIAGED: 'triager', RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CRITERION_CHECKED: 'reviewer', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
+  if (SESSIONS[party]) return { actor: { kind: 'session', id: SESSIONS[party] }, source: { kind: 'cli', ref } };
   if (party === 'github') return { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
   if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref } };
   return { actor: { kind: 'session', id: 'sim-orchestrator' }, source: { kind: 'cli', ref } };
 }
 
-/** What goes wrong for item i: a mix of tiers, a failed run, failed checks, a block and a person's revise. */
+/** What triage gives item i and what goes wrong for it: a mix of tiers, a failed run, failed checks, a block, a person's revise and an unmet criterion. */
 export const script = (i) => ({
   tier: i % 3,
+  criteria: [`item ${i} works`, `item ${i} has a test`],
+  unmet: i === 4,
   failRun: i % 4 === 1,
   failChecks: i % 5 === 2,
   block: i % 6 === 3,
@@ -48,7 +51,7 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
   const once = (key) => !seen[key] && (seen[key] = true);
   let peak = { inFlight: 0, asks: 0, html: '' };
   send({ type: 'ORCHESTRATOR_STARTED' });
-  for (let i = 0; i < items; i++) send({ type: 'REQUEST_RECEIVED', request: { id: `item-${i}`, title: `Synthetic item ${i}`, project: 'sim', tier: script(i).tier } });
+  for (let i = 0; i < items; i++) send({ type: 'REQUEST_RECEIVED', request: { id: `item-${i}`, title: `Synthetic item ${i}`, project: 'sim' } });
   let steps = 0;
   for (;;) {
     const st = status(store);
@@ -77,11 +80,23 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
         send({ type: 'BLOCK', reason: 'waiting on a credential' }, item);
         send({ type: 'UNBLOCKED' }, item);
       } else if (step === 'build' && s.failRun && once(`run-${id}`)) send({ type: 'RUN_FAILED', reason: 'simulated failure' }, item);
-      else if (step === 'verify') send(s.failChecks && once(`ci-${id}`) ? { type: 'CHECKS_FAILED' } : { type: 'CHECKS_PASSED' }, item);
+      else if (step === 'triage') send({ type: 'TRIAGED', tier: s.tier, criteria: s.criteria }, item);
+      else if (step === 'verify') {
+        // The reviewer checks each criterion; one item's first build leaves one unmet, so its accept goes to the person.
+        for (const [k, criterion] of s.criteria.entries()) {
+          const unmet = s.unmet && k === 1 && once(`unmet-${id}`);
+          send({ type: 'CRITERION_CHECKED', criterion, verdict: unmet ? 'unmet' : 'met', evidence: unmet ? 'no test yet' : `test for ${criterion}` }, item);
+        }
+        send(s.failChecks && once(`ci-${id}`) ? { type: 'CHECKS_FAILED' } : { type: 'CHECKS_PASSED' }, item);
+      }
       else send({ type: 'RUN_SUCCEEDED', pr: step === 'build' ? `https://example.test/pr/${id}` : undefined }, item);
     } else if (e.name === 'askStandIn') send({ type: 'STAND_IN_ANSWERED', answer: sure }, `${item}/${e.subject}`);
     else if (e.name === 'postDecisionCard')
-      send({ type: 'PERSON_DECIDED', choice: s.revise && /:plan:/.test(e.subject) && once(`revise-${id}`) ? 'revise' : 'approve', person: true }, `${item}/${e.subject}`);
+    {
+      // The person revises a plan once, and sends back an accept whose criteria are not all met.
+      const revise = (s.revise && /:plan:/.test(e.subject) && once(`revise-${id}`)) || (/:accept:/.test(e.subject) && e.detail?.expectationsMet !== true);
+      send({ type: 'PERSON_DECIDED', choice: revise ? 'revise' : 'approve', person: true }, `${item}/${e.subject}`);
+    }
     else if (e.name === 'mergePullRequest') send({ type: 'MERGED' }, item);
     // reportBlocked, checkpoint and publishDigest need nothing back.
   }
@@ -111,7 +126,7 @@ export function timeApplyAt(store, events = 500) {
   let k = store.events().length;
   while (k < events) apply(store, { type: 'CONFIGURE', config: {}, ...scripted('CONFIGURE') }, { to: 'budget', id: `pad-${k++}` });
   const start = performance.now();
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'timed', tier: 0 }, ...scripted('REQUEST_RECEIVED') }, { id: 'timed' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'timed' }, ...scripted('REQUEST_RECEIVED') }, { id: 'timed' });
   return performance.now() - start;
 }
 

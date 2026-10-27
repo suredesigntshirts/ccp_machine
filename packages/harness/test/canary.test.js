@@ -15,12 +15,15 @@ const fresh = () => {
 };
 const file = (store) => apply(store, canaryRequest(day), { id: `req-canary-${day}`, now: at('09:00') });
 const step = (store, type, hm, id) => apply(store, { type }, { to: `item:canary-${day}`, now: at(hm), id });
+// The canary's request sets no tier: a triager gives it tier 0 and its one criterion.
+const triage = (store, hm) => apply(store, { type: 'TRIAGED', tier: 0, criteria: [canaryRequest(day).request.expect] }, { to: `item:canary-${day}`, now: at(hm) });
 
-test('the canary is filed once a day as a tier-0 item and times each stage to the merge', () => {
+test('the canary is filed once a day, triaged to tier 0, and times each stage to the merge', () => {
   const store = fresh();
+  assert.equal('tier' in canaryRequest(day).request, false, 'the request sets no tier');
   assert.equal(file(store).effects[0].params.step, 'triage');
   assert.equal(file(store).duplicate, true);
-  step(store, 'RUN_SUCCEEDED', '09:02');
+  triage(store, '09:02');
   step(store, 'RUN_SUCCEEDED', '09:10');
   step(store, 'CHECKS_PASSED', '09:13');
   step(store, 'MERGED', '09:14');
@@ -35,7 +38,7 @@ test('the canary is filed once a day as a tier-0 item and times each stage to th
 test('a canary not merged after 2 hours is late, names its stage, and the digest leads with it', () => {
   const store = fresh();
   file(store);
-  step(store, 'RUN_SUCCEEDED', '09:02');
+  triage(store, '09:02');
   assert.equal(canaryReport(store.events(), day, at('10:00')).status, 'running');
   const late = canaryReport(store.events(), day, at('11:30'));
   assert.equal(late.status, 'late');
@@ -48,7 +51,7 @@ test('a canary not merged after 2 hours is late, names its stage, and the digest
 test('a failed stage is reported, and a missing canary says so', () => {
   const store = fresh();
   file(store);
-  step(store, 'RUN_SUCCEEDED', '09:02');
+  triage(store, '09:02');
   step(store, 'RUN_SUCCEEDED', '09:05');
   step(store, 'CHECKS_FAILED', '09:08');
   const r = canaryReport(store.events(), day, at('09:30'));

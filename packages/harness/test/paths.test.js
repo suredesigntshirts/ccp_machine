@@ -27,23 +27,38 @@ let n = 0;
 const child = (snap, ...ids) => ids.reduce((s, id) => s?.children?.[id]?.snapshot, snap);
 const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness send' } };
 const started = [{ type: 'ORCHESTRATOR_STARTED', ...orchestrator }];
+const as = (id) => ({ actor: { kind: 'session', id }, source: { kind: 'cli', ref: 'harness send' } });
+const item = (e) => [e, 'item:w'];
+// The decision under test, by its input: a plan decision (decision:w:plan:1) or an accept one (decision:w:accept:2).
+let decisionAt = 'item:w/decision:w:plan:1';
 const homes = {
   harness: { to: undefined, setup: () => [], read: (snap) => snap },
   budget: { to: 'budget', setup: () => [], read: (snap) => child(snap, 'budget') },
   workItem: {
     to: 'item:w',
-    setup: (input) => [started, [{ type: 'REQUEST_RECEIVED', request: input, ...orchestrator }]],
+    // The request names the item only; the input's orchestrator and requester are the ones the harness records.
+    setup: (input) => [started, [{ type: 'REQUEST_RECEIVED', request: { id: input.id }, ...orchestrator }]],
     read: (snap) => child(snap, 'w')
   },
   decision: {
-    to: 'item:w/decision:w:plan:1',
+    get to() { return decisionAt; },
+    // The worker's failed triage run makes it one of the item's workers; a triager sets the tier. An accept
+    // decision follows the plan (the person approves), a build and CI, with the criterion met by a reviewer or not.
     setup: (input) => [
       started,
-      [{ type: 'REQUEST_RECEIVED', request: { id: 'w', tier: input.tier }, ...orchestrator }],
-      [{ type: 'START', ...orchestrator }, 'item:w'],
-      [{ type: 'RUN_SUCCEEDED', actor: { kind: 'session', id: 'worker' }, source: { kind: 'cli', ref: 'harness send' } }, 'item:w']
+      [{ type: 'REQUEST_RECEIVED', request: { id: 'w' }, ...orchestrator }],
+      item({ type: 'START', ...orchestrator }),
+      item({ type: 'RUN_FAILED', ...as('worker') }),
+      item({ type: 'TRIAGED', tier: input.tier, criteria: ['a works'], ...as('triager') }),
+      ...(input.decisionClass !== 'accept' ? [] : [
+        [{ type: 'STAND_IN_FAILED', ...orchestrator }, 'item:w/decision:w:plan:1'],
+        [{ type: 'PERSON_DECIDED', choice: 'approve', actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, 'item:w/decision:w:plan:1'],
+        item({ type: 'RUN_SUCCEEDED', ...as('worker') }),
+        ...(input.expectationsMet ? [item({ type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a', ...as('reviewer') })] : []),
+        item({ type: 'CHECKS_PASSED', actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } })
+      ])
     ],
-    read: (snap) => child(snap, 'w', 'decision:w:plan:1')
+    read: (snap) => child(snap, 'w', decisionAt.split('/')[1])
   }
 };
 
@@ -69,6 +84,7 @@ function deliver(store, name, event) {
 
 function freshStore(name, input) {
   const store = openStore(join(scratch, `s${n++}`));
+  if (name === 'decision') decisionAt = `item:w/${input.id}`;
   init(store, { wipLimit: 0 }, '2026-10-26T00:00:00Z');
   // The decision takes its autonomy from the ladder when it opens: an input at act needs a log that earned it.
   if (name === 'decision' && input.autonomy === 'act') earn(store, input.decisionClass);
