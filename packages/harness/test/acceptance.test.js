@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, ack, acceptance, peakInFlight, touchesByTier } from '../src/index.js';
+import { openStore, init, ack, acceptance, peakInFlight, touchesByTier } from '../src/index.js';
+import { apply, start } from './send.js';
 
 test('peak in flight counts items from their first dispatched run to their merge', () => {
   const outbox = [
@@ -29,6 +30,7 @@ test('the person\'s touches split into requests and decisions by tier', () => {
 test('harness acceptance reports each v1 criterion with a verdict and evidence', () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, { wipLimit: 3 });
+  start(store);
   for (const id of ['a', 'b', 'c']) apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 0 } }, { id: `req-${id}` });
   for (const id of ['a', 'b', 'c']) {
     ack(store, store.pending().map((e) => e.id), { note: 'done' });

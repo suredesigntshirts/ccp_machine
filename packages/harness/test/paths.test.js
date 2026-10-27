@@ -4,7 +4,8 @@
 // transition(); the graph keeps one snapshot per state value, so its own snapshots can carry another
 // path's context). From each path's end, every
 // fixture event is tried once more: the runtime must take exactly what the machine takes and refuse the
-// rest, writing nothing. Event payloads the guards need come from path-fixtures.json, not from hand-written paths.
+// rest, writing nothing. Event payloads the guards need, actor and source included, come from path-fixtures.json,
+// not from hand-written paths; the fixtures also hold each guarded event from the wrong party, which both refuse.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, cpSync, readFileSync, rmSync } from 'node:fs';
@@ -23,20 +24,23 @@ let n = 0;
 // Where each machine lives in a running harness: the address apply() sends to, the events that bring it
 // into being (a work item is queued with WIP 0 so the path's own START moves it), and its stored snapshot.
 const child = (snap, ...ids) => ids.reduce((s, id) => s?.children?.[id]?.snapshot, snap);
+const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness send' } };
+const started = [{ type: 'ORCHESTRATOR_STARTED', ...orchestrator }];
 const homes = {
   harness: { to: undefined, setup: () => [], read: (snap) => snap },
   budget: { to: 'budget', setup: () => [], read: (snap) => child(snap, 'budget') },
   workItem: {
     to: 'item:w',
-    setup: (input) => [[{ type: 'REQUEST_RECEIVED', request: input }]],
+    setup: (input) => [started, [{ type: 'REQUEST_RECEIVED', request: input, ...orchestrator }]],
     read: (snap) => child(snap, 'w')
   },
   decision: {
     to: 'item:w/decision:w:plan:1',
     setup: (input) => [
-      [{ type: 'REQUEST_RECEIVED', request: { id: 'w', tier: input.tier } }],
-      [{ type: 'START' }, 'item:w'],
-      [{ type: 'RUN_SUCCEEDED' }, 'item:w']
+      started,
+      [{ type: 'REQUEST_RECEIVED', request: { id: 'w', tier: input.tier }, ...orchestrator }],
+      [{ type: 'START', ...orchestrator }, 'item:w'],
+      [{ type: 'RUN_SUCCEEDED', actor: { kind: 'session', id: 'worker' }, source: { kind: 'cli', ref: 'harness send' } }, 'item:w']
     ],
     read: (snap) => child(snap, 'w', 'decision:w:plan:1')
   }
@@ -48,6 +52,19 @@ const offer = (events) => () => events.map((e) => (e.type === 'REQUEST_RECEIVED'
 
 // Graph states are the state value, plus the retry count for a work item (bounded by retriesLeft).
 const serializeState = (name) => (s) => JSON.stringify(name === 'workItem' ? [s.value, s.context.retries] : s.value);
+
+// DECISION_MADE comes only from the item's own decision, so a step that makes one is delivered there:
+// the stand-in fails and the person taps. With no decision open it goes to the item, which refuses it.
+function deliver(store, name, event) {
+  const to = homes[name].to;
+  if (event.type !== 'DECISION_MADE' || event.actor) return [apply(store, event, { to })];
+  const decision = child(store.read().snapshot, 'w')?.context.decisionId;
+  if (!decision) return [apply(store, { ...event, ...orchestrator }, { to })];
+  return [
+    apply(store, { type: 'STAND_IN_FAILED', ...orchestrator }, { to: `${to}/${decision}` }),
+    apply(store, { type: 'PERSON_DECIDED', choice: event.choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, { to: `${to}/${decision}` })
+  ];
+}
 
 function freshStore(name, input) {
   const store = openStore(join(scratch, `s${n++}`));
@@ -89,8 +106,7 @@ for (const name of ['harness', 'budget', 'workItem', 'decision']) {
         assertSame(name, store, machine, `${name} ${JSON.stringify(input)} at init`);
         steps.forEach(({ event }, i) => {
           [machine] = transition(machines[name], machine, event);
-          const r = apply(store, event, { to: home.to });
-          assert.ok(!r.refused, `${where(i)}: ${r.why}`);
+          for (const r of deliver(store, name, event)) assert.ok(!r.refused, `${where(i)}: ${r.why}`);
           assertSame(name, store, machine, where(i));
         });
         reached.add(serializeState(name)(machine));
@@ -101,12 +117,14 @@ for (const name of ['harness', 'budget', 'workItem', 'decision']) {
           edges++;
           const forked = fork(store);
           const before = counts(forked);
-          const r = apply(forked, event, { to: home.to });
-          const label = `${where(steps.length - 1)} then ${event.type}`;
+          const rs = deliver(forked, name, event);
+          const r = rs.at(-1);
+          const label = `${where(steps.length - 1)} then ${event.type} from ${event.actor?.kind ?? 'inside'}`;
           if (machine.status === 'active' && machine.can(event)) {
-            assert.ok(!r.refused, `${label}: the machine takes it, the runtime refused (${r.why})`);
+            for (const x of rs) assert.ok(!x.refused, `${label}: the machine takes it, the runtime refused (${x.why})`);
             assertSame(name, forked, transition(machines[name], machine, event)[0], label);
           } else {
+            assert.equal(rs.length, 1, `${label}: delivered once`);
             assert.equal(r.refused, true, `${label}: the machine refuses it, the runtime took it`);
             assert.match(r.why, new RegExp(`^refused: ${event.type} in `));
             assert.deepEqual(counts(forked), before, `${label}: a refusal writes nothing`);

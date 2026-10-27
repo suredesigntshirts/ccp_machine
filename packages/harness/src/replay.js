@@ -47,8 +47,9 @@ export function replay(store) {
     for (const e of events) {
       let effects;
       try {
-        const r = apply(scratch, e.event, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at });
-        if (r.refused) notes.push(`${e.id}: ${r.why}`); // a log from before refusals can hold ignored events
+        const r = apply(scratch, { ...e.event, actor: e.actor, source: e.source }, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at });
+        // A log from before refusals can hold ignored events; one from before the envelope has no actor.
+        if (r.refused) notes.push(`${e.id}: ${r.why}`);
         ({ effects } = r);
       } catch (err) {
         firstDivergence ??= `${e.id}: ${err.message}`;

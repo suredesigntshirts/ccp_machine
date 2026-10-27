@@ -4,10 +4,11 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, apply, status, expectLines, checkTemplate, parseCheck, checkVerdict, initCheck, readCheck, acceptBlocked, renderItemPage } from '../src/index.js';
+import { openStore, init, status, expectLines, checkTemplate, parseCheck, checkVerdict, initCheck, readCheck, acceptBlocked, renderItemPage } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
-const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8' });
+const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
 
 test('expect splits into lines; a check parses and counts met only with evidence', () => {
   assert.deepEqual(expectLines('- a works\n2. b works; c works\n\n'), ['a works', 'b works', 'c works']);
@@ -22,6 +23,7 @@ test('the stand-in may approve an accept gate only when every expected line is m
   const dir = mkdtempSync(join(tmpdir(), 'harness-'));
   const store = openStore(dir);
   init(store);
+  start(store);
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', tier: 1, expect: 'a works; b works' } });
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y', tier: 1 } });
   const approve = { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act' } };

@@ -35,12 +35,14 @@ test('intake files new rows once, skips taken ones, and returns the updates to w
     { id: 'r2', data: { title: 'Old one', status: 'taken', item: 'ask-old-one-r2' } },
     { id: 'r3', data: { tier: 1, status: 'new' } }
   ];
-  const first = intakeRows(store, rows, { at: '2026-10-26T10:00:00Z' });
+  const by = { actor: { kind: 'session', id: 'orchestrator-session' }, source: { kind: 'cli', ref: 'harness intake' } };
+  const first = intakeRows(store, rows, { at: '2026-10-26T10:00:00Z', by });
   assert.deepEqual(first.filed, [{ row: 'r1', item: 'ask-add-a-dark-mode-r1', duplicate: false }]);
   assert.deepEqual(first.skipped.map((s) => s.why), ['status taken', 'no title']);
   assert.deepEqual(first.updates, [{ doc_id: 'r1', data: { status: 'taken', item: 'ask-add-a-dark-mode-r1', href: 'items/ask-add-a-dark-mode-r1.html', takenAt: '2026-10-26T10:00:00Z' } }]);
   // Read again before the write-back landed: the event id makes it a no-op.
-  assert.equal(intakeRows(store, rows).filed[0].duplicate, true);
+  assert.equal(intakeRows(store, rows, { by }).filed[0].duplicate, true);
+  assert.deepEqual(intakeRows(store, rows).skipped[0].why, 'refused: REQUEST_RECEIVED without an actor', 'a row needs the session that files it');
   const items = status(store).items;
   assert.deepEqual(items.map((i) => i.id), ['ask-add-a-dark-mode-r1']);
   assert.equal(store.events().at(-1).event.person, true, 'a request counts as one of the person\'s touches');
@@ -51,7 +53,7 @@ test('harness intake reads a file and prints the updates', () => {
   const file = join(dir, 'rows.json');
   writeFileSync(file, JSON.stringify({ docs: [{ id: 'z9', data: { title: 'Ship it', status: 'new' } }] }));
   const bin = new URL('../bin/harness.js', import.meta.url).pathname;
-  const out = JSON.parse(execFileSync(process.execPath, [bin, 'intake', file, '--dir', dir], { encoding: 'utf8' }));
+  const out = JSON.parse(execFileSync(process.execPath, [bin, 'intake', file, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } }));
   assert.equal(out.updates[0].data.item, 'ask-ship-it-z9');
 });
 
@@ -72,7 +74,7 @@ test('readRows takes an out_dir folder (id from the filename) and the inline lis
   ].join('\n'));
   assert.deepEqual(rowsOf(readRows(inline)).map((r) => [r.id, r.title]), [['c3', 'Third']]);
   const bin = new URL('../bin/harness.js', import.meta.url).pathname;
-  const out = JSON.parse(execFileSync(process.execPath, [bin, 'intake', folder, '--dir', dir], { encoding: 'utf8' }));
+  const out = JSON.parse(execFileSync(process.execPath, [bin, 'intake', folder, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } }));
   assert.deepEqual([out.filed.map((f) => f.item), out.skipped.map((s) => s.id)], [['ask-second-b2'], ['a1']]);
 });
 

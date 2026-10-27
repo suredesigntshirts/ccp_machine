@@ -11,6 +11,16 @@ import { renderPage } from './page.js';
 
 const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act', reason: 'simulated' };
 
+// The parties a scripted host plays, each sending what it sends for real: a worker reports runs, GitHub
+// reports CI and merges, the person taps a card (ref: the card), and the orchestrator sends the rest.
+export function scripted(type, ref = 'sim') {
+  const party = { RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person' }[type];
+  if (party === 'worker') return { actor: { kind: 'session', id: 'sim-worker' }, source: { kind: 'cli', ref } };
+  if (party === 'github') return { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
+  if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref } };
+  return { actor: { kind: 'session', id: 'sim-orchestrator' }, source: { kind: 'cli', ref } };
+}
+
 /** What goes wrong for item i: a mix of tiers, a failed run, failed checks, a block and a person's revise. */
 export const script = (i) => ({
   tier: i % 3,
@@ -32,10 +42,11 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
   let n = 0;
   // The host reports what the machine refuses and goes on; the scripted host should cause none.
   const refused = [];
-  const send = (event, to) => { const r = apply(store, event, { to, id: `sim-${n++}`, now: now() }); if (r.refused) refused.push(`${to ?? 'harness'}: ${r.why}`); };
+  const send = (event, to) => { const id = `sim-${n++}`; const r = apply(store, { ...event, ...scripted(event.type, id) }, { to, id, now: now() }); if (r.refused) refused.push(`${to ?? 'harness'}: ${r.why}`); };
   const seen = {};
   const once = (key) => !seen[key] && (seen[key] = true);
   let peak = { inFlight: 0, asks: 0, html: '' };
+  send({ type: 'ORCHESTRATOR_STARTED' });
   for (let i = 0; i < items; i++) send({ type: 'REQUEST_RECEIVED', request: { id: `item-${i}`, title: `Synthetic item ${i}`, project: 'sim', tier: script(i).tier } });
   let steps = 0;
   for (;;) {
@@ -97,9 +108,9 @@ export function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmpdir(),
 /** Pad the store to `events` events with budget settings (always taken), then time one more apply (ms). */
 export function timeApplyAt(store, events = 500) {
   let k = store.events().length;
-  while (k < events) apply(store, { type: 'CONFIGURE', config: {} }, { to: 'budget', id: `pad-${k++}` });
+  while (k < events) apply(store, { type: 'CONFIGURE', config: {}, ...scripted('CONFIGURE') }, { to: 'budget', id: `pad-${k++}` });
   const start = performance.now();
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'timed', tier: 0 } }, { id: 'timed' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'timed', tier: 0 }, ...scripted('REQUEST_RECEIVED') }, { id: 'timed' });
   return performance.now() - start;
 }
 

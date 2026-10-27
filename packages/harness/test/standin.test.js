@@ -4,16 +4,18 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { openStore, init, apply, ack, status, readDecisionLog } from '../src/index.js';
+import { openStore, init, ack, status, readDecisionLog } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
-const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8' });
+const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
 const pendingNames = (store) => store.pending().map((e) => e.name);
 
 test('one command answers a pending plan or accept decision and acks its ask', () => {
   const dir = mkdtempSync(join(tmpdir(), 'harness-'));
   const store = openStore(dir);
   init(store);
+  start(store);
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', tier: 1, expect: 'a works' } });
   ack(store, store.pending().map((e) => e.id));
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:x' });

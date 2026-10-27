@@ -1,7 +1,7 @@
 {
   "id": "workItem",
   "version": "0.1.0",
-  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes.",
+  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); CI and merge results come only from GitHub wakes. The machine checks actor and source kinds, that a ref is there, and that ids differ; whether they are true is checked afterwards against the platform and GitHub.",
   "initial": "active",
   "context": {
     "id": "",
@@ -12,12 +12,28 @@
     "runs": 0,
     "choice": null,
     "decisions": 0,
-    "decisionId": null
+    "decisionId": null,
+    "orchestrator": null
   },
   "on": {
     "CANCEL": {
       "target": ".cancelled"
-    }
+    },
+    "ORCHESTRATOR_STARTED": [
+      {
+        "guard": {
+          "type": "fromOutside"
+        },
+        "description": "Sent by the harness when an orchestrator starts inside the harness; the same event from outside (any event with an actor) is refused."
+      },
+      {
+        "actions": [
+          {
+            "type": "recordOrchestrator"
+          }
+        ]
+      }
+    ]
   },
   "states": {
     "active": {
@@ -54,15 +70,29 @@
             }
           ],
           "on": {
-            "RUN_SUCCEEDED": {
-              "target": "planGate",
-              "actions": [
-                {
-                  "type": "recordRun"
-                }
-              ]
-            },
+            "RUN_SUCCEEDED": [
+              {
+                "guard": {
+                  "type": "reportedByOrchestrator"
+                },
+                "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
+              },
+              {
+                "target": "planGate",
+                "actions": [
+                  {
+                    "type": "recordRun"
+                  }
+                ]
+              }
+            ],
             "RUN_FAILED": [
+              {
+                "guard": {
+                  "type": "reportedByOrchestrator"
+                },
+                "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
+              },
               {
                 "guard": {
                   "type": "retriesLeft",
@@ -114,6 +144,12 @@
           ],
           "on": {
             "DECISION_MADE": [
+              {
+                "guard": {
+                  "type": "fromOutside"
+                },
+                "description": "Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused."
+              },
               {
                 "guard": {
                   "type": "choiceIs",
@@ -169,15 +205,29 @@
             }
           ],
           "on": {
-            "RUN_SUCCEEDED": {
-              "target": "verifying",
-              "actions": [
-                {
-                  "type": "recordRun"
-                }
-              ]
-            },
+            "RUN_SUCCEEDED": [
+              {
+                "guard": {
+                  "type": "reportedByOrchestrator"
+                },
+                "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
+              },
+              {
+                "target": "verifying",
+                "actions": [
+                  {
+                    "type": "recordRun"
+                  }
+                ]
+              }
+            ],
             "RUN_FAILED": [
+              {
+                "guard": {
+                  "type": "reportedByOrchestrator"
+                },
+                "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
+              },
               {
                 "guard": {
                   "type": "retriesLeft",
@@ -210,10 +260,32 @@
             }
           ],
           "on": {
-            "CHECKS_PASSED": {
-              "target": "acceptGate"
-            },
+            "CHECKS_PASSED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "github",
+                    "source": "github-wake"
+                  }
+                },
+                "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub."
+              },
+              {
+                "target": "acceptGate"
+              }
+            ],
             "CHECKS_FAILED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "github",
+                    "source": "github-wake"
+                  }
+                },
+                "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub."
+              },
               {
                 "guard": {
                   "type": "retriesLeft",
@@ -265,6 +337,12 @@
           ],
           "on": {
             "DECISION_MADE": [
+              {
+                "guard": {
+                  "type": "fromOutside"
+                },
+                "description": "Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused."
+              },
               {
                 "guard": {
                   "type": "choiceIs",
@@ -342,6 +420,12 @@
             "DECISION_MADE": [
               {
                 "guard": {
+                  "type": "fromOutside"
+                },
+                "description": "Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused."
+              },
+              {
+                "guard": {
                   "type": "choiceIs",
                   "params": {
                     "choice": "approve"
@@ -391,9 +475,21 @@
             }
           ],
           "on": {
-            "MERGED": {
-              "target": "#workItem.done"
-            },
+            "MERGED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "github",
+                    "source": "github-wake"
+                  }
+                },
+                "description": "Refused unless a merge comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub."
+              },
+              {
+                "target": "#workItem.done"
+              }
+            ],
             "MERGE_FAILED": {
               "target": "#workItem.blocked"
             }

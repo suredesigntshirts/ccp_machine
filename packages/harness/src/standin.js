@@ -6,10 +6,10 @@ import { logPrecedents, ladder, readDecisionLog } from './decision-log.js';
 
 /**
  * @param {{choice: 'approve'|'reject', reason: string, confidence?: number, threshold?: number, autonomy?: string}} answer
- *   autonomy defaults to the ladder's rung for the decision class
+ *   autonomy defaults to the ladder's rung for the decision class; by is the sender, {actor, source}
  * @returns {{subject: string, id: string, duplicate: boolean, effects: string[]}}
  */
-export function standinAnswer(store, item, { choice, reason, confidence = 0.9, threshold = 0.9, autonomy }) {
+export function standinAnswer(store, item, { choice, reason, confidence = 0.9, threshold = 0.9, autonomy, by }) {
   if (!['approve', 'reject'].includes(choice)) throw new Error('standin needs --approve or --reject');
   if (!reason) throw new Error('standin needs --reason: why the stand-in may decide this');
   const ask = store.pending().find((e) => e.name === 'askStandIn' && String(e.subject).startsWith(`decision:${item}:`));
@@ -17,7 +17,7 @@ export function standinAnswer(store, item, { choice, reason, confidence = 0.9, t
   const to = `item:${item}/${ask.subject}`;
   // The rung is the ladder's unless the host passes standing authority from the person (--autonomy).
   const rung = autonomy ?? ladder(readDecisionLog(store), ask.subject.split(':')[2]).autonomy;
-  const event = { type: 'STAND_IN_ANSWERED', answer: { choice, confidence, threshold, autonomy: rung, reason } };
+  const event = { type: 'STAND_IN_ANSWERED', answer: { choice, confidence, threshold, autonomy: rung, reason }, ...by };
   const blocked = acceptBlocked(store, event, to);
   if (blocked) throw new Error(blocked);
   const id = `standin-${ask.subject}`;

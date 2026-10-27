@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { openStore, init, apply, logPrecedents } from '../src/index.js';
+import { scripted } from '../src/sim.js';
 
 const { values: o } = parseArgs({ options: { out: { type: 'string' }, shots: { type: 'string' } } });
 const SIM = '/mnt/project-files/harness/state/sim';
@@ -21,11 +22,12 @@ const store = openStore(join(out, 'store'));
 init(store, { wipLimit: 3 }, '2026-10-26T08:00:00Z');
 const at = (h) => `2026-10-26T${String(h).padStart(2, '0')}:00:00Z`;
 const send = (event, to, h, id) => {
-  const r = apply(store, event, { to, now: at(h), id });
+  const r = apply(store, { ...event, ...scripted(event.type, id ?? 'fixture') }, { to, now: at(h), id });
   if (r.refused) throw new Error(`fixture: ${r.why}`);
 };
 const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act', reason: 'small and covered by tests' };
 const pr = 'https://github.com/suredesigntshirts/ccp_machine_test/pull/1';
+send({ type: 'ORCHESTRATOR_STARTED' }, undefined, 8);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'merged-item', title: 'A merged change with a long title that has to wrap on a phone screen without scrolling sideways', project: 'packages/harness', tier: 1, url: pr, expect: 'It merges' } }, undefined, 8);
 send({ type: 'RUN_SUCCEEDED' }, 'item:merged-item', 8);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:merged-item/decision:merged-item:plan:1', 9);

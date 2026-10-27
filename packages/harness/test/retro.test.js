@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, writeRetro, retroDue } from '../src/index.js';
+import { openStore, init, writeRetro, retroDue } from '../src/index.js';
+import { apply, start } from './send.js';
 
 // One tier-0 item run to merge, with `ci` minutes of CI wait and `retry` failed checks.
 const run = (store, id, day, { ci = 10, retry = 0 } = {}) => {
@@ -24,6 +25,7 @@ const noScenarios = () => [];
 test('the retro compares two weeks, names the constraint, and the next retro checks its expectation', () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-retro-')));
   init(store, { wipLimit: 10 }, '2026-10-10T00:00:00Z');
+  start(store, '2026-10-10T00:00:00Z');
   for (const i of [1, 2]) run(store, `old${i}`, '2026-10-15', { ci: 60, retry: 1 });
   for (const i of [1, 2, 3]) run(store, `new${i}`, '2026-10-24', { ci: 30 });
   const dir = mkdtempSync(join(tmpdir(), 'reviews-'));
@@ -48,6 +50,7 @@ test('the retro compares two weeks, names the constraint, and the next retro che
 test('with nothing finished the retro says so instead of inventing bottlenecks', () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-retro-')));
   init(store, {}, '2026-10-26T00:00:00Z');
+  start(store, '2026-10-26T00:00:00Z');
   const { record, text } = writeRetro(store, mkdtempSync(join(tmpdir(), 'reviews-')), { day: '2026-10-26', scenarios: noScenarios });
   assert.deepEqual(record.bottlenecks, []);
   assert.match(text, /no finished items to measure/);
@@ -56,6 +59,7 @@ test('with nothing finished the retro says so instead of inventing bottlenecks',
 test('a CI result fed late splits its wait into CI and the host', () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-retro-')));
   init(store, {}, '2026-10-24T00:00:00Z');
+  start(store, '2026-10-24T00:00:00Z');
   const t = (m) => new Date(Date.parse('2026-10-24T10:00:00Z') + m * 60e3).toISOString();
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'late', tier: 0 } }, { now: t(0) });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:late', now: t(2) });

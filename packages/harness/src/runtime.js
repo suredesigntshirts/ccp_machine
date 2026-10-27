@@ -1,10 +1,34 @@
 // The harness as a backend workflow: every wake restores the root actor from the store, applies one
 // event, persists the new snapshot and queues the effects that event asked for. Nothing stays in
 // memory between wakes, so any session holding the store can be the orchestrator.
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
 import { createMachines } from './machines.js';
 
 const SEEN_IDS_KEPT = 500;
+
+// The envelope every event carries: who sent it and where it came from. The machines' guards read both.
+export const ACTOR_KINDS = ['person', 'session', 'github', 'timer'];
+export const SOURCE_KINDS = ['tap', 'github-wake', 'cli', 'timer'];
+const envelopeError = ({ actor, source }) =>
+  !actor ? 'without an actor'
+  : !ACTOR_KINDS.includes(actor.kind) || typeof actor.id !== 'string' || !actor.id ? `with actor ${JSON.stringify(actor)} (kind ${ACTOR_KINDS.join('|')} and an id)`
+  : !source ? 'without a source'
+  : !SOURCE_KINDS.includes(source.kind) || typeof source.ref !== 'string' ? `with source ${JSON.stringify(source)} (kind ${SOURCE_KINDS.join('|')} and a ref)`
+  : null;
+
+// The harness that applied an event, so a finding can be matched to the code that produced it.
+let applied;
+export function harnessVersion() {
+  if (applied) return applied;
+  const dir = new URL('..', import.meta.url).pathname;
+  let commit = null;
+  try {
+    commit = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {}
+  return (applied = { version: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, commit });
+}
 
 // Resolve an address: "harness" (the root), a system id ("item:a", "budget"), or a path of child
 // ids below one ("item:a/decision:a:plan:1"). A finished child leaves the system but keeps its systemId.
@@ -48,14 +72,18 @@ export function init(store, input = {}, now = new Date().toISOString()) {
 }
 
 /**
- * Apply one event. `id` makes it idempotent: an id already applied is skipped, so a retried wake or
+ * Apply one event. The event carries `actor` {kind, id} and `source` {kind, ref}; one without them is
+ * refused. The log row holds them beside the event, with the harness version that applied it.
+ * `id` makes it idempotent: an id already applied is skipped, so a retried wake or
  * a duplicated delivery cannot double-apply.
- * An event the target actor would not take (`snapshot.can`) is refused: nothing is written, and the
- * result says `refused: <EVENT> in <state>`.
+ * An event the target actor would not take (`snapshot.can`, which reads the actor and source too) is
+ * refused: nothing is written, and the result says `refused: <EVENT> in <state>`.
  * @returns {{version: number, duplicate?: boolean, refused?: boolean, why?: string, effects: object[]}}
  */
 export function apply(store, event, { to, id, now = new Date().toISOString() } = {}) {
   if (!event?.type) throw new Error('an event needs a type');
+  const bad = envelopeError(event);
+  if (bad) return { version: store.read()?.version ?? 0, refused: true, why: `refused: ${event.type} ${bad}`, effects: [] };
   return store.withLock(() => {
     const state = store.read();
     if (!state) throw new Error(`no harness in ${store.dir}; run init first`);
@@ -83,7 +111,8 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
     const version = state.version + 1;
     const queued = effects.map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
     store.write({ version, snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
-    store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', event }]);
+    const { actor: by, source, ...rest } = event;
+    store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, harness: harnessVersion(), event: rest }]);
     store.appendOutbox(queued);
     return { version, effects: queued };
   });

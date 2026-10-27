@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, status, logPrecedents, readDecisionLog, attention, attentionText, touchesTrend, renderPage, renderDigest } from '../src/index.js';
+import { openStore, init, status, logPrecedents, readDecisionLog, attention, attentionText, touchesTrend, renderPage, renderDigest } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act' };
 
 test('attention counts the person\'s touches, the stand-in\'s decisions, turns and wall time per item', () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, {}, '2026-10-26T09:00:00Z');
+  start(store, '2026-10-26T09:00:00Z');
   const send = (event, to, now) => apply(store, event, { to, now });
   send({ type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 2 } }, undefined, '2026-10-26T10:00:00Z');
   send({ type: 'RUN_SUCCEEDED', session: 's1' }, 'item:p', '2026-10-26T10:05:00Z');

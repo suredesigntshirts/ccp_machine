@@ -1,19 +1,40 @@
 {
   "id": "harness",
   "version": "0.1.0",
-  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox.",
+  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here.",
   "type": "parallel",
   "context": {
     "wipLimit": 3,
     "queued": [],
     "inFlight": [],
     "inbox": [],
-    "budgetMode": "normal"
+    "budgetMode": "normal",
+    "orchestrator": null
   },
   "invoke": {
     "src": "budget",
     "id": "budget",
     "systemId": "budget"
+  },
+  "on": {
+    "ORCHESTRATOR_STARTED": [
+      {
+        "guard": {
+          "type": "unattested",
+          "params": {
+            "actor": "session"
+          }
+        },
+        "description": "Refused unless the actor is a session. Its id becomes the orchestrator's, here and in every queued or in-flight item, so no run it reports itself is taken."
+      },
+      {
+        "actions": [
+          {
+            "type": "recordOrchestrator"
+          }
+        ]
+      }
+    ]
   },
   "states": {
     "intake": {
@@ -43,6 +64,12 @@
           ]
         },
         "BUDGET_MODE": [
+          {
+            "guard": {
+              "type": "fromOutside"
+            },
+            "description": "Sent by the budget actor when its mode changes inside the harness; the same event from outside (any event with an actor) is refused."
+          },
           {
             "guard": {
               "type": "modeIs",

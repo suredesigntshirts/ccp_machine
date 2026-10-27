@@ -10,7 +10,17 @@ The harness spec and the runtime that drives it.
 - `src/runtime.js`: the backend-workflow loop. Every wake restores the root actor from the store,
   applies one event, persists, and queues the effects that event asked for. Event ids make it idempotent.
   An event the addressed actor would not take (`snapshot.can`) is refused: nothing is written and the
-  result says `refused: <EVENT> in <state>`. `test/paths.test.js` replays generated paths through all four
+  result says `refused: <EVENT> in <state>`.
+- The envelope: every event carries `actor` {kind: person|session|github|timer, id} and `source`
+  {kind: tap|github-wake|cli|timer, ref}; one without them is refused. Each `events.jsonl` row is
+  `{id, version, at, to, actor, source, harness: {version, commit}, event}`, the last two naming the
+  harness code that applied it. Who may send what is in the machines, as guards that refuse an event
+  from the wrong party (SPEC.md lists them under Refused): `PERSON_DECIDED` only from a person's tap
+  (ref: the card's message id), a run result only from an actor other than the orchestrator (its id is
+  in context, set by `ORCHESTRATOR_STARTED`), CI and merge results only from a GitHub wake (ref: the
+  delivery or event id), and `DECISION_MADE` and `BUDGET_MODE` only from inside the harness. The machine
+  checks kinds and that a ref is there; whether a ref is real is for a verifier to check against the
+  platform or GitHub. `test/paths.test.js` replays generated paths through all four
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
@@ -82,10 +92,13 @@ The harness spec and the runtime that drives it.
   when a class goes over 20 stand-in decisions unchecked.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
-  failed check `CHECKS_FAILED`, a merged PR `MERGED`. It finds the item from the `pr` URLs on its events.
+  failed check `CHECKS_FAILED`, a merged PR `MERGED`, each from actor github and source github-wake. The
+  ref is the wake's delivery or event id when it carries one, else the PR (and head sha for CI) it names.
+  It finds the item from the `pr` URLs on its events.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
-  and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` with the card's id as `--id`.
+  and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` sent with
+  `--actor person:<id> --source tap:<card message id>`.
 - `src/scenario.js` and `scenarios/*.json`: golden event stories. Each step is an event (with `to`, `id`,
   `now`) and an `expect` of `effects` (exact, `dispatchRun:<step>`), `items` `{id: state}`, `scheduler`,
   `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate`, `refused` (`refused: <EVENT> in
@@ -95,12 +108,14 @@ The harness spec and the runtime that drives it.
 ## Use
 
 ```sh
-harness init --wip 3
+harness init --wip 3                # this session ($CLAUDE_CODE_SESSION_ID) is the orchestrator
 harness send '{"type":"DAY_STARTED","sevenDay":0.07,"fiveHour":0.04}' --to budget --id day-2026-10-26
 harness send '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":1,"title":"Fix login"}}' --id req-a
-harness send '{"type":"RUN_SUCCEEDED"}' --to item:a
+harness send '{"type":"RUN_SUCCEEDED"}' --to item:a --actor session:<worker id> --source cli:<handback ref>
 harness status                      # summary JSON; decisions carry their address
-harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1
+harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1 \
+  --actor person:<id> --source tap:<card message id>
+harness from-github wake.txt        # CI and merges, from the wake's text
 harness effects                     # what the host still has to do
 harness ack e3.0 --note "posted"
 harness page --standalone           # .harness/mission-control.html
@@ -108,4 +123,5 @@ harness page --standalone           # .harness/mission-control.html
 
 The host (an orchestrator thread) is the only writer. It runs each effect (dispatch a run, post a
 decision card, merge a PR), acknowledges it, and turns what comes back (CI result, a person's tap)
-into the next `send`.
+into the next `send`, naming who sent it. A session that takes over a store sends
+`{"type":"ORCHESTRATOR_STARTED"}` first, so runs it reports itself are refused.

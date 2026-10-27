@@ -38,18 +38,24 @@ test('every state that waits on the person or a gate can be left', () => {
   for (const [name, config] of Object.entries(specs)) visit(config, name, name);
 });
 
+// The parties: a worker reports runs, GitHub reports CI and merges, the person taps a card.
+const worker = { actor: { kind: 'session', id: 'worker' }, source: { kind: 'cli', ref: 'harness send' } };
+const github = { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-1' } };
+const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } };
+const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: { kind: 'cli', ref: 'harness send' } };
+
 const itemEvents = [
   { type: 'START' },
-  { type: 'RUN_SUCCEEDED' },
-  { type: 'RUN_FAILED' },
-  { type: 'CHECKS_PASSED' },
-  { type: 'CHECKS_FAILED' },
+  { type: 'RUN_SUCCEEDED', ...worker },
+  { type: 'RUN_FAILED', ...worker },
+  { type: 'CHECKS_PASSED', ...github },
+  { type: 'CHECKS_FAILED', ...github },
   { type: 'DECISION_MADE', choice: 'approve' },
   { type: 'DECISION_MADE', choice: 'revise' },
   { type: 'DECISION_MADE', choice: 'reject' },
   { type: 'BLOCK' },
   { type: 'UNBLOCKED' },
-  { type: 'MERGED' },
+  { type: 'MERGED', ...github },
   { type: 'MERGE_FAILED' },
   { type: 'CANCEL' }
 ];
@@ -62,12 +68,12 @@ const walkItem = (input) =>
 
 test('every work item state is reachable, and every tier can finish', () => {
   for (const tier of [0, 1, 2]) {
-    const paths = walkItem({ id: `t${tier}`, tier });
+    const paths = walkItem({ id: `t${tier}`, tier, orchestrator: 'orchestrator' });
     const reached = new Set(paths.map((p) => JSON.stringify(p.state.value)));
     assert.ok(reached.has('"done"'), `tier ${tier} cannot reach done`);
     assert.ok(reached.has('"blocked"') && reached.has('"failed"') && reached.has('"cancelled"'));
   }
-  const tier2 = walkItem({ id: 'x', tier: 2 });
+  const tier2 = walkItem({ id: 'x', tier: 2, orchestrator: 'orchestrator' });
   assert.ok(tier2.some((p) => p.state.matches({ active: 'awaitingMergeDecision' })));
 });
 
@@ -83,13 +89,13 @@ const step = (machine, snapshot, events) => {
 };
 
 test('a tier-0 item runs to merge with no decision, emitting its effects as data', () => {
-  const [s0] = initialTransition(machines.workItem, { id: 'a', tier: 0 });
+  const [s0] = initialTransition(machines.workItem, { id: 'a', tier: 0, orchestrator: 'orchestrator' });
   const [s, effects] = step(machines.workItem, s0, [
     { type: 'START' },
-    { type: 'RUN_SUCCEEDED' },
-    { type: 'RUN_SUCCEEDED' },
-    { type: 'CHECKS_PASSED' },
-    { type: 'MERGED' }
+    { type: 'RUN_SUCCEEDED', ...worker },
+    { type: 'RUN_SUCCEEDED', ...worker },
+    { type: 'CHECKS_PASSED', ...github },
+    { type: 'MERGED', ...github }
   ]);
   assert.equal(s.value, 'done');
   assert.ok(!effects.includes('openDecision'));
@@ -121,7 +127,7 @@ test('the stand-in decides alone only where autonomy is earned, confidence is hi
 
   const person = decide({ tier: 2 }, [
     { type: 'STAND_IN_ANSWERED', answer: answer() },
-    { type: 'PERSON_DECIDED', choice: 'revise' }
+    { type: 'PERSON_DECIDED', choice: 'revise', ...tap }
   ]);
   assert.deepEqual([person.value, person.context.choice, person.context.decidedBy], ['decided', 'revise', 'person']);
 });
@@ -196,24 +202,26 @@ test('the harness keeps at most wipLimit items in flight and pauses starts on a 
 
 test('an escalated decision shows in the person\'s inbox and leaves it when decided', () => {
   const root = createActor(machines.harness, { systemId: 'harness' }).start();
+  root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
   root.send({ type: 'REQUEST_RECEIVED', request: { id: 'p', tier: 2 } });
   const item = root.system.get('item:p');
-  item.send({ type: 'RUN_SUCCEEDED' }); // triage done -> plan decision opened
+  item.send({ type: 'RUN_SUCCEEDED', ...worker }); // triage done -> plan decision opened
   const decisionId = 'decision:p:plan:1';
   const decision = item.getSnapshot().children[decisionId];
   decision.send({ type: 'STAND_IN_ANSWERED', answer: answer() });
   assert.ok(root.getSnapshot().hasTag('needs-human'));
   assert.deepEqual(root.getSnapshot().context.inbox, [decisionId]);
 
-  decision.send({ type: 'PERSON_DECIDED', choice: 'approve' });
+  decision.send({ type: 'PERSON_DECIDED', choice: 'approve', ...tap });
   assert.ok(!root.getSnapshot().hasTag('needs-human'));
   assert.deepEqual(item.getSnapshot().value, { active: 'building' });
 });
 
 test('the whole system persists to JSON and resumes, children included', () => {
   const root = createActor(machines.harness, { systemId: 'harness' }).start();
+  root.send({ type: 'ORCHESTRATOR_STARTED', ...orchestrator });
   root.send({ type: 'REQUEST_RECEIVED', request: { id: 'q', tier: 1 } });
-  root.system.get('item:q').send({ type: 'RUN_SUCCEEDED' });
+  root.system.get('item:q').send({ type: 'RUN_SUCCEEDED', ...worker });
   const stored = JSON.parse(JSON.stringify(root.getPersistedSnapshot()));
   root.stop();
   const again = createActor(machines.harness, { systemId: 'harness', snapshot: stored }).start();
@@ -227,6 +235,8 @@ test('SPEC.md is rendered from the JSON, with every state description and tag, a
   const visit = (node, path) => {
     if (node.description) assert.ok(text.includes(node.description), `${path}: description missing from SPEC.md`);
     for (const t of node.tags ?? []) assert.ok(text.includes(t), `${path}: tag ${t} missing from SPEC.md`);
+    for (const [ev, on] of Object.entries(node.on ?? {}))
+      for (const t of [on].flat()) if (t.description) assert.ok(text.includes(t.description), `${path} ${ev}: transition description missing from SPEC.md`);
     for (const [k, child] of Object.entries(node.states ?? {})) visit(child, `${path}.${k}`);
   };
   for (const [name, config] of Object.entries(specs)) visit(config, name);

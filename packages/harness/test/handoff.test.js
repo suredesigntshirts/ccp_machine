@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, init, apply, ack, handoffNote, writeHandoff, HANDOFF_NOTES } from '../src/index.js';
+import { openStore, init, ack, handoffNote, writeHandoff, HANDOFF_NOTES } from '../src/index.js';
+import { apply, start } from './send.js';
 
 const PR = 'https://github.com/o/r/pull/7';
 
 test('the hand-off names every in-flight item with its stage and PR, the waiting card, the queue and the to-do', () => {
   const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
   init(store, { wipLimit: 2 });
+  start(store);
   const req = (id, tier) => apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier, title: `Item ${id}` } }, { id: `req-${id}` });
   const ackAll = (note) => ack(store, store.pending().map((e) => e.id), { note });
   // a: tier 0, built, its PR in CI.

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
-const run = (...args) => spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8' });
+const run = (...args) => spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
 
 test('help, --help and -h print the usage and exit 0', () => {
   for (const flag of ['help', '--help', '-h']) {
@@ -40,7 +40,7 @@ test('send reports a refused event and exits 1; tick and usage report it and go 
   const at = (...args) => run(...args, '--dir', dir);
   at('init');
   at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}}');
-  const r = at('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a');
+  const r = at('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', '--actor', 'github:github', '--source', 'github-wake:delivery-1');
   assert.equal(r.status, 1);
   assert.equal(r.stderr, 'harness: refused: CHECKS_PASSED in active.triaging\n');
   assert.equal(JSON.parse(r.stdout).refused, true);
@@ -58,4 +58,19 @@ test('send reports a refused event and exits 1; tick and usage report it and go 
   const events = readFileSync(join(dir, 'events.jsonl'), 'utf8');
   assert.match(events, /"USAGE_SAMPLED"/, 'the sample after the refused tick still lands');
   assert.doesNotMatch(events, /"CHECKS_PASSED"/, 'the refused send left no row');
+});
+
+test('init names this session as the orchestrator, and outside a session needs --actor', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'harness-cli-'));
+  assert.equal(JSON.parse(run('init', '--dir', dir).stdout).orchestrator, 'orchestrator-session');
+  const [row] = readFileSync(join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual([row.event.type, row.actor, row.source.kind], ['ORCHESTRATOR_STARTED', { kind: 'session', id: 'orchestrator-session' }, 'cli']);
+  const env = { ...process.env };
+  delete env.CLAUDE_CODE_SESSION_ID;
+  const outside = spawnSync(process.execPath, [bin, 'init', '--dir', mkdtempSync(join(tmpdir(), 'harness-cli-'))], { encoding: 'utf8', env });
+  assert.equal(outside.status, 1);
+  assert.match(outside.stderr, /init needs --actor session:<id>/);
+  const person = spawnSync(process.execPath, [bin, 'init', '--actor', 'person:sd', '--dir', mkdtempSync(join(tmpdir(), 'harness-cli-'))], { encoding: 'utf8', env });
+  assert.deepEqual([person.status, JSON.parse(person.stdout).orchestrator], [1, null], 'only a session orchestrates');
+  assert.match(person.stderr, /refused: ORCHESTRATOR_STARTED/);
 });
