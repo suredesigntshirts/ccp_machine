@@ -14,7 +14,6 @@ export function canaryRequest(day) {
       id: canaryId(day),
       title: `Daily canary ${day}`,
       project: 'canary',
-      tier: 0,
       expect: `canary/last.txt reads ${day}, merged through a PR with green CI`
     }
   };
@@ -32,9 +31,9 @@ export function canaryReport(events, day, now = new Date().toISOString()) {
   const at = (pred) => mine.find(pred)?.at ?? null;
   const requested = at((e) => e.event.type === 'REQUEST_RECEIVED');
   if (!requested) return { id, status: 'missing', stages: [], totalMs: null, line: `Canary ${day}: not filed.` };
-  const runs = mine.filter((e) => e.event.type === 'RUN_SUCCEEDED');
-  const triaged = runs[0]?.at ?? null;
-  const built = runs.at(-1) && runs.length > 1 ? runs.at(-1).at : null;
+  // Triage ends with TRIAGED (the triager gives it tier 0); the build with the last run reported.
+  const triaged = at((e) => e.event.type === 'TRIAGED');
+  const built = mine.filter((e) => e.event.type === 'RUN_SUCCEEDED').at(-1)?.at ?? null;
   const checked = at((e) => e.event.type === 'CHECKS_PASSED');
   const merged = at((e) => e.event.type === 'MERGED');
   const failure = mine.find((e) => ['RUN_FAILED', 'CHECKS_FAILED', 'MERGE_FAILED'].includes(e.event.type));

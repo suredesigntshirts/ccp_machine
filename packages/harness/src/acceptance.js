@@ -32,9 +32,9 @@ export function peakInFlight(events, outbox) {
   return { peak, at: peakAt, items: start.size };
 }
 
-/** The person's touches split by kind and by the item's tier. */
+/** The person's touches split by kind and by the item's tier, as triage last set it. */
 export function touchesByTier(events) {
-  const tier = new Map(events.filter((e) => e.event.type === 'REQUEST_RECEIVED').map((e) => [e.event.request?.id, e.event.request?.tier]));
+  const tier = new Map(events.filter((e) => e.event.type === 'TRIAGED').map((e) => [itemOf(e), e.event.tier]));
   const out = { requests: 0, decisions: {}, other: {} };
   for (const e of events.filter((x) => x.event.person)) {
     if (e.event.type === 'REQUEST_RECEIVED') out.requests++;

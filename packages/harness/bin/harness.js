@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
+import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -21,7 +21,11 @@ const HELP = `harness <command> [options]
                                  a tap (PERSON_DECIDED) --actor person:<id> --source tap:<card message id>,
                                  CI and merges come only from from-github (send refuses --actor github
                                  and --source github-wake). Any other event is sent as this
-                                 session ($CLAUDE_CODE_SESSION_ID) from the cli.
+                                 session ($CLAUDE_CODE_SESSION_ID) from the cli. Triage answers with
+                                 {"type":"TRIAGED","tier":N,"criteria":[...]} --to item:<id>, from a session
+                                 that is not the requester, the orchestrator or a worker; a reviewer who is
+                                 neither sends {"type":"CRITERION_CHECKED","criterion":"...","verdict":
+                                 "met|unmet|unclear","evidence":"..."} per criterion
   usage [--samples FILE]         feed saved usage samples (ledger usage, default .ledger/usage.json)
                                  to the budget actor, then tick
   stalled [--after 60m]          list in-flight items with no event for longer than --after, oldest first
@@ -39,10 +43,6 @@ const HELP = `harness <command> [options]
   canary [--day D] [--check]     file the day's tier-0 canary item once (canary-<day>); with --check, report
                                  each stage's time and exit 1 with one attention line if it failed or is
                                  not merged 2 hours after the request
-  check <item> [--init]          the expectation check: --init writes checks/<item>.md from the request's
-                                 expect, one line each; mark each [met], [unmet] or [unclear] with
-                                 evidence. Prints the verdict; exits 1 unless every line is met. send
-                                 refuses a stand-in approve on an accept gate until it is
   acceptance [--ledger F] [--text]  the PRD's v1 acceptance criteria against this store: met, not met or
                                  unknown, each with its evidence (peak in flight, the person's touches by
                                  tier, scenarios, duplicate ids; --ledger checks turn costs)
@@ -56,10 +56,12 @@ const HELP = `harness <command> [options]
                                  answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
                                  decision (id standin-<subject>), ack the ask and log the precedent. Autonomy
                                  and threshold are the decision's; only the stand-in may answer, never the
-                                 orchestrator or the item's worker; an accept approve still needs a met check
+                                 orchestrator or the item's worker; it decides an accept alone only when
+                                 every criterion was checked met (expectationsMet), else the person does
   issue-request FILE             file one backlog issue (gh api repos/O/R/issues/N JSON) as REQUEST_RECEIVED,
-                                 id req-issue<N>: item id and tier from its "Item id: \`x\`, tier N" line,
-                                 expect from its "Expect:" lines; refuses an issue without the item line
+                                 id req-issue<N>: item id from its "Item id: \`x\`" line, expect from the
+                                 bullets under its "## Expect" heading (src/issue-request.js, the one
+                                 format); no tier: triage sets it. Refuses an issue without the item line
   from-github FILE               turn each PR activity event in FILE, in order (wakes' <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
@@ -147,7 +149,6 @@ try {
       sessions: { type: 'string' },
       rebuild: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
-      init: { type: 'boolean', default: false },
       answer: { type: 'string' },
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
@@ -243,8 +244,6 @@ try {
         if (attested.has(event.type) && !(flagged.actor && flagged.source))
           throw new Error(`${event.type} needs --actor KIND:ID --source KIND:REF naming who sent it (see harness help send)`);
         Object.assign(event, by('send'));
-        const blocked = acceptBlocked(store, event, o.to);
-        if (blocked) throw new Error(blocked);
         const r = apply(store, event, { to: o.to, id: o.id });
         print(r);
         if (r.refused) process.exitCode = 1;
@@ -295,22 +294,6 @@ try {
       if (!args[0]) throw new Error('standin needs a decision class, such as plan or accept');
       print(ladder(readDecisionLog(store), args[0]));
       break;
-    case 'check': {
-      const id = args[0];
-      if (!id) throw new Error('check needs an item id');
-      if (o.init) {
-        const expect = requestOf(store, id)?.expect;
-        if (!expect) throw new Error(`${id} has no expect line in its request`);
-        print(initCheck(store, id, expect));
-        break;
-      }
-      const lines = readCheck(store, id);
-      if (!lines) throw new Error(`no check for ${id}; run harness check ${id} --init`);
-      const v = checkVerdict(lines);
-      print({ ...v, lines });
-      if (!v.allMet) process.exitCode = 1;
-      break;
-    }
     case 'acceptance': {
       const rows = acceptance(store, { ledgerFile: o.ledger });
       if (o.text) console.log(acceptanceText(rows));
@@ -384,7 +367,7 @@ try {
       const { file, record, text } = writeRetro(store, dir, o.day ? { day: o.day } : {});
       console.log(text);
       console.error(`wrote ${file}; file each bottleneck as a harness-backlog issue`);
-      print(record.bottlenecks.map(({ title, expected }) => ({ title, expected })));
+      print(record.bottlenecks.map(({ title, expected, wait }) => ({ title, expected, body: issueBody({ id: `cut-${String(wait).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-wait`, why: `${title}: from the retro.`, expect: [expected] }) })));
       break;
     }
     case 'digest': {
@@ -432,7 +415,7 @@ try {
       const file = o.html ?? `${o.dir}/mission-control.html`;
       mkdirSync(dirname(file), { recursive: true });
       const events = store.events();
-      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store), checks: Object.fromEntries(status(store).items.map((i) => [i.id, readCheck(store, i.id)]).filter(([, c]) => c)) };
+      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store) };
       const metrics = Object.fromEntries(st.items.map((i) => [i.id, attentionText(attention(i, records))]));
       writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true, metrics, requestBox: o['request-box'], audits: openAudits(store) }));
       const items = st.items.map((item) => {
