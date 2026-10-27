@@ -14,9 +14,10 @@ export const BRANCH = recorded.pull.head.ref;
 /**
  * A fetcher(path) answering for any PR; `calls` lists the paths it was asked for. `checks` is the conclusion
  * of every run (or 'in_progress'); `totalCount` claims more runs than the page holds; `mangle(pull)` returns
- * the PR answer to serve instead; `earlier` lists commits the PR had before its head.
+ * the PR answer to serve instead; `earlier` lists commits the PR had before its head; `offPr` lists commits
+ * with check runs that are not on the PR; `state` overrides the PR's state (closed when merged, else open).
  */
-export function fakeGithub({ head = HEAD, ref = BRANCH, createdAt = CREATED, checks = 'success', totalCount, merged = true, mergeSha = MERGE, earlier = [], mangle = (p) => p, down } = {}) {
+export function fakeGithub({ head = HEAD, ref = BRANCH, createdAt = CREATED, checks = 'success', totalCount, merged = true, mergeSha = MERGE, earlier = [], offPr = [], state, mangle = (p) => p, down } = {}) {
   const calls = [];
   const fetcher = async (path) => {
     calls.push(path);
@@ -24,9 +25,9 @@ export function fakeGithub({ head = HEAD, ref = BRANCH, createdAt = CREATED, che
     const number = Number(/\/pulls\/(\d+)/.exec(path)?.[1]);
     if (/^repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(path))
       // An open PR has a merge_commit_sha too (GitHub's test merge), so only `merged` says it merged.
-      return mangle({ ...recorded.pull, number, created_at: createdAt, head: { ...recorded.pull.head, ref, sha: head }, merged, state: merged ? 'closed' : 'open', merge_commit_sha: mergeSha });
+      return mangle({ ...recorded.pull, number, created_at: createdAt, head: { ...recorded.pull.head, ref, sha: head }, merged, state: state ?? (merged ? 'closed' : 'open'), merge_commit_sha: mergeSha });
     if (/^repos\/[^/]+\/[^/]+\/pulls\/\d+\/commits/.test(path)) return [...earlier, head].map((sha) => ({ sha }));
-    for (const sha of [head, ...earlier])
+    for (const sha of [head, ...earlier, ...offPr])
       if (path.startsWith(`repos/`) && path.includes(`/commits/${sha}/check-runs`)) {
         const runs = recorded.runs.check_runs.map((r) => ({ ...r, head_sha: sha, ...(checks === 'in_progress' ? { status: 'in_progress', conclusion: null } : { conclusion: checks }) }));
         return { ...recorded.runs, total_count: totalCount ?? runs.length, check_runs: runs };
