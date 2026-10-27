@@ -1,4 +1,4 @@
-// Generated paths: for each of the four machines, xstate/graph walks the machine definition to every
+// Generated paths: for each of the five machines, xstate/graph walks the machine definition to every
 // state (shortest paths), and each path's events are replayed through runtime.apply() on a scratch store.
 // After every step the stored actor must be in the state the machine reaches on the same events (pure
 // transition(); the graph keeps one snapshot per state value, so its own snapshots can carry another
@@ -29,6 +29,8 @@ const orchestrator = { actor: { kind: 'session', id: 'orchestrator' }, source: {
 const started = [{ type: 'ORCHESTRATOR_STARTED', ...orchestrator }];
 const as = (id) => ({ actor: { kind: 'session', id }, source: { kind: 'cli', ref: 'harness send' } });
 const item = (e) => [e, 'item:w'];
+// The host's ack of a card effect: the card's message id, which the person's tap names.
+const posted = { type: 'CARD_POSTED', card: 'cmsg_card', effect: 'e1.0', ...as('orchestrator') };
 // The decision under test, by its input: a plan decision (decision:w:plan:1) or an accept one (decision:w:accept:2).
 let decisionAt = 'item:w/decision:w:plan:1';
 const homes = {
@@ -52,6 +54,7 @@ const homes = {
       item({ type: 'TRIAGED', tier: input.tier, criteria: ['a works'], ...as('triager') }),
       ...(input.decisionClass !== 'accept' ? [] : [
         [{ type: 'STAND_IN_FAILED', ...orchestrator }, 'item:w/decision:w:plan:1'],
+        [posted, 'item:w/decision:w:plan:1'],
         [{ type: 'PERSON_DECIDED', choice: 'approve', actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, 'item:w/decision:w:plan:1'],
         item({ type: 'RUN_SUCCEEDED', ...as('worker') }),
         ...(input.expectationsMet ? [item({ type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a', ...as('reviewer') })] : []),
@@ -59,6 +62,12 @@ const homes = {
       ])
     ],
     read: (snap) => child(snap, 'w', decisionAt.split('/')[1])
+  },
+  // The day's audit, opened by the harness when a session picks it.
+  audit: {
+    to: 'audit:2026-10-26',
+    setup: (input) => [started, [{ type: 'AUDIT_PICKED', day: input.day, picks: input.picks, ...orchestrator }]],
+    read: (snap) => child(snap, 'audit:2026-10-26')
   }
 };
 
@@ -66,11 +75,13 @@ const homes = {
 let k = 0;
 const offer = (events) => () => events.map((e) => (e.type === 'REQUEST_RECEIVED' ? { ...e, request: { ...e.request, id: `${e.request.id}-${++k}` } } : e));
 
-// Graph states are the state value, plus the retry count for a work item (bounded by retriesLeft).
-const serializeState = (name) => (s) => JSON.stringify(name === 'workItem' ? [s.value, s.context.retries] : s.value);
+// Graph states are the state value, plus the retry count for a work item (bounded by retriesLeft) and, for
+// a decision or an audit, whether its card is posted (a tap is taken only after).
+const serializeState = (name) => (s) =>
+  JSON.stringify(name === 'workItem' ? [s.value, s.context.retries] : ['decision', 'audit'].includes(name) ? [s.value, s.context.card != null] : s.value);
 
 // DECISION_MADE comes only from the item's own decision, so a step that makes one is delivered there:
-// the stand-in fails and the person taps. With no decision open it goes to the item, which refuses it.
+// the stand-in fails, the host posts the card and the person taps it. With no decision open it goes to the item, which refuses it.
 function deliver(store, name, event) {
   const to = homes[name].to;
   if (event.type !== 'DECISION_MADE' || event.actor) return [apply(store, event, { to })];
@@ -78,6 +89,7 @@ function deliver(store, name, event) {
   if (!decision) return [apply(store, { ...event, ...orchestrator }, { to })];
   return [
     apply(store, { type: 'STAND_IN_FAILED', ...orchestrator }, { to: `${to}/${decision}` }),
+    apply(store, posted, { to: `${to}/${decision}` }),
     apply(store, { type: 'PERSON_DECIDED', choice: event.choice, actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } }, { to: `${to}/${decision}` })
   ];
 }
@@ -106,7 +118,7 @@ function assertSame(name, store, expected, where) {
   assert.deepEqual(got.value, expected.value, where);
 }
 
-for (const name of ['harness', 'budget', 'workItem', 'decision']) {
+for (const name of ['harness', 'budget', 'workItem', 'decision', 'audit']) {
   test(`generated paths through the ${name} machine replay through apply()`, () => {
     const { inputs, events } = fixtures[name];
     const home = homes[name];

@@ -43,7 +43,7 @@ test('intake files new rows once, skips taken ones, and returns the updates to w
   assert.deepEqual(intakeRows(store, rows).skipped[0].why, 'refused: REQUEST_RECEIVED without an actor', 'a row needs the session that files it');
   const items = status(store).items;
   assert.deepEqual(items.map((i) => i.id), ['ask-add-a-dark-mode-r1']);
-  assert.equal(store.events().at(-1).event.person, true, 'a request counts as one of the person\'s touches');
+  assert.equal('person' in store.events().at(-1).event, false, 'no event carries a person flag: the session filed it, and the person\'s touches are cards and taps');
 });
 
 test('harness intake reads a file and prints the updates', () => {

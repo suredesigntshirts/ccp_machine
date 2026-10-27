@@ -5,11 +5,10 @@ import assert from 'node:assert/strict';
 import { createActor, initialTransition, transition } from 'xstate';
 import { machines, expectationsMet } from '../src/machines.js';
 import { openStore, init, status, renderPage, renderDigest } from '../src/index.js';
-import { apply, start } from './send.js';
+import { apply, start, decide } from './send.js';
 import { tempDir } from './tmp.js';
 
 const triager = { actor: { kind: 'session', id: 'triager' }, source: { kind: 'cli', ref: 'harness send' } };
-const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card' } };
 const triaged = (tier, criteria = ['a works']) => ({ type: 'TRIAGED', tier, criteria, ...triager });
 const step = (machine, snapshot, events) => {
   let s = snapshot;
@@ -59,7 +58,7 @@ test('a tier never goes down, through the store: the person picks revise on a ti
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x' } });
   apply(store, { type: 'TRIAGED', tier: 2, criteria: ['x works'] }, { to: 'item:x' });
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.99 } }, { to: 'item:x/decision:x:plan:1' });
-  const revised = apply(store, { type: 'PERSON_DECIDED', choice: 'revise', ...tap }, { to: 'item:x/decision:x:plan:1' });
+  const revised = decide(store, 'item:x/decision:x:plan:1', 'revise');
   assert.equal(revised.refused, undefined, revised.why);
   assert.deepEqual([itemOf(store, 'x').state, itemOf(store, 'x').tier], ['active.triaging', 2]);
   const before = { state: JSON.stringify(store.read()), events: store.events().length, outbox: store.outbox().length };

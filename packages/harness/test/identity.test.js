@@ -57,9 +57,10 @@ test('an explicit --actor session:X that is not this session is refused, says wh
 test('the other actor kinds are unchanged: a person needs a tap, GitHub only from-github, timers as before', () => {
   const dir = tempDir('harness-id-');
   item(dir);
+  // M4: a person acts only by a tap on a card the machine asked for; BLOCK has no card, so it is refused.
   const person = run(as('orch'), 'send', '{"type":"BLOCK"}', '--to', 'item:a', '--actor', 'person:sd', '--dir', dir);
-  assert.equal(person.status, 0, person.stderr);
-  assert.deepEqual(rows(dir).at(-1).actor, { kind: 'person', id: 'sd' });
+  assert.equal(person.status, 1, person.stderr);
+  assert.match(person.stderr, /refused: BLOCK .*person/);
   const gh = run(as('orch'), 'send', '{"type":"UNBLOCKED"}', '--to', 'item:a', '--actor', 'github:github', '--dir', dir);
   assert.match(gh.stderr, /only harness from-github sends as GitHub/);
   assert.equal(run(as('orch'), 'tick', '--now', '2026-10-26T10:00:00Z', '--dir', dir).status, 0);

@@ -19,6 +19,12 @@ for (const wip of [3, 12]) {
     for (const party of ['sim-orchestrator', 'sim-worker']) assert.ok(!by('TRIAGED').has(party) && !by('CRITERION_CHECKED').has(party));
     assert.equal(r.store.events().filter((e) => e.event.type === 'TRIAGED').length, 13, 'each item triaged once, and item 5 again after its revise');
     assert.ok(r.store.events().some((e) => e.event.type === 'PERSON_DECIDED' && /:accept:/.test(e.to) && e.event.choice === 'revise'), 'an unmet criterion sends accept back');
+    // Cards and taps go through the same path as a real host's: the ack names the card, the tap names it back.
+    const cards = new Map(r.store.events().filter((e) => e.event.type === 'CARD_POSTED').map((e) => [e.to, e.event.card]));
+    const taps = r.store.events().filter((e) => e.event.type === 'PERSON_DECIDED');
+    assert.ok(taps.every((e) => e.actor.kind === 'person' && e.source.kind === 'tap' && cards.get(e.to) === e.source.ref), 'every tap is on its decision\'s posted card');
+    assert.equal(cards.size, taps.length, 'one card per tap');
+    assert.ok(r.store.events().every((e) => !('person' in e.event)), 'no event carries a person flag');
     assert.ok(r.peakAsks >= 3, 'cards pile up while the person is slow');
     assert.ok(Buffer.byteLength(r.html) < 1e6);
     assert.equal(tablesInCards(r.html), 0);

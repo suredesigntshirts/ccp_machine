@@ -1,10 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDir } from './tmp.js';
-import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
 import { openStore, init, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
-import { writeFileSync, mkdirSync } from 'node:fs';
 import { apply, start, earn } from './send.js';
 const fresh = (input) => {
   const store = openStore(tempDir('harness-'));
@@ -213,10 +211,8 @@ test('a decision takes its autonomy from the ladder when it opens; no log, an un
 
   // A log that cannot be read counts as no log.
   const broken = fresh();
-  mkdirSync(join(broken.dir, 'audits'));
-  writeFileSync(join(broken.dir, 'audits', '2026-01-01.json'), 'not json');
   earn(broken, 'plan');
-  assert.equal(open(broken, 'p').autonomy, 'recommend');
+  assert.equal(open({ ...broken, outbox: () => { throw new Error('the outbox cannot be read'); } }, 'p').autonomy, 'recommend');
 
   // No confidence: refused, and nothing is written.
   const before = none.read().version;

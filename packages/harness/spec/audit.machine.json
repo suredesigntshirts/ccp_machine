@@ -1,0 +1,88 @@
+{
+  "id": "audit",
+  "version": "0.1.0",
+  "description": "The day's stand-in audit. A class nobody checks never moves its ladder, so once a day the harness picks up to 3 decisions the stand-in made alone (AUDIT_PICKED, sent to the harness by the session that read the decision log; the picks are logPrecedent effect ids, which the decision log resolves from the store's own outbox and ignores when they name no stand-in decision). The audit asks the host to post one card (postAuditCard): option 0 confirms every pick, option i reverses pick i. The host's ack of that effect names the card's message id (CARD_POSTED), and the answer is AUDIT_ANSWERED from the person, by a tap on that card, exactly as a decision's PERSON_DECIDED. The decision log and the ladder read the answer from the event log (one person's decision per pick, dated when the person answered); no file in the store is read for a rung.",
+  "initial": "awaitingPerson",
+  "context": {
+    "id": "",
+    "day": "",
+    "picks": [],
+    "card": null,
+    "option": null
+  },
+  "states": {
+    "awaitingPerson": {
+      "description": "The audit card is in front of the person. Its message id arrives with the ack of postAuditCard (CARD_POSTED), and only a tap on it answers.",
+      "tags": [
+        "needs-human"
+      ],
+      "entry": [
+        {
+          "type": "postAuditCard"
+        }
+      ],
+      "on": {
+        "CARD_POSTED": [
+          {
+            "guard": {
+              "type": "unattested",
+              "params": {
+                "actor": "session"
+              }
+            },
+            "description": "Refused unless a session sends it: the host session that posted the card acks the postAuditCard effect with the card's message id."
+          },
+          {
+            "guard": {
+              "type": "cardOverreaches"
+            },
+            "description": "Refused unless it names one message id (cmsg_...) and this audit has no card yet."
+          },
+          {
+            "actions": [
+              {
+                "type": "recordCard"
+              }
+            ]
+          }
+        ],
+        "AUDIT_ANSWERED": [
+          {
+            "guard": {
+              "type": "unattested",
+              "params": {
+                "actor": "person",
+                "source": "tap"
+              }
+            },
+            "description": "Refused unless the actor is a person and the source a tap."
+          },
+          {
+            "guard": {
+              "type": "tapUnbound"
+            },
+            "description": "Refused unless the tap's ref is this audit's card, the message id CARD_POSTED recorded on the ack of its postAuditCard effect. A tap on no card, an unposted card or another card changes nothing."
+          },
+          {
+            "guard": {
+              "type": "optionNotOffered"
+            },
+            "description": "Refused unless the option is one of the card's: 0 (all right) or i, 1 to the number of picks (reverse pick i)."
+          },
+          {
+            "target": "answered",
+            "actions": [
+              {
+                "type": "recordAuditAnswer"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "answered": {
+      "type": "final",
+      "description": "The person answered. The event log holds the answer; the decision log turns it into one person's decision per pick."
+    }
+  }
+}

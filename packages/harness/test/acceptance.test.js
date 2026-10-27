@@ -17,16 +17,18 @@ test('peak in flight counts items from their first dispatched run to their merge
   assert.deepEqual(peakInFlight(events, outbox), { peak: 2, at: '2', items: 3 });
 });
 
-test('the person\'s touches split into requests and decisions by the tier triage set', () => {
+test('the person\'s touches are taps, split by the tier triage set, and audit answers; no flag counts', () => {
+  const person = { kind: 'person', id: 'sd' };
   const events = [
-    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'a' }, person: true } },
-    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'b' } } },
+    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'a' } } },
     { to: 'item:a', event: { type: 'TRIAGED', tier: 2, criteria: ['a works'] } },
     { to: 'item:b', event: { type: 'TRIAGED', tier: 1, criteria: ['b works'] } },
-    { to: 'item:a/decision:a:plan:1', event: { type: 'PERSON_DECIDED', person: true } },
+    { to: 'item:a/decision:a:plan:1', actor: person, event: { type: 'PERSON_DECIDED', choice: 'approve' } },
+    { to: 'item:b/decision:b:plan:1', actor: person, event: { type: 'PERSON_DECIDED', choice: 'revise' } },
+    { to: 'audit:2026-10-26', actor: person, event: { type: 'AUDIT_ANSWERED', option: 0 } },
     { to: 'item:b', event: { type: 'CANCEL', person: true } }
   ];
-  assert.deepEqual(touchesByTier(events), { requests: 1, decisions: { 2: 1 }, other: { 1: 1 } });
+  assert.deepEqual(touchesByTier(events), { decisions: { 2: 1, 1: 1 }, audits: 1 });
 });
 
 test('harness acceptance reports each v1 criterion with a verdict and evidence', () => {
