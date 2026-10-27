@@ -1,0 +1,13 @@
+{
+  "name": "ci-failure-then-retry",
+  "description": "Failing checks send the item back to build; the retry passes and merges.",
+  "steps": [
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"c","tier":0}},"expect":{"effects":["dispatchRun:triage"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"effects":["dispatchRun:build"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"effects":["dispatchRun:verify"]}},
+    {"event":{"type":"CHECKS_FAILED"},"to":"item:c","expect":{"effects":["dispatchRun:build"],"items":{"c":"active.building"}}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:c","expect":{"effects":["dispatchRun:verify"],"items":{"c":"active.verifying"}}},
+    {"event":{"type":"CHECKS_PASSED"},"to":"item:c","expect":{"effects":["mergePullRequest"]}},
+    {"event":{"type":"MERGED"},"to":"item:c","expect":{"items":{"c":"done"},"inFlight":[]}}
+  ]
+}

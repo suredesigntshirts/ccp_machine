@@ -1,0 +1,10 @@
+{
+  "name": "duplicate-event-id",
+  "description": "A redelivered event id changes nothing and queues no effects.",
+  "steps": [
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"d","tier":0}},"id":"req-d","expect":{"effects":["dispatchRun:triage"],"duplicate":false}},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"d","tier":0}},"id":"req-d","expect":{"effects":[],"duplicate":true,"inFlight":["d"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:d","id":"run-d","expect":{"effects":["dispatchRun:build"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:d","id":"run-d","expect":{"effects":[],"duplicate":true,"items":{"d":"active.building"}}}
+  ]
+}

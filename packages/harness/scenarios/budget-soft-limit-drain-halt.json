@@ -1,0 +1,17 @@
+{
+  "name": "budget-soft-limit-drain-halt",
+  "description": "Past 80% of the daily slice the scheduler drains (in-flight items checkpoint); at the full slice it halts, and a finished item frees a slot that nothing takes.",
+  "init": {"wipLimit":2},
+  "steps": [
+    {"event":{"type":"DAY_STARTED","sevenDay":0.3,"fiveHour":0,"sevenDayResetsAt":1,"at":"2026-10-26T01:00:00Z"},"to":"budget","now":"2026-10-26T01:00:00Z","expect":{"budget":"normal","scheduler":"accepting"}},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}},"expect":{"inFlight":["a"]}},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"b","tier":0}},"expect":{"inFlight":["a","b"]}},
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"c","tier":0}},"expect":{"effects":[],"queued":["c"],"items":{"c":"active.queued"}}},
+    {"event":{"type":"USAGE_SAMPLED","sevenDay":0.385,"fiveHour":0.2,"sevenDayResetsAt":1,"at":"2026-10-26T06:00:00Z"},"to":"budget","now":"2026-10-26T06:00:00Z","expect":{"effects":["checkpoint","checkpoint"],"budget":"wrappingUp","scheduler":"draining"}},
+    {"event":{"type":"USAGE_SAMPLED","sevenDay":0.4,"fiveHour":0.3,"sevenDayResetsAt":1,"at":"2026-10-26T08:00:00Z"},"to":"budget","now":"2026-10-26T08:00:00Z","expect":{"budget":"paused","scheduler":"halted"}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:a","expect":{"effects":["dispatchRun:build"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:a","expect":{"effects":["dispatchRun:verify"]}},
+    {"event":{"type":"CHECKS_PASSED"},"to":"item:a","expect":{"effects":["mergePullRequest"]}},
+    {"event":{"type":"MERGED"},"to":"item:a","expect":{"items":{"a":"done","c":"active.queued"},"inFlight":["b"],"queued":["c"],"scheduler":"halted"}}
+  ]
+}

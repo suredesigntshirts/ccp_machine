@@ -1,0 +1,10 @@
+{
+  "name": "stand-in-reversal-demotes-class",
+  "description": "The person rejects a plan the stand-in leaned to approve: the item is cancelled and the plan class drops from recommend to shadow.",
+  "steps": [
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"r","tier":2}},"expect":{"effects":["dispatchRun:triage"],"standin":{"plan":"recommend"}}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:r","expect":{"effects":["askStandIn"]}},
+    {"event":{"type":"STAND_IN_ANSWERED","answer":{"choice":"approve","confidence":0.95,"threshold":0.9,"autonomy":"act"}},"to":"item:r/decision:r:plan:1","expect":{"effects":["postDecisionCard"],"needsPerson":true}},
+    {"event":{"type":"PERSON_DECIDED","choice":"reject"},"to":"item:r/decision:r:plan:1","expect":{"effects":["logPrecedent"],"items":{"r":"cancelled"},"inFlight":[],"standin":{"plan":"shadow","accept":"recommend"}}}
+  ]
+}

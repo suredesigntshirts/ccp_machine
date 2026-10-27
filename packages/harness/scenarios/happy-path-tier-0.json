@@ -1,0 +1,11 @@
+{
+  "name": "happy-path-tier-0",
+  "description": "A tier-0 item runs triage, build and verify, then merges with no decision.",
+  "steps": [
+    {"event":{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}},"expect":{"effects":["dispatchRun:triage"],"items":{"a":"active.triaging"},"inFlight":["a"]}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:a","expect":{"effects":["dispatchRun:build"],"items":{"a":"active.building"}}},
+    {"event":{"type":"RUN_SUCCEEDED"},"to":"item:a","expect":{"effects":["dispatchRun:verify"],"items":{"a":"active.verifying"}}},
+    {"event":{"type":"CHECKS_PASSED"},"to":"item:a","expect":{"effects":["mergePullRequest"],"items":{"a":"active.merging"}}},
+    {"event":{"type":"MERGED"},"to":"item:a","expect":{"effects":[],"items":{"a":"done"},"inFlight":[]}}
+  ]
+}

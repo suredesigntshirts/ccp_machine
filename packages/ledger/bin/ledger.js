@@ -1,0 +1,208 @@
+#!/usr/bin/env node
+// ledger: turn-level audit of Claude Code sessions. Run `ledger help`.
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { parseArgs } from 'node:util';
+import { messageDocs, textsOf, interactions, manual, readLog, mergeLog, attention, PERSON_LOG, buildLedger, findTranscripts, samplesFromText, mergeSamples, budgetStatus, estimateSample, usageSources, peerSources, renderReport, sessionsFromEvents, fileSessions, SESSIONS_DIR } from '../src/index.js';
+
+const HELP = `ledger <command> [options]
+
+  build [transcript.jsonl ...]   Build a ledger from session transcripts (default: every session under
+                                 ~/.claude/projects). Writes --out (default .ledger/ledger.json).
+  events <file ...>              Add sessions from saved list_events output (result events) to --out's
+                                 ledger: for sessions whose transcripts are not in this container.
+  collect [dir ...]              Merge the session files the harness plugin files in the Library
+                                 (default /mnt/project-files/harness/ledger/sessions) into --out
+  usage <file ...>               Add usage-window samples from saved rate_limit_event JSON (list_events
+                                 output, JSON or JSONL) to --samples (default .ledger/usage.json), then
+                                 print today's budget status.
+  usage-sources [dir ...] [--notes FILE]
+                                 Print the cloud sessions to read usage from (this one first, then every
+                                 session filed in the Library, newest first, then each "usage source:
+                                 session_…" line in FILE), as list_events ids: the windows are the
+                                 account's, so the newest reading from any of them counts
+  budget                         Print today's budget status from --samples.
+  estimate                       When no reading is newer than the turns in --out's ledger, add a sample
+                                 estimated from their cost (marked estimated) to --samples, then print
+                                 the budget status. Run it after refresh when list_events has no reading.
+  file [path ...]                File session ledgers in the Library (--sessions, default
+                                 /mnt/project-files/harness/ledger/sessions): transcripts (.jsonl, default
+                                 this machine's) and saved list_events output (.json); one file per session
+  refresh [dir ...]              collect, then report: what the orchestrator runs after each wake
+  report                         Render --out's ledger and --samples' budget as HTML to --html
+                                 (default .ledger/report.html). --standalone writes a full document.
+  person [dump ...]              Add the person's messages and card taps from saved read_thread /
+                                 read_project_chat output (or transcripts holding it) to --log
+                                 (default /mnt/project-files/harness/ledger/person/interactions.jsonl).
+                                 --add '<json>' adds one record by hand (a reaction, a tap seen in a
+                                 wake). Prints the attention summary per day.
+  turns [transcript.jsonl ...]   Print one line per turn: index, start, duration, cost, label.
+
+Options: --out <path> --samples <path> --html <path> --title <text> --standalone
+         --daily-share 0.1 --soft-at 0.8 --five-hour-stop 0.95 --utc-offset <minutes>`;
+
+const usageError = (msg) => {
+  console.error(`ledger: ${msg}\n\n${HELP}`);
+  process.exit(2);
+};
+const COMMANDS = ['build', 'events', 'collect', 'usage', 'budget', 'report', 'file', 'refresh', 'turns', 'estimate', 'usage-sources', 'person', 'help'];
+if (process.argv.slice(2).some((a) => a === '--help' || a === '-h')) {
+  console.log(HELP);
+  process.exit(0);
+}
+let parsed;
+try {
+  parsed = parseArgs({
+    allowPositionals: true,
+    options: {
+      out: { type: 'string', default: '.ledger/ledger.json' },
+      sessions: { type: 'string' },
+      samples: { type: 'string', default: '.ledger/usage.json' },
+      html: { type: 'string', default: '.ledger/report.html' },
+      title: { type: 'string' },
+      standalone: { type: 'boolean', default: false },
+      'daily-share': { type: 'string' },
+      'soft-at': { type: 'string' },
+      'five-hour-stop': { type: 'string' },
+      'utc-offset': { type: 'string' },
+      notes: { type: 'string' },
+      log: { type: 'string' },
+      add: { type: 'string' }
+    }
+  });
+} catch (e) {
+  usageError(e.message.split('. ')[0]);
+}
+const { values: o, positionals } = parsed;
+const [cmd = 'help', ...args] = positionals;
+if (!COMMANDS.includes(cmd)) usageError(`unknown command ${cmd}`);
+const write = (path, data) => {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, data);
+};
+const readJson = (path, fallback) => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : fallback);
+const budgetConfig = () =>
+  Object.fromEntries(
+    [
+      ['dailyShare', o['daily-share']],
+      ['softAt', o['soft-at']],
+      ['fiveHourStopAt', o['five-hour-stop']],
+      ['utcOffsetMinutes', o['utc-offset']]
+    ]
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, Number(v)])
+  );
+const transcripts = () => (args.length ? args : findTranscripts(join(homedir(), '.claude', 'projects')));
+
+function collect(dirs) {
+  // Session files the harness plugin's Stop hook files in the Library, one per session.
+  const ledger = readJson(o.out, { generatedAt: new Date().toISOString(), version: 1, sessions: [], usage: [] });
+  dirs = dirs.length ? dirs : ['/mnt/project-files/harness/ledger/sessions'];
+  const added = dirs.flatMap((d) =>
+    readdirSync(d)
+      .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+      .map((f) => readJson(join(d, f), null)?.session)
+      .filter(Boolean)
+  );
+  const ids = new Set(added.map((s) => s.sessionId));
+  ledger.sessions = [...ledger.sessions.filter((s) => !ids.has(s.sessionId)), ...added];
+  write(o.out, JSON.stringify(ledger, null, 1));
+  console.log(`${added.length} filed sessions merged -> ${o.out}`);
+}
+
+function report() {
+  const ledger = readJson(o.out, null);
+  if (!ledger) {
+    console.error(`No ledger at ${o.out}; run \`ledger build\` first.`);
+    process.exit(1);
+  }
+  const samples = readJson(o.samples, []);
+  const html = renderReport(ledger, {
+    title: o.title,
+    standalone: o.standalone,
+    budget: samples.length ? budgetStatus(samples, budgetConfig()) : undefined
+  });
+  write(o.html, html);
+  console.log(`report -> ${o.html}`);
+}
+
+switch (cmd) {
+  case 'build': {
+    const ledger = buildLedger(transcripts());
+    write(o.out, JSON.stringify(ledger, null, 1));
+    const turns = ledger.sessions.reduce((a, s) => a + s.turns.length, 0);
+    const cost = ledger.sessions.reduce((a, s) => a + s.totals.cost, 0);
+    console.log(`${ledger.sessions.length} sessions, ${turns} turns, $${cost.toFixed(2)} at list price -> ${o.out}`);
+    break;
+  }
+  case 'events': {
+    const ledger = readJson(o.out, { generatedAt: new Date().toISOString(), version: 1, sessions: [], usage: [] });
+    const added = sessionsFromEvents(args.map((f) => readFileSync(f, 'utf8')));
+    const ids = new Set(added.map((s) => s.sessionId));
+    ledger.sessions = [...ledger.sessions.filter((s) => !ids.has(s.sessionId)), ...added];
+    write(o.out, JSON.stringify(ledger, null, 1));
+    console.log(`${added.length} sessions from events (${added.reduce((a, s) => a + s.turns.length, 0)} turns) -> ${o.out}`);
+    break;
+  }
+  case 'collect':
+    collect(args);
+    break;
+  case 'usage': {
+    const added = args.flatMap((f) => samplesFromText(readFileSync(f, 'utf8')));
+    const samples = mergeSamples(readJson(o.samples, []), added);
+    write(o.samples, JSON.stringify(samples, null, 1));
+    console.log(`${added.length} samples read, ${samples.length} kept in ${o.samples}`);
+    console.log(JSON.stringify(budgetStatus(samples, budgetConfig()), null, 2));
+    break;
+  }
+  case 'usage-sources': {
+    const dirs = args.length ? args : ['/mnt/project-files/harness/ledger/sessions'];
+    const records = dirs.flatMap((d) =>
+      existsSync(d) ? readdirSync(d).filter((f) => f.endsWith('.json') && !f.startsWith('.')).map((f) => readJson(join(d, f), {})) : []
+    );
+    const peers = o.notes && existsSync(o.notes) ? peerSources(readFileSync(o.notes, 'utf8')) : [];
+    console.log(usageSources(records, process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null, peers).join('\n'));
+    break;
+  }
+  case 'estimate': {
+    const samples = readJson(o.samples, []);
+    const est = estimateSample(samples, readJson(o.out, null));
+    if (est) write(o.samples, JSON.stringify(mergeSamples(samples, [est]), null, 1));
+    console.log(JSON.stringify({ estimated: est, budget: budgetStatus(est ? [...samples, est] : samples, budgetConfig()) }, null, 2));
+    break;
+  }
+  case 'budget':
+    console.log(JSON.stringify(budgetStatus(readJson(o.samples, []), budgetConfig()), null, 2));
+    break;
+  case 'report':
+    report();
+    break;
+  case 'file':
+    for (const f of fileSessions(args.length ? args : transcripts(), { dir: o.sessions ?? SESSIONS_DIR })) console.log(`${f.sessionId}: ${f.turns} turns -> ${f.file}`);
+    break;
+  case 'refresh':
+    // After each orchestrator wake: merge the filed sessions, then rebuild the report.
+    collect(args);
+    report();
+    break;
+  case 'person': {
+    const log = o.log || PERSON_LOG;
+    const added = interactions(args.flatMap(textsOf).flatMap(messageDocs));
+    if (o.add) added.push(manual(JSON.parse(o.add)));
+    const merged = mergeLog(readLog(log), added);
+    write(log, merged.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    console.log(JSON.stringify({ log, records: merged.length, read: added.length, days: attention(merged) }, null, 1));
+    break;
+  }
+  case 'turns': {
+    for (const s of buildLedger(transcripts()).sessions)
+      for (const t of s.turns)
+        console.log(
+          [s.sessionId.slice(0, 8), `#${t.index}`, t.start, `${Math.round(t.durationMs / 1000)}s`, `$${t.all.cost.toFixed(2)}`, t.label].join('\t')
+        );
+    break;
+  }
+  default:
+    console.log(HELP);
+}

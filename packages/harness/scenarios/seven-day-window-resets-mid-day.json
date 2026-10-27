@@ -1,0 +1,11 @@
+{
+  "name": "seven-day-window-resets-mid-day",
+  "description": "The 7-day window resets at 0.94; today's spend counts on from 0 (0.04 + 0.02), so the slice still runs out on time.",
+  "steps": [
+    {"event":{"type":"DAY_STARTED","sevenDay":0.9,"fiveHour":0,"sevenDayResetsAt":100,"at":"2026-10-26T01:00:00Z"},"to":"budget","now":"2026-10-26T01:00:00Z","expect":{"budget":"normal"}},
+    {"event":{"type":"USAGE_SAMPLED","sevenDay":0.94,"fiveHour":0.1,"sevenDayResetsAt":100,"at":"2026-10-26T05:00:00Z"},"to":"budget","now":"2026-10-26T05:00:00Z","expect":{"budget":"normal"}},
+    {"event":{"type":"USAGE_SAMPLED","sevenDay":0.02,"fiveHour":0.1,"sevenDayResetsAt":200,"at":"2026-10-26T07:00:00Z"},"to":"budget","now":"2026-10-26T07:00:00Z","expect":{"budget":"normal","scheduler":"accepting"}},
+    {"event":{"type":"USAGE_SAMPLED","sevenDay":0.05,"fiveHour":0.1,"sevenDayResetsAt":200,"at":"2026-10-26T09:00:00Z"},"to":"budget","now":"2026-10-26T09:00:00Z","expect":{"budget":"wrappingUp","scheduler":"draining"}},
+    {"event":{"type":"USAGE_SAMPLED","sevenDay":0.07,"fiveHour":0.1,"sevenDayResetsAt":200,"at":"2026-10-26T11:00:00Z"},"to":"budget","now":"2026-10-26T11:00:00Z","expect":{"budget":"paused","scheduler":"halted"}}
+  ]
+}
