@@ -95,7 +95,7 @@ test('PreToolUse: other commands are left unchanged; the parent session\'s harne
   assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, parentBash('ls')), '', 'ls');
   for (const command of ['harness-call send x', 'bash -c "harness-call send x"']) {
     const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib }, parentBash(command)));
-    assert.equal(runCommand(o.updatedInput.command, bin).trim(), 'call=toolu_1 agent=none', command);
+    assert.match(runCommand(o.updatedInput.command, bin).trim(), /^call=toolu_1:[0-9a-f]{32} agent=none$/, command);
   }
   assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, { ...bash('harness send x'), tool_name: 'Read' }), '', 'only Bash');
 });
@@ -104,11 +104,34 @@ test('PreToolUse: every harness call is recorded first (session, agent_id, tool_
   const { lib, root, bin, install } = scratch();
   install();
   const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib }, bash('harness-call send x')));
-  assert.equal(runCommand(o.updatedInput.command, bin).trim(), 'call=toolu_1 agent=a076db74e73211f3e:general-purpose');
+  const [, key] = /^call=toolu_1:([0-9a-f]{32}) agent=a076db74e73211f3e:general-purpose$/.exec(runCommand(o.updatedInput.command, bin).trim()) ?? [];
+  assert.ok(key, 'HARNESS_CALL is <tool_use_id>:<a fresh key>');
   const record = JSON.parse(readFileSync(join(lib, 'ledger/sessions', SID, 'calls', 'toolu_1.json'), 'utf8'));
-  assert.deepEqual({ ...record, at: null }, { sessionId: SID, toolUseId: 'toolu_1', at: null, kind: 'bash', agentId: 'a076db74e73211f3e', agentType: 'general-purpose', commandSha256: createHash('sha256').update('harness-call send x').digest('hex') });
+  assert.deepEqual({ ...record, at: null }, { sessionId: SID, toolUseId: 'toolu_1', at: null, kind: 'bash', agentId: 'a076db74e73211f3e', agentType: 'general-purpose', commandSha256: createHash('sha256').update('harness-call send x').digest('hex'), keySha256: createHash('sha256').update(key).digest('hex'), enforced: false });
+  assert.ok(!JSON.stringify(record).includes(key), 'the record holds only the key\'s hash');
   out(hook(root, { HARNESS_LIBRARY_DIR: lib }, { ...parentBash('harness send y'), tool_use_id: 'toolu_2' }));
   assert.equal(JSON.parse(readFileSync(join(lib, 'ledger/sessions', SID, 'calls', 'toolu_2.json'), 'utf8')).agentId, null, "the parent's call names no agent");
+});
+
+test('PreToolUse: under HARNESS_ENFORCE=1 in the hook\'s own environment every Bash call is recorded and stamped, whatever the command says', () => {
+  const { lib, root, bin, install } = scratch();
+  install();
+  let n = 0;
+  for (const [command, input] of [
+    ['ls -la', bash],
+    ['ls -la', parentBash],
+    ['HARNESS_ENFORCE=0 node "$(ls -d /nowhere)" send x', bash],
+    ['unset HARNESS_ENFORCE; "$B" send x', bash]
+  ]) {
+    const id = `toolu_e${++n}`;
+    const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib, HARNESS_ENFORCE: '1' }, { ...input(command), tool_use_id: id }));
+    assert.ok(o.updatedInput.command.endsWith(command), command);
+    const record = JSON.parse(readFileSync(join(lib, 'ledger/sessions', SID, 'calls', `${id}.json`), 'utf8'));
+    assert.equal(record.enforced, true, command);
+    assert.equal(record.commandSha256, createHash('sha256').update(command).digest('hex'));
+  }
+  assert.match(runCommand(out(hook(root, { HARNESS_LIBRARY_DIR: lib, HARNESS_ENFORCE: '1' }, bash('harness-call'))).updatedInput.command, bin).trim(), /^call=toolu_1:[0-9a-f]{32} agent=a076db74e73211f3e:general-purpose$/);
+  assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, bash('ls -la')), '', 'without it, a command that names no harness is left alone');
 });
 
 test('PreToolUse: a command that sets HARNESS_AGENT itself is denied with a reason, from a subagent or the parent', () => {

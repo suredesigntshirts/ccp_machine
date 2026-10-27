@@ -4,7 +4,8 @@
 // verify-actors checks it against the SubagentStart hook's record.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, status } from '../src/index.js';
@@ -117,13 +118,14 @@ test('an agent stand-in cannot answer for the item it built, checked or triaged'
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
 const LIB = tempDir('harness-lib-');
 let calls = 0;
-// The hook's record of one call, as plugins/harness/scripts/host.js writeCall files it; returns its id.
-const recordCall = (sid, aid, lib = LIB) => {
-  const id = `toolu_${++calls}`;
+// The hook's record of one call, as plugins/harness/scripts/host.js writeCall files it: its key's sha256, and whether
+// the hook ran under HARNESS_ENFORCE=1. Returns HARNESS_CALL as the hook stamps it, <tool_use_id>:<key>.
+const recordCall = (sid, aid, { lib = LIB, enforced = false, id = `toolu_${++calls}`, kind = 'bash' } = {}) => {
+  const key = randomBytes(16).toString('hex');
   const dir = join(lib, 'ledger', 'sessions', sid, 'calls');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ sessionId: sid, toolUseId: id, at: new Date().toISOString(), kind: 'bash', agentId: aid ?? null }));
-  return id;
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ sessionId: sid, toolUseId: id, at: new Date().toISOString(), kind, agentId: aid ?? null, keySha256: createHash('sha256').update(key).digest('hex'), enforced }));
+  return `${id}:${key}`;
 };
 const run = (env, ...args) => {
   const e = { ...process.env, HARNESS_LIBRARY_DIR: LIB, HARNESS_AGENT: undefined, HARNESS_CALL: undefined, HARNESS_ENFORCE: undefined, ...env };
@@ -165,7 +167,7 @@ test('CLI: the default actor is the agent when HARNESS_AGENT is set and the hook
   assert.match(unflagged.stderr, /needs --actor/);
 });
 
-test('CLI: an agent the hook did not record is refused, and under HARNESS_ENFORCE=1 so is any call it did not record', () => {
+test('CLI: an agent the hook did not record is refused', () => {
   const dir = cliItem();
   cliSpawn(dir, 'triager', 'a1', 'general-purpose');
   const before = readFileSync(join(dir, 'events.jsonl'), 'utf8');
@@ -175,10 +177,8 @@ test('CLI: an agent the hook did not record is refused, and under HARNESS_ENFORC
     [{ ...parent, HARNESS_AGENT: 'a1:general-purpose' }, /comes with no HARNESS_CALL/],
     [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('lead', null) }, /names session lead, not agent lead\/a1/],
     [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('lead', 'a9') }, /names agent lead\/a9, not agent lead\/a1/],
-    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: 'toolu_nowhere' }, /names no record/],
-    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('other', 'a1') }, /names no record/],
-    // A harness call the hook did not see (no literal "harness" in the command): nothing under enforcement.
-    [{ ...parent, HARNESS_ENFORCE: '1' }, /under HARNESS_ENFORCE=1 a call the plugin's PreToolUse hook did not record sends nothing/]
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: 'toolu_nowhere:0123' }, /names no record/],
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('other', 'a1') }, /names no record/]
   ]) {
     const r = run(env, ...triage);
     assert.equal(r.status, 1, `${JSON.stringify(env)}: ${r.stderr}`);
@@ -186,7 +186,7 @@ test('CLI: an agent the hook did not record is refused, and under HARNESS_ENFORC
     assert.match(r.stderr, /nothing was written/);
   }
   assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'nothing was written');
-  const ok = run({ ...sub('a1'), HARNESS_ENFORCE: '1' }, ...triage);
+  const ok = run(sub('a1'), ...triage);
   assert.equal(ok.status, 0, ok.stderr);
   assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/a1', type: 'general-purpose' });
 });
@@ -210,6 +210,93 @@ test('CLI: a subagent cannot record as its parent or another subagent, and the p
     assert.equal(r.stdout, '');
   }
   assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'nothing was written');
+});
+
+test("CLI: HARNESS_CALL is believed only with the key the hook stamped on that call, never an id the caller wrote", () => {
+  const dir = cliItem();
+  cliSpawn(dir, 'triager', 'a1', 'general-purpose');
+  const before = readFileSync(join(dir, 'events.jsonl'), 'utf8');
+  const triage = ['send', '{"type":"TRIAGED","tier":0,"criteria":["a works"]}', '--to', 'item:a', '--dir', dir];
+  const mine = recordCall('lead', 'a1');
+  const [id] = mine.split(':');
+  const start = recordCall('lead', null, { id: 'start-a1', kind: 'start' }); // the SubagentStart hook's own call
+  for (const [env, why] of [
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: id }, /carries no key/],
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: `${id}:${'0'.repeat(32)}` }, /key .* not the one the plugin's hook stamped/],
+    // The review's attack: a subagent names the start record (which names the session) and drops HARNESS_AGENT.
+    [{ ...parent, HARNESS_CALL: 'start-a1' }, /carries no key/],
+    [{ ...parent, HARNESS_CALL: `start-a1:${mine.split(':')[1]}` }, /not the one the plugin's hook stamped/]
+  ]) {
+    const r = run(env, ...triage);
+    assert.equal(r.status, 1, `${JSON.stringify(env)}: ${r.stderr}`);
+    assert.match(r.stderr, why);
+    assert.match(r.stderr, /nothing was written/);
+  }
+  assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'nothing was written');
+  assert.ok(start);
+  const ok = run({ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: mine }, ...triage);
+  assert.equal(ok.status, 0, ok.stderr);
+});
+
+// An enforced store: a call the hook recorded under HARNESS_ENFORCE=1 marks it, and from then on it takes a write only
+// from a recorded call, whatever the caller's environment says.
+const leadCall = (enforced = false) => ({ ...parent, HARNESS_CALL: recordCall('lead', null, { enforced }) });
+function enforcedItem() {
+  const dir = cliItem();
+  assert.equal(existsSync(join(dir, 'enforced.json')), false, 'a call recorded without HARNESS_ENFORCE marks nothing');
+  const r = run(leadCall(true), 'send', JSON.stringify({ type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF }), '--to', 'item:a', '--dir', dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'enforced.json'), 'utf8')).libraryDir, LIB, 'the store names the Library of its records');
+  return dir;
+}
+
+test('CLI: an enforced store takes a write only from a recorded call; HARNESS_ENFORCE, the session id and the Library in the caller\'s environment change nothing', () => {
+  const dir = enforcedItem();
+  const before = readFileSync(join(dir, 'events.jsonl'), 'utf8');
+  const fake = tempDir('harness-lib-fake-');
+  const forged = recordCall('lead', null, { lib: fake });
+  const block = ['send', '{"type":"BLOCK"}', '--to', 'item:a', '--dir', dir];
+  for (const [env, flags] of [
+    [parent, []],
+    [{ ...parent, HARNESS_ENFORCE: '0' }, []],
+    [{ ...parent, HARNESS_ENFORCE: '' }, []],
+    [{}, ['--actor', 'session:lead', '--source', 'cli:x']], // no CLAUDE_CODE_SESSION_ID: not "outside Claude Code" here
+    [{ ...parent, HARNESS_LIBRARY_DIR: fake, HARNESS_CALL: forged }, []] // a record filed in another Library
+  ]) {
+    const r = run(env, ...block, ...flags);
+    assert.equal(r.status, 1, `${JSON.stringify(env)}: ${r.stderr}`);
+    assert.match(r.stderr, /enforced|names no record/);
+    assert.match(r.stderr, /nothing was written/);
+  }
+  assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'nothing was written');
+  assert.equal(run(leadCall(), ...block).status, 0, 'a recorded call, even one recorded without HARNESS_ENFORCE');
+});
+
+test('#36 review: a no-role agent cannot forge its spawn and start as the lead, then report a run, in an enforced store', () => {
+  const dir = enforcedItem();
+  const state = () => status(openStore(dir)).items.find((i) => i.id === 'a')?.state ?? JSON.stringify(status(openStore(dir)).items);
+  const was = state();
+  const before = readFileSync(join(dir, 'events.jsonl'), 'utf8');
+  recordCall('lead', null, { id: 'start-x1', kind: 'start', enforced: true }); // SubagentStart's own call for x1
+  const own = () => ({ ...parent, HARNESS_AGENT: 'x1:general-purpose', HARNESS_CALL: recordCall('lead', 'x1', { enforced: true }) });
+  const forge = [
+    ['WORKER_SPAWNED', { type: 'WORKER_SPAWNED', role: 'builder', briefSha256: BRIEF, agentType: 'general-purpose' }],
+    ['WORKER_STARTED', { type: 'WORKER_STARTED', agent: 'lead/x1', agentType: 'general-purpose' }]
+  ];
+  for (const [name, e] of forge)
+    for (const env of [
+      { ...parent, HARNESS_ENFORCE: '0' }, // an unseen call: no HARNESS_CALL, enforcement "off" inline
+      { ...parent, HARNESS_CALL: 'start-x1' }, // the start record's id, without its key
+      { ...parent, HARNESS_CALL: own().HARNESS_CALL } // its own recorded call, minus HARNESS_AGENT
+    ]) {
+      const r = run(env, 'send', JSON.stringify(e), '--to', 'item:a', '--dir', dir);
+      assert.equal(r.status, 1, `${name} ${JSON.stringify(env)}: ${r.stdout}${r.stderr}`);
+    }
+  const r = run(own(), 'send', '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/7"}', '--to', 'item:a', '--dir', dir);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout + r.stderr, /unspawnedAgent/);
+  assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'the store took none of it');
+  assert.equal(state(), was);
 });
 
 // The hooks' records: the Stop hook's session ledger and the SubagentStart hook's agent record beside it.

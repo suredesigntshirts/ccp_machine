@@ -33,17 +33,16 @@ function scratch() {
   cpSync(join(repo, 'plugins/harness'), root, { recursive: true });
   const store = join(tmp, 'store');
   const env = { ...clean(), HARNESS_LIBRARY_DIR: lib, HARNESS_BIN: BIN, HARNESS_DIR: store };
-  const cli = (args, extra = {}) => {
-    const r = spawnSync(process.execPath, [BIN, ...args], { encoding: 'utf8', env: { ...env, CLAUDE_CODE_SESSION_ID: SID, ...extra } });
-    for (const k of Object.keys(extra)) if (extra[k] === undefined) delete r[k];
-    return r;
-  };
+  const s = { tmp, lib, root, store, env };
+  // This session's own harness calls, through the agent hook like any other: once a gate has run under
+  // HARNESS_ENFORCE=1 the store takes writes only from recorded calls.
+  s.cli = (args) => asAgent(s, null, null, args);
   // The item: filed by this session, triaged by another, at tier 0, so it is building.
-  assert.equal(cli(['init']).status, 0);
-  assert.equal(cli(['send', '{"type":"REQUEST_RECEIVED","request":{"id":"a"}}']).status, 0);
+  assert.equal(s.cli(['init']).status, 0);
+  assert.equal(s.cli(['send', '{"type":"REQUEST_RECEIVED","request":{"id":"a"}}']).status, 0);
   const t = spawnSync(process.execPath, [BIN, 'send', '{"type":"TRIAGED","tier":0,"criteria":["a works"]}', '--to', 'item:a', '--actor', 'session:triager'], { encoding: 'utf8', env });
   assert.equal(t.status, 0, t.stderr);
-  return { tmp, lib, root, store, env, cli };
+  return s;
 }
 const hook = (s, input, extra = {}, script = 'gates.js') => {
   const r = spawnSync('node', [join(s.root, 'scripts', script)], { input: JSON.stringify(input), encoding: 'utf8', env: { ...s.env, ...extra } });
@@ -65,9 +64,16 @@ const denied = (o, rule, why, label) => {
 const callRecord = (s, id) => JSON.parse(readFileSync(join(s.lib, 'ledger/sessions', SID, 'calls', `${id}.json`), 'utf8'));
 // A subagent's harness call, through the agent hook (it records the call and stamps it) and then bash.
 const asAgent = (s, aid, type, args) => {
-  const o = hook(s, { ...bashInput(`harness ${args.map((a) => `'${a}'`).join(' ')}`), agent_id: aid, agent_type: type }, {}, 'agent-actor.js');
+  const o = hook(s, { ...bashInput(`harness ${args.map((a) => `'${a}'`).join(' ')}`), ...(aid && { agent_id: aid, agent_type: type }) }, {}, 'agent-actor.js');
   const stamp = o.updatedInput.command.split('\n')[0];
   return spawnSync('bash', ['-c', `${stamp}\n"${process.execPath}" "${BIN}" "$@"`, 'x', ...args], { encoding: 'utf8', env: { ...s.env, CLAUDE_CODE_SESSION_ID: SID } });
+};
+// A subagent's Bash command as written, through the agent hook under HARNESS_ENFORCE=1 and then bash; $N is node and
+// $B the harness CLI, so the command need not name harness.
+const agentBash = (s, aid, type, command) => {
+  const o = hook(s, { ...bashInput(command), agent_id: aid, agent_type: type }, enforce, 'agent-actor.js');
+  if (o?.permissionDecision) return { status: 1, stdout: '', stderr: o.permissionDecisionReason };
+  return spawnSync('bash', ['-c', o?.updatedInput?.command ?? command], { encoding: 'utf8', env: { ...s.env, CLAUDE_CODE_SESSION_ID: SID, N: process.execPath, B: BIN } });
 };
 
 test('hooks.json runs the gates before Agent, Bash and the GitHub merge tool', () => {
@@ -149,6 +155,61 @@ test('merge gate: each route is denied without a verdict, without a pinned head,
   assert.deepEqual([call.kind, call.pr, call.decision, call.rule], ['merge', 'o/r#8', 'denied', 'mergeBound']);
   // Not merges: untouched.
   for (const c of ['gh pr view 7', 'git merge main', 'echo pr merge']) assert.equal(hook(s, bashInput(c), enforce), null, c);
+});
+
+test('#36 review: a no-role agent cannot forge its spawn and start as the lead and then report its run, by any unseen or borrowed call', () => {
+  const s = scratch();
+  assert.equal(s.cli(['send', JSON.stringify({ type: 'VERIFIER_BRIEF_FIXED', sha256: sha256(VERIFIER_BRIEF) }), '--to', 'item:a']).status, 0);
+  // The lead spawns a no-role general-purpose agent under enforcement; the gate's call marks the store enforced.
+  assert.equal(hook(s, spawnInput('Look something up.', 'general-purpose'), enforce), null);
+  assert.equal(hook(s, spawnInput(BUILDER_BRIEF), enforce), null, 'and a builder, whose start record names the lead');
+  hook(s, startInput('b1', 'harness:builder'), enforce, 'agent-actor.js');
+  hook(s, startInput('x1', 'general-purpose'), enforce, 'agent-actor.js');
+  assert.ok(readFileSync(join(s.store, 'enforced.json'), 'utf8'));
+  const before = events(s).length;
+  const spawned = `'${JSON.stringify({ type: 'WORKER_SPAWNED', role: 'builder', briefSha256: sha256(BUILDER_BRIEF), agentType: 'general-purpose' })}'`;
+  const started = `'${JSON.stringify({ type: 'WORKER_STARTED', agent: `${SID}/x1`, agentType: 'general-purpose' })}'`;
+  for (const ev of [spawned, started])
+    for (const command of [
+      `HARNESS_ENFORCE=0 env -u "HARNESS_""CALL" -u "HARNESS_""AGENT" "$N" "$B" send ${ev} --to item:a`,
+      `env "HARNESS_""CALL=start-b1" -u "HARNESS_""AGENT" "$N" "$B" send ${ev} --to item:a`,
+      `env -u "HARNESS_""AGENT" -u CLAUDE_CODE_SESSION_ID HARNESS_ENFORCE= "$N" "$B" send ${ev} --to item:a --actor session:${SID} --source cli:x`,
+      `env -u "HARNESS_""AGENT" "$N" "$B" send ${ev} --to item:a`
+    ]) {
+      const r = agentBash(s, 'x1', 'general-purpose', command);
+      assert.equal(r.status, 1, `${command}: ${r.stdout}${r.stderr}`);
+    }
+  const run = agentBash(s, 'x1', 'general-purpose', `"$N" "$B" send '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/7"}' --to item:a`);
+  assert.equal(run.status, 1);
+  assert.match(run.stdout + run.stderr, /unspawnedAgent/);
+  assert.equal(events(s).length, before, 'the store took none of it');
+  assert.equal(JSON.parse(s.cli(['status']).stdout).items.find((i) => i.id === 'a').state, 'active.building');
+});
+
+test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite); a literal merge by any wrapper is judged; literal writes and reads pass', () => {
+  const s = scratch();
+  for (const c of [
+    `N=7; gh api -X PUT repos/o/r/pulls/$N/merge -f sha=${HEAD}`,
+    `S=merge; gh pr $S 7 --repo o/r --match-head-commit ${HEAD}`,
+    `gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: "PR_1", expectedHeadOid: "${HEAD}"}) { clientMutationId } }'`,
+    'Q=$(cat q.graphql); gh api graphql -f query="$Q"',
+    `G=gh; $G pr merge 7 --repo o/r --match-head-commit ${HEAD}`,
+    'gh m 7',
+    `M=PUT; gh api -X $M repos/o/r/pulls/7/merge -f sha=${HEAD}`,
+    `curl -X PUT -H "Authorization: token x" https://api.github.com/repos/o/r/pulls/7/merge -d '{"sha":"${HEAD}"}'`,
+    `U=https://api.github.com/repos/o/r/pulls/7/merge; curl -X PUT "$U"`
+  ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', null, c);
+  for (const c of [
+    'bash -c "gh pr merge 7 --repo o/r"',
+    'echo $(gh pr merge 7 --repo o/r)',
+    'cd /w && env GH_DEBUG=1 command gh pr merge 7 --repo o/r',
+    'echo 7 | xargs gh pr merge --repo o/r'
+  ]) denied(hook(s, bashInput(c), enforce), 'pinnedHead', null, c);
+  for (const c of [
+    'gh pr view $N', 'gh api repos/o/r/pulls/$N', 'gh api graphql -f query=\'query { viewer { login } }\'',
+    'gh pr create --title x --body y', 'gh api -X POST repos/o/r/issues/7/comments -f body=hi', 'curl -s https://api.github.com/repos/o/r',
+    'gh api repos/o/r/pulls/7/merge', 'git merge main', 'echo pr merge', 'gh --version'
+  ]) assert.equal(hook(s, bashInput(c), enforce), null, c);
 });
 
 test('without HARNESS_ENFORCE nothing is denied: the gates only record', () => {
