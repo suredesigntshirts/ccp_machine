@@ -95,24 +95,29 @@ The harness spec and the runtime that drives it.
   when a class goes over 20 stand-in decisions unchecked.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
-  failed check `CHECKS_FAILED`, a merged PR `MERGED`, each from actor github and source github-wake. It finds
+  failed check `CHECKS_FAILED`, a merged PR `MERGED`, a PR closed unmerged `CANCEL`, each from actor github
+  and source github-wake. PR refs normalise to one key (`src/pr-binding.js` `prKey`: owner/repo lowercased,
+  the number an integer; `owner/repo#N`, `.../pull/N` and URLs alike), so a spelling variant of a bound PR
+  is the same PR. CI ids name the PR (`ci-<owner/repo#N>-<sha7>-passed|failed`), so two items' PRs on one
+  commit each get their result. It finds
   the item the PR is bound to (the first item whose events named it), then reads the PR from GitHub's REST API
   (`src/github-read.js`: `gh api` run by absolute path, `/usr/local/bin/gh` else what `command -v gh` finds,
   resolved once per process; or fetch with `GH_TOKEN` when there is no gh; the fetcher is injectable and tests
   serve recorded responses). It refuses a malformed answer (`number`, `head.sha` of 40 hex, `merged` boolean,
   `created_at`), and a PR that is not the item's own: created before the item's `REQUEST_RECEIVED`, or on a
-  branch whose name does not contain the item id. A CI result must name the PR's head by its full
+  branch that does not name the item (see the branch form under Use). A CI result must name the PR's head by its full
   40-character sha (no sha or a short one is refused) and the head's combined check-run conclusion must agree
   (more runs than one page, `total_count` over the runs returned, is pending); MERGED needs `merged: true`
-  and an existing merge commit. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
-  `owner/repo#N:merged@<merge sha>`). If GitHub disagrees or cannot be read, it refuses with the reason and
+  and an existing merge commit; CANCEL needs the PR closed and not merged, after the same checks. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
+  `owner/repo#N:merged@<merge sha>`, `owner/repo#N` for a close). If GitHub disagrees or cannot be read, it refuses with the reason and
   writes nothing. `harness send` refuses `--actor github` and `--source github-wake`.
   `HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness` also reads the real PR #21.
 - `src/verify-facts.js`: `harness verify-facts [--store DIR]` re-reads GitHub for every github-wake event in
   the log and prints one line per fact: `ok`, `mismatch` (GitHub does not back the ref now: other checks, not
   merged at that commit, a commit not on the PR, or a PR that is not the item's own) or `unreachable`. It
   exits 1 on any mismatch (else 3 if any could not be read), never writes to the store, and takes the same
-  injectable fetcher, so its tests run offline. Run it from outside the session that wrote the log.
+  injectable fetcher, so its tests run offline. Run it from outside the session that wrote the log. A
+  `--store` with no `events.jsonl` is an error (exit 2) and no folder is made.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` sent with
@@ -147,9 +152,18 @@ harness ack e3.0 --note "posted"
 harness page --standalone           # .harness/mission-control.html
 ```
 
-Workers put the item id in the branch name of their PR (such as `feat/42-login-fix` for item
-`login-fix`), and open the PR after the item's request: from-github refuses CI and merges for a PR that
-is not the item's own, and the first event naming a PR binds it to that item for good.
+Workers put the item id in the branch name of their PR, as the whole slug, in exactly one of these forms:
+
+- `<type>/<item id>`, such as `feat/login-fix`
+- `<type>/<issue>-<item id>`, such as `feat/42-login-fix`
+- `<type>/<issue>-<item id>--<agent>`, or `<type>/<item id>--<agent>`, such as `feat/42-login-fix--tests`
+
+The rule (`branchNamesItem` in `src/pr-binding.js`): the slug after `<type>/`, less an optional leading
+`<number>-` and an optional trailing `--<agent>`, must equal the item id. A branch that only contains the id
+does not count: `feat/login-fix-2` and `feat/login-fix-from-github` are not item `login-fix`'s, and item `e`
+matches only a slug that is exactly `e`. Open the PR after the item's request: from-github refuses CI,
+merges and closes for a PR that is not the item's own, and the first event naming a PR binds it to that
+item for good.
 
 The host (an orchestrator thread) is the only writer. It runs each effect (dispatch a run, post a
 decision card, merge a PR), acknowledges it, and turns what comes back (CI result, a person's tap)
