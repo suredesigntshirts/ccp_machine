@@ -1,7 +1,7 @@
 // harness replay: rebuilds the harness from its event log on a scratch copy and compares it with the
 // store. A match shows the store is deterministic; a difference shows either a tampered store or a spec
 // change that no longer reproduces the state already stored.
-import { mkdtempSync, rmSync, cpSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from './store.js';
@@ -39,8 +39,6 @@ export function replay(store) {
   try {
     const scratch = openStore(dir);
     init(scratch, { wipLimit: state.snapshot.context?.wipLimit }, store.events()[0]?.at);
-    // A rung also counts the answered audits dated before its decision opened, so the copy has them too.
-    if (existsSync(join(store.dir, 'audits'))) cpSync(join(store.dir, 'audits'), join(dir, 'audits'), { recursive: true });
     const outbox = new Map();
     for (const e of store.outbox()) outbox.set(e.eventId, [...(outbox.get(e.eventId) ?? []), effectKey(e)]);
     let firstDivergence = null;

@@ -211,6 +211,9 @@ test('the day\'s audit: AUDIT_PICKED opens it and asks for a card, AUDIT_ANSWERE
   refused(store, { type: 'AUDIT_ANSWERED', option: 1, ...as('orchestrator') }, to, 'a session answers');
   refused(store, { type: 'AUDIT_ANSWERED', option: 1, ...tap('cmsg_other') }, to, 'another card');
   refused(store, { type: 'AUDIT_ANSWERED', option: 4, ...tap('cmsg_audit') }, to, 'an option the card did not offer');
+  refused(store, { type: 'AUDIT_ANSWERED', option: -1, ...tap('cmsg_audit') }, to, 'a negative option');
+  refused(store, { type: 'AUDIT_ANSWERED', option: '1', ...tap('cmsg_audit') }, to, 'an option that is not a number');
+  refused(store, { type: 'AUDIT_ANSWERED', option: 0.5, ...tap('cmsg_audit') }, to, 'a fractional option');
   refused(store, { type: 'AUDIT_ANSWERED', option: 1, person: true, ...tap('cmsg_audit') }, to, 'with a person flag');
   assert.ok(!apply(store, { type: 'AUDIT_ANSWERED', option: 1, ...tap('cmsg_audit') }, { to, now: '2026-10-26T12:00:00Z' }).refused);
   assert.equal(auditLine(store, day), null);
@@ -275,7 +278,7 @@ test('harness verify-taps: one line per tap with its card, decision and claimed 
   ]);
   const text = verifyTapsText(rows).split('\n');
   assert.equal(text.length, 2);
-  assert.match(text[0], /cmsg_a1 .*decision:a:plan:1 .*PERSON_DECIDED .*revise .*person:sd/);
+  assert.match(text[0], /card cmsg_a1 item:a\/decision:a:plan:1 PERSON_DECIDED option 1 \("revise"\) by person:person$/);
   const before = files(store.dir);
   const r = run({}, 'verify-taps', '--store', store.dir);
   assert.equal(r.status, 0, r.stderr);

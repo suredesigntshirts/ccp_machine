@@ -8,8 +8,8 @@ import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { openStore, init, apply, logPrecedents } from '../src/index.js';
-import { scripted } from '../src/sim.js';
+import { openStore, init, apply, cardAddress, logPrecedents } from '../src/index.js';
+import { scripted, postAndTap } from '../src/sim.js';
 
 const { values: o } = parseArgs({ options: { out: { type: 'string' }, shots: { type: 'string' } } });
 // Everything goes to a temp folder unless --out or --shots names another.
@@ -26,18 +26,23 @@ const send = (event, to, h, id) => {
   const r = apply(store, { ...event, ...scripted(event.type, id ?? 'fixture') }, { to, now: at(h), id });
   if (r.refused) throw new Error(`fixture: ${r.why}`);
 };
+// The host posts the card the decision asked for (its ack names the message id), and the person taps it.
+const tap = (choice, to, h) => {
+  const r = postAndTap(store, store.pending().find((e) => e.name === 'postDecisionCard' && cardAddress(e) === to), choice, { now: at(h) });
+  if (r.refused) throw new Error(`fixture: ${r.why}`);
+};
 const sure = { choice: 'approve', confidence: 0.95, reason: 'small and covered by tests' };
 const pr = 'https://github.com/suredesigntshirts/ccp_machine_test/pull/1';
 send({ type: 'ORCHESTRATOR_STARTED' }, undefined, 8);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'merged-item', title: 'A merged change with a long title that has to wrap on a phone screen without scrolling sideways', project: 'packages/harness', url: pr, expect: 'It merges' } }, undefined, 8);
 send({ type: 'TRIAGED', tier: 1, criteria: ['It merges'] }, 'item:merged-item', 8);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:merged-item/decision:merged-item:plan:1', 9);
-send({ type: 'PERSON_DECIDED', choice: 'approve' }, 'item:merged-item/decision:merged-item:plan:1', 9);
+tap('approve', 'item:merged-item/decision:merged-item:plan:1', 9);
 send({ type: 'RUN_SUCCEEDED', pr }, 'item:merged-item', 9);
 send({ type: 'CRITERION_CHECKED', criterion: 'It merges', verdict: 'met', evidence: 'CI green on the PR' }, 'item:merged-item', 10);
 send({ type: 'CHECKS_PASSED', pr }, 'item:merged-item', 10);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:merged-item/decision:merged-item:accept:2', 10);
-send({ type: 'PERSON_DECIDED', choice: 'approve' }, 'item:merged-item/decision:merged-item:accept:2', 10);
+tap('approve', 'item:merged-item/decision:merged-item:accept:2', 10);
 send({ type: 'MERGED', pr }, 'item:merged-item', 10);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'needs-you', title: 'A tier-2 change', project: 'packages/harness' } }, undefined, 11);
 send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:needs-you', 11);
@@ -45,7 +50,7 @@ send({ type: 'STAND_IN_ANSWERED', answer: { ...sure, choice: 'revise', reason: '
 send({ type: 'REQUEST_RECEIVED', request: { id: 'dropped' } }, undefined, 12);
 send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:dropped', 12);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:dropped/decision:dropped:plan:1', 12);
-send({ type: 'PERSON_DECIDED', choice: 'reject', person: true }, 'item:dropped/decision:dropped:plan:1', 12);
+tap('reject', 'item:dropped/decision:dropped:plan:1', 12);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'building', project: 'packages/ledger' } }, undefined, 13);
 send({ type: 'TRIAGED', tier: 0, criteria: ['it works'] }, 'item:building', 13);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'no-criteria', title: 'Make the harness better', project: 'packages/harness' } }, undefined, 13);

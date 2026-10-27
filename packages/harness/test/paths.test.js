@@ -71,9 +71,15 @@ const homes = {
   }
 };
 
-// Item ids are unique, so each REQUEST_RECEIVED the walk offers names a new item.
+// Item ids are unique, so each REQUEST_RECEIVED the walk offers names a new item; each valid AUDIT_PICKED a new day.
 let k = 0;
-const offer = (events) => () => events.map((e) => (e.type === 'REQUEST_RECEIVED' ? { ...e, request: { ...e.request, id: `${e.request.id}-${++k}` } } : e));
+const newDay = () => new Date(Date.UTC(2030, 0, 1) + ++k * 864e5).toISOString().slice(0, 10);
+const offer = (events) => () =>
+  events.map((e) =>
+    e.type === 'REQUEST_RECEIVED' ? { ...e, request: { ...e.request, id: `${e.request.id}-${++k}` } }
+    : e.type === 'AUDIT_PICKED' && /^\d{4}-\d{2}-\d{2}$/.test(e.day) ? { ...e, day: newDay() }
+    : e
+  );
 
 // Graph states are the state value, plus the retry count for a work item (bounded by retriesLeft) and, for
 // a decision or an audit, whether its card is posted (a tap is taken only after).

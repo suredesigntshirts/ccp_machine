@@ -6,6 +6,8 @@ import { tryRestore } from './runtime.js';
 import { replay } from './replay.js';
 import { readDecisionLog } from './decision-log.js';
 import { untestedRuns, UNTESTED_WARN } from './audit.js';
+import { verifyActors, verifyActorsText } from './verify-actors.js';
+import { verifyFacts, verifyFactsText } from './verify-facts.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
@@ -46,4 +48,21 @@ export function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS } = {}) 
     (w) => `${w.decisionClass}: ${w.untested} stand-in decisions in a row with none checked by the person (over ${UNTESTED_WARN}); run harness audit`
   );
   return { ok: problems.length === 0, problems, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null } };
+}
+
+/**
+ * `harness doctor`: the store's own checks, plus verify-actors (every session actor against its ledger in
+ * `ledgers`) and verify-facts (every GitHub fact re-read with `fetcher`). A failure of either is a problem, so
+ * the report is not ok; a fact GitHub could not be read counts too, since nothing confirmed it.
+ */
+export async function doctorAll(store, { ledgers, fetcher, ...opts } = {}) {
+  const report = doctor(store, opts);
+  const actors = verifyActors(store, ledgers ? { dir: ledgers } : {});
+  const facts = await verifyFacts(store, fetcher ? { fetcher } : {});
+  const problems = [
+    ...report.problems,
+    ...actors.filter((r) => r.result !== 'ok').map((r) => `verify-actors: ${verifyActorsText([r])}`),
+    ...facts.filter((r) => r.result !== 'ok').map((r) => `verify-facts: ${verifyFactsText([r])}`)
+  ];
+  return { ...report, ok: problems.length === 0, problems, checked: { ...report.checked, actors: actors.length, facts: facts.length } };
 }

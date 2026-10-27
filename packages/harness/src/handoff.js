@@ -15,23 +15,17 @@ export const NOTES = 'handoff-notes.md';
 export function handoffNote(store, { now = new Date().toISOString() } = {}) {
   const st = status(store);
   const events = store.events();
-  const acks = new Map(store.acks().map((a) => [a.effectId, a]));
   const pending = store.pending();
   const open = st.items.filter((i) => !i.done);
   const live = open.filter((i) => !/queued/.test(i.state));
   const queued = open.filter((i) => /queued/.test(i.state));
   const plan = (id) => (existsSync(join(store.dir, 'plans', `${id}.md`)) ? `, plan \`plans/${id}.md\`` : '');
   const item = (i) => `- **${i.id}** (tier ${i.tier}) ${i.state}${prOf(events, i.id) ? `, PR ${prOf(events, i.id)}` : ''}${plan(i.id)}; moved ${lastMoved(events, i.id) ?? 'never'}${i.title ? `. ${i.title}` : ''}`;
-  // A card's ack note holds its message id; it is found from the decision's postDecisionCard effect.
-  const cards = live.flatMap((i) =>
-    i.decisions
-      .filter((d) => d.state === 'awaitingPerson')
-      .map((d) => {
-        const effect = store.outbox().findLast((e) => e.name === 'postDecisionCard' && `${i.address}/${e.subject}` === d.address);
-        const note = effect && acks.get(effect.id)?.note;
-        return `- ${d.address}: ${d.question ?? d.decisionClass}${note ? ` (card: ${note})` : effect ? ' (card not posted yet)' : ''}`;
-      })
-  );
+  // The decision holds its card's message id once the host acked postDecisionCard with it (CARD_POSTED).
+  const cards = [
+    ...live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => `- ${d.address}: ${d.question ?? d.decisionClass} (${d.card ? `card: ${d.card}` : 'card not posted yet'})`)),
+    ...(st.audits ?? []).map((a) => `- ${a.address}: stand-in audit of ${a.picks.length} (${a.card ? `card: ${a.card}` : 'card not posted yet'})`)
+  ];
   const doc = doctor(store);
   const b = st.budget;
   const notesFile = join(store.dir, NOTES);

@@ -53,7 +53,7 @@ test('an answer becomes the person\'s decisions, which calibration and the ladde
   assert.deepEqual(pickAudit(store, day, { by: orchestrator }).picks, ['s2', 's3', 's1']);
   post(store, `audit:${day}`, `cmsg_audit_${day.replace(/-/g, '')}`);
   assert.equal(answer(store, day, 1, '2026-10-26T12:00:00Z').refused, undefined);
-  assert.throws(() => answer(store, day, 1), /no actor at "audit:2026-10-26"/, 'answered: the audit is closed, and answering twice adds nothing');
+  assert.equal(answer(store, day, 1).refused, true, 'answered: the audit is done, and answering twice adds nothing');
   assert.equal(auditLine(store, day), null);
   const rows = readDecisionLog(store);
   const plan = calibrateClass(rows, 'plan', '2026-10-26T13:00:00Z');

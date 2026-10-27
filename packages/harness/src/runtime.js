@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
-import { createMachines } from './machines.js';
+import { createMachines, tapEvents } from './machines.js';
 import { bindingError } from './pr-binding.js';
 import { ladder, readDecisionLog } from './decision-log.js';
 
@@ -13,8 +13,10 @@ const SEEN_IDS_KEPT = 500;
 // The envelope every event carries: who sent it and where it came from. The machines' guards read both.
 export const ACTOR_KINDS = ['person', 'session', 'github', 'timer'];
 export const SOURCE_KINDS = ['tap', 'github-wake', 'cli', 'timer'];
-const envelopeError = ({ actor, source }) =>
-  !actor ? 'without an actor'
+// No event says it is the person's: `person` is refused, and the person's touches are posted cards and taps.
+const envelopeError = ({ actor, source, ...event }) =>
+  'person' in event ? 'carrying "person": no event marks itself as the person\'s; the person acts only by a tap on a card'
+  : !actor ? 'without an actor'
   : !ACTOR_KINDS.includes(actor.kind) || typeof actor.id !== 'string' || !actor.id ? `with actor ${JSON.stringify(actor)} (kind ${ACTOR_KINDS.join('|')} and an id)`
   : !source ? 'without a source'
   : !SOURCE_KINDS.includes(source.kind) || typeof source.ref !== 'string' ? `with source ${JSON.stringify(source)} (kind ${SOURCE_KINDS.join('|')} and a ref)`
@@ -111,6 +113,12 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
       actor.stop();
       return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}`, effects: [] };
     }
+    // A person acts only by a tap on a card the machine asked for, and a tap is only ever the person's: an event
+    // whose machine binds the tap to its card (tapEvents). Any other event from a person or a tap is refused.
+    if ((event.actor.kind === 'person' || event.source.kind === 'tap') && !tapEvents.has(event.type)) {
+      actor.stop();
+      return { version: state.version, refused: true, why: `refused: ${event.type} from ${event.actor.kind}:${event.actor.id} by ${event.source.kind}: a person acts only by a tap on a card the machine asked for (${[...tapEvents].join(', ')})`, effects: [] };
+    }
     collecting = true;
     target.send(event);
     collecting = false;
@@ -128,12 +136,28 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
   });
 }
 
-/** Mark effects as carried out (or failed), so they leave the pending list. */
-export function ack(store, effectIds, { outcome = 'done', note, now = new Date().toISOString() } = {}) {
-  const known = new Set(store.outbox().map((e) => e.id));
-  const unknown = effectIds.filter((id) => !known.has(id));
+// Effects that ask the host to post a card, and where the card's decision or audit lives.
+const CARD_EFFECTS = ['postDecisionCard', 'postAuditCard'];
+export const cardAddress = (e) => (e.name === 'postDecisionCard' ? `item:${e.subject.split(':').slice(1, -2).join(':')}/${e.subject}` : e.subject);
+
+/**
+ * Mark effects as carried out (or failed), so they leave the pending list. The ack of a card effect, done, names
+ * the card's message id (`card`, else `note`) and records it on its decision or audit as CARD_POSTED, sent `by`
+ * the host session; a tap is taken only on that card. A card effect is acked alone, its id on no other card.
+ */
+export function ack(store, effectIds, { outcome = 'done', note, card, by, now = new Date().toISOString() } = {}) {
+  const outbox = new Map(store.outbox().map((e) => [e.id, e]));
+  const unknown = effectIds.filter((id) => !outbox.has(id));
   if (unknown.length) throw new Error(`unknown effects: ${unknown.join(', ')}`);
-  store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? null, at: now })));
+  const [post, ...more] = effectIds.map((id) => outbox.get(id)).filter((e) => CARD_EFFECTS.includes(e.name) && outcome === 'done');
+  if (post) {
+    const id = card ?? note;
+    const taken = store.events().find((x) => x.event.type === 'CARD_POSTED' && x.event.card === id)?.to;
+    const why = more.length || effectIds.length > 1 ? 'a card effect is acked on its own' : taken ? `${id} is already the card of ${taken}` : !by ? 'the session that posted the card sends its ack'
+      : apply(store, { type: 'CARD_POSTED', card: id, effect: post.id, ...by }, { to: cardAddress(post), id: `card-${post.id}`, now }).why;
+    if (why) throw new Error(`${why}: ack ${post.id} alone with the card's message id (--card cmsg_... or --note cmsg_...), once. Nothing acked`);
+  }
+  store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now })));
   return { acked: effectIds.length };
 }
 
@@ -154,7 +178,7 @@ export function status(store) {
         id: did,
         address: `${id}/${did}`,
         state: valueText(d.snapshot.value),
-        ...pick(d.snapshot.context, ['decisionClass', 'tier', 'question', 'choice', 'decidedBy', 'autonomy']),
+        ...pick(d.snapshot.context, ['decisionClass', 'tier', 'question', 'choice', 'decidedBy', 'autonomy', 'card']),
         standIn: d.snapshot.context.standIn ?? null
       }));
       return {
@@ -167,6 +191,8 @@ export function status(store) {
       };
     });
   const budget = children.find(([, c]) => c.src === 'budget')?.[1]?.snapshot;
+  // Open stand-in audits: an answered one has finished and left the snapshot.
+  const audits = children.filter(([, c]) => c.src === 'audit').map(([key, c]) => ({ address: c.systemId ?? key, state: valueText(c.snapshot.value), ...pick(c.snapshot.context, ['day', 'picks', 'card']) }));
   return {
     waitingOnPerson: waitingOnPerson(items),
     version: state.version,
@@ -175,7 +201,8 @@ export function status(store) {
     context: s.context,
     needsPerson: s.value.attention === 'needsPerson',
     budget: budget ? { mode: valueText(budget.value), ...pick(budget.context, ['sevenDay', 'fiveHour', 'dayStartSevenDay', 'dailyShare', 'softAt', 'sampledAt', 'estimated']) } : null,
-    items
+    items,
+    audits
   };
 }
 

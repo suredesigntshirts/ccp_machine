@@ -1,9 +1,9 @@
 // The stand-in audit. Every gate the stand-in decides alone agrees with itself, so a class nobody checks
 // never gets tested and its ladder never moves. Once a day the person checks up to 3 of those decisions
-// on one card: one tap confirms all of them, or reverses one. Each answer goes into the decision log as
-// the person's decision against the stand-in's lean, which is what calibration and the ladder learn from.
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+// on one card: one tap confirms all of them, or reverses one. It runs through the machine (spec audit):
+// AUDIT_PICKED opens it and asks for the card, the ack names the card, and the answer is the person's tap,
+// AUDIT_ANSWERED, which the decision log reads as the person's decisions against the stand-in's lean.
+import { apply, status } from './runtime.js';
 import { readDecisionLog, reverseOf } from './decision-log.js';
 
 export const AUDIT_MAX = 3;
@@ -55,30 +55,36 @@ export function auditCard(picks) {
   };
 }
 
-const auditFile = (store, day) => join(store.dir, 'audits', `${day}.json`);
-
-/** The day's audit: picked once and kept, so the card and the answer name the same decisions. */
-export function dayAudit(store, day, { max } = {}) {
-  const f = auditFile(store, day);
-  if (existsSync(f)) return JSON.parse(readFileSync(f, 'utf8'));
-  const audit = { day, picks: auditPicks(readDecisionLog(store), { max }), answered: null };
-  if (audit.picks.length) {
-    mkdirSync(join(store.dir, 'audits'), { recursive: true });
-    writeFileSync(f, JSON.stringify(audit, null, 1));
-  }
-  return audit;
+/**
+ * Open the day's audit once, sent `by` the session that picks ({actor, source}): AUDIT_PICKED with up to `max`
+ * picks, which queues postAuditCard. A day already picked returns that audit; no picks, nothing is sent.
+ * @returns {{day: string, address: string, picks: string[], effect: string|null}}
+ */
+export function pickAudit(store, day, { by, now, max } = {}) {
+  const address = `audit:${day}`;
+  const effect = () => store.outbox().find((e) => e.name === 'postAuditCard' && e.subject === address)?.id ?? null;
+  const prior = store.events().find((e) => e.event.type === 'AUDIT_PICKED' && e.event.day === day);
+  if (prior) return { day, address, picks: prior.event.picks, effect: effect() };
+  const picks = auditPicks(readDecisionLog(store), { max }).map((r) => r.effectId);
+  if (!picks.length) return { day, address, picks, effect: null };
+  const r = apply(store, { type: 'AUDIT_PICKED', day, picks, ...by }, { id: `audit-${day}`, now });
+  if (r.refused) throw new Error(r.why);
+  return { day, address, picks, effect: effect() };
 }
 
-/** Record the person's answer in the day's audit, which the decision log reads: one row per pick. Answering twice adds nothing. */
-export function answerAudit(store, day, option, { at = new Date().toISOString() } = {}) {
-  const audit = dayAudit(store, day);
-  const { picks } = audit;
-  if (!picks.length) throw new Error(`no audit for ${day}`);
-  if (!Number.isInteger(option) || option < 0 || option > picks.length) throw new Error(`answer is 0 (all right) to ${picks.length} (reverse that pick)`);
-  const added = audit.answered ? 0 : picks.length;
-  audit.answered ??= { option, at };
-  writeFileSync(auditFile(store, day), JSON.stringify(audit, null, 1));
-  return { added, reversed: audit.answered.option ? picks[audit.answered.option - 1].effectId : null };
+/** Every audit waiting on the person, oldest first, its picks read from the decision log: mission control lists them under Needs you. */
+export function openAudits(store) {
+  const rows = new Map(readDecisionLog(store).map((r) => [r.effectId, r]));
+  return (status(store)?.audits ?? [])
+    .filter((a) => a.state === 'awaitingPerson')
+    .sort((a, b) => a.day.localeCompare(b.day))
+    .map((a) => ({ ...a, picks: a.picks.map((id) => rows.get(id) ?? { effectId: id }) }));
+}
+
+/** request_decision arguments for a postAuditCard effect, and the address its tap goes to. */
+export function auditCardFor(store, effect) {
+  const rows = new Map(readDecisionLog(store).map((r) => [r.effectId, r]));
+  return { address: effect.subject, ...auditCard((effect.detail?.picks ?? []).map((id) => rows.get(id) ?? { effectId: id, standIn: {} })) };
 }
 
 /** Classes with more than UNTESTED_WARN stand-in decisions since their last tested one. */
@@ -94,21 +100,8 @@ export function untestedRuns(rows, limit = UNTESTED_WARN) {
     .map(([decisionClass, n]) => ({ decisionClass, untested: n }));
 }
 
-/** Every audit the person has not answered yet, any day, oldest first: mission control lists them under Needs you. */
-export function openAudits(store) {
-  const dir = join(store.dir, 'audits');
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .sort()
-    .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')))
-    .filter((a) => !a.answered && a.picks?.length);
-}
-
-/** The digest's line while today's audit waits on the person, else null. */
+/** The digest's line while the day's audit waits on the person, else null. */
 export function auditLine(store, day) {
-  const f = auditFile(store, day);
-  if (!existsSync(f)) return null;
-  const a = JSON.parse(readFileSync(f, 'utf8'));
-  return a.answered || !a.picks.length ? null : `${a.picks.length} to check, about 1 minute`;
+  const a = openAudits(store).find((x) => x.day === day);
+  return a ? `${a.picks.length} to check, about 1 minute` : null;
 }

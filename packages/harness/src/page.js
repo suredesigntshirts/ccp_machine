@@ -60,7 +60,7 @@ function decisionCard(item, d) {
   return `<div class="card"><span class="eyebrow">${esc(d.decisionClass)} gate · tier ${esc(d.tier)}</span>
   <b>${esc(item.title ?? d.question)}</b>${item.url ? ` <a href="${esc(item.url)}">${esc(item.url)}</a>` : ''}
   <div>${lean}</div>
-  <div class="m">Answer on the card in the thread, or: <code>harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to ${esc(d.address)} --actor person:&lt;you&gt; --source tap:&lt;card-message-id&gt;</code></div></div>`;
+  <div class="m">Answer on the card in the thread, or: <code>harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to ${esc(d.address)} --actor person:&lt;you&gt; --source tap:${d.card ? esc(d.card) : '&lt;card-message-id&gt;'}</code></div></div>`;
 }
 
 function needsCriteriaCard(item) {
@@ -74,7 +74,7 @@ function auditCardHtml(a) {
   return `<div class="card"><span class="eyebrow">stand-in audit · ${esc(a.day)}</span>
   <b>Did the stand-in call these ${a.picks.length} right?</b>
   <ul>${a.picks.map((p) => `<li>${esc(p.item)} ${esc(p.decisionClass)}: ${esc(p.choice)}${p.standIn?.confidence != null ? ` (${pct(p.standIn.confidence)} sure)` : ''}</li>`).join('')}</ul>
-  <div class="m">Answer on the card in the thread, or: <code>harness audit --day ${esc(a.day)} --answer N</code> (0 all right, N reverses pick N)</div></div>`;
+  <div class="m">Answer on the card in the thread, or: <code>harness send '{"type":"AUDIT_ANSWERED","option":0}' --to ${esc(a.address)} --actor person:&lt;you&gt; --source tap:${a.card ? esc(a.card) : '&lt;card-message-id&gt;'}</code> (option 0 all right, N reverses pick N)</div></div>`;
 }
 
 /**

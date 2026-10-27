@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from './store.js';
-import { init, apply, status } from './runtime.js';
+import { init, apply, ack, status, cardAddress } from './runtime.js';
 import { logPrecedents, readDecisionLog, ladder } from './decision-log.js';
 
 export const SCENARIOS_DIR = new URL('../scenarios/', import.meta.url).pathname;
@@ -52,7 +52,11 @@ export function runScenario(scenario) {
     const store = openStore(dir);
     init(store, scenario.init ?? {}, scenario.steps[0]?.now ?? '2026-10-26T00:00:00Z');
     scenario.steps.forEach((s, i) => {
-      const result = apply(store, s.event, { to: s.to, id: s.id, now: s.now });
+      // A step {ack, to, card, by} is the host posting the card the machine asked for: it acks the pending
+      // effect named `ack` at `to` with the card's message id, which records it (CARD_POSTED).
+      const card = s.ack && store.pending().find((e) => e.name === s.ack && cardAddress(e) === s.to);
+      if (s.ack && !card) throw new Error(`step ${i + 1}: no pending ${s.ack} at ${s.to}`);
+      const result = card ? (ack(store, [card.id], { card: s.card, by: s.by, now: s.now }), { effects: [] }) : apply(store, s.event, { to: s.to, id: s.id, now: s.now });
       for (const c of observe(store, result, s.expect ?? {})) if (!same(c.expected, c.actual)) failures.push({ step: i + 1, ...c });
     });
   } catch (e) {

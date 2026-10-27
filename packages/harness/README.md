@@ -24,11 +24,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a
   bound item, or a PR bound to another item, is refused the same way with the binding in the reason.
 - The envelope: every event carries `actor` {kind: person|session|github|timer, id} and `source`
-  {kind: tap|github-wake|cli|timer, ref}; one without them is refused. Each `events.jsonl` row is
+  {kind: tap|github-wake|cli|timer, ref}; one without them is refused, and so is one carrying `person`
+  (no event marks itself as the person's). Each `events.jsonl` row is
   `{id, version, at, to, actor, source, harness: {version, commit}, event}`, the last two naming the
   harness code that applied it. Who may send what is in the machines, as guards that refuse an event
   from the wrong party (SPEC.md lists them under Refused): `PERSON_DECIDED` only from a person's tap
-  (ref: the card's message id), a run result only from an actor other than the orchestrator (its id is
+  on the card the machine asked for (ref: the message id its decision recorded from the ack, see Cards
+  below), a run result only from an actor other than the orchestrator (its id is
   in context, set by `ORCHESTRATOR_STARTED`), CI and merge results only from a GitHub wake (ref: the
   GitHub fact `harness from-github` read), and `DECISION_MADE` and `BUDGET_MODE` only from inside the
   harness. `TRIAGED` is refused from the requester, the orchestrator and every worker on the item, and
@@ -37,12 +39,12 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   none of the rules. Tier is the item's, set by triage (`TRIAGED`), never by the request. For an accept
   decision, `expectationsMet` is the item's, worked out at its accept gate from the criteria checks. Autonomy is the
   ladder's rung for the class over the store's own decided decisions (its `logPrecedent` effects and
-  answered audits, dated at or before the spawn), set on the decision when it is spawned, so a reversal
+  `AUDIT_ANSWERED` events, dated at or before the spawn), set on the decision when it is spawned, so a reversal
   lowers the very next decision's rung with no command run; a log that cannot be read gives `recommend`. Threshold is the
   constant in `decision.machine.json`'s context. Confidence is the stand-in's: `STAND_IN_ANSWERED` carries
   only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, and is
   refused from the orchestrator and from every worker that reported a run for the item, succeeded or failed
-  (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all four
+  (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all five
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
@@ -54,9 +56,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   every gate with who decided and the stand-in's reason, each effect with the host's ack note, and the
   item's events. The host can put the PR link on any event it sends for the item (`"pr": "<url>"`).
 - `src/decision-log.js`: the decision log is the store's own records, with no file of its own: each
-  `logPrecedent` effect in the outbox (a row as soon as it is queued) and each answered audit
-  (`audits/<day>.json`). `harness decisions` only acks the effects; `decisions.jsonl` is no longer written
-  or read. `decisions.html` shows, per
+  `logPrecedent` effect in the outbox (a row as soon as it is queued) and each `AUDIT_ANSWERED` event, one
+  person's decision per pick of its `AUDIT_PICKED` that names a stand-in decision in the outbox. No file is
+  read: `audits/<day>.json` is neither written nor read, so a hand-written one changes nothing.
+  `harness decisions` only acks the effects; `decisions.jsonl` is no longer written or read. `decisions.html` shows, per
   decision class, how often the stand-in's lean matched the final choice and the class's rung, then every
   decision. `harness standin <class>` prints the rung (`ladder()`): a class starts at `recommend`, climbs
   one rung (to `act`) after 20 of the person's decisions since its last change at 90% agreement with the
@@ -65,8 +68,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/digest.js`: `harness digest [--day YYYY-MM-DD]` sends `DIGEST_DUE` with id `digest-<UTC day>`, so a
   day gets one digest however often it runs, writes `digests/<day>.md` in the store (finished today, in
   flight, waiting on the person, decisions today, budget) and acks `publishDigest`. The host posts the text.
-- `src/attention.js`: `attention(item, records)` is what an item cost: the person's touches (decision cards
-  plus events marked `person: true`), stand-in decisions and the person's reversals of its lean, turns,
+- `src/attention.js`: `attention(item, records)` is what an item cost: the person's touches (cards posted
+  for its decisions, `CARD_POSTED`; the person's taps on them; and audit answers that checked one of its
+  decisions, from `AUDIT_ANSWERED`), stand-in decisions and the person's reversals of its lean, turns,
   tokens and cost from the session ledgers (n/a without one; items running at the same time share
   turns), and wall time. Mission control shows it as the Attention column of finished items; the digest
   shows touches per item today against the day before.
@@ -77,7 +81,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
-  pending over a day, a lock older than 60s, a snapshot that will not restore) and exits 1 on a problem.
+  pending over a day, a lock older than 60s, a snapshot that will not restore), runs `verify-actors` and
+  `verify-facts` (`doctorAll`), reports each of their failures as a problem, and exits 1 on a problem.
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
@@ -115,10 +120,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   every criterion with one unmet, a failed run, failed checks, a block, a person's revise) through a scratch store at WIP 3 and at WIP 12 with a scripted host. It checks the
   WIP limit, the queue, the outbox, doctor, the page size and an apply at 500 events, and saves the
   busiest mission control to `--out` (default a temp folder).
-- `src/audit.js`: `harness audit` picks up to 3 decisions the stand-in made alone (untested classes, low
-  confidence and old ones first) for one daily card; `--answer N` logs the tap as the person's decisions
-  (0 confirms all, N reverses pick N), so calibration and the ladder get tested decisions. Doctor warns
-  when a class goes over 20 stand-in decisions unchecked.
+- `src/audit.js` and `spec/audit.machine.json`: `harness audit` picks up to 3 decisions the stand-in made
+  alone (untested classes, low confidence and old ones first), once a day, by sending `AUDIT_PICKED` to the
+  harness, which opens the day's audit (`audit:<day>`) and queues `postAuditCard`. The host posts the card
+  and acks the effect with its message id; the answer is the person's tap, `AUDIT_ANSWERED {option}` to
+  `audit:<day>` (0 confirms all, N reverses pick N), bound to that card exactly as a decision's tap. The
+  decision log reads the event, so calibration and the ladder get tested decisions. Doctor warns when a
+  class goes over 20 stand-in decisions unchecked.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
   failed check `CHECKS_FAILED`, a merged PR `MERGED`, a PR closed unmerged `CANCEL`, each from actor github
@@ -151,11 +159,26 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   minutes). It exits 1 on any failure and never writes; run it once the sessions' turns have ended.
 - Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
   stand-in answerers by session id, and refuses an event from a session that already holds another role on
-  it. The person and GitHub are exempt.
-- `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
-  arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
-  and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` sent with
-  `--actor person:<id> --source tap:<card message id>`.
+  it. The person and GitHub are exempt from roles; the person acts only by a tap on a card (below).
+- Cards (spec decision and audit): a card exists only because the machine asked for it. A decision in
+  `awaitingPerson` queues `postDecisionCard`, the day's audit `postAuditCard`. `src/card.js`:
+  `harness card <effect-id>` turns either into `request_decision` arguments (approve, revise or drop, with
+  the stand-in's lean recommended) plus the `address` and `choices`. The host posts the card, then acks
+  the effect alone with the card's message id (`harness ack <effect> --card cmsg_...`, or `--note cmsg_...`);
+  the ack sends `CARD_POSTED {card, effect}` from the host session, and the decision or audit records it once
+  (a message id already on another card is refused). `harness send` refuses `CARD_POSTED`. A tap on option
+  i is `PERSON_DECIDED {choice: choices[i]}` (an audit's `AUDIT_ANSWERED {option: i}`) with
+  `--actor person:<id> --source tap:<that message id>`; the machine refuses a tap before the card is
+  posted, on another card or with an option the card did not offer (`tapUnbound`, `choiceNotOffered`,
+  `optionNotOffered`). A person actor, or a tap source, on any other event is refused by `apply()`
+  (`tapEvents`, the events whose machine guards the tap): the person triages, builds, checks and blocks
+  nothing.
+- `src/verify-taps.js`: `harness verify-taps [--store DIR]` lists every tap in the log, one line per tap:
+  event id, time, the card's message id, the decision or audit it went to, the option it claims and the
+  person. It never writes, and a `--store` with no `events.jsonl` is an error (exit 2). The machine binds a
+  tap to its card, but only the platform knows whether the person tapped that option: verify-taps output
+  must be checked by a session other than the one that sent the taps, reading each card with
+  `read_messages_by_id`.
 - `src/scenario.js` and `scenarios/*.json`: golden event stories. Each step is an event (with `to`, `id`,
   `now`) and an `expect` of `effects` (exact, `dispatchRun:<step>`), `items` `{id: state}`, `scheduler`,
   `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate`, `refused` (`refused: <EVENT> in
@@ -169,7 +192,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - Local checks stop mistakes, not a hostile session. Code that runs inside a session can be forged by that session: a fake `gh` first on its PATH, an edited `github-read.js`, or a direct `apply()` with any ref. Nothing more is done locally against that. The check is `harness verify-facts`, which re-reads every GitHub fact in the log from GitHub, run afterwards from outside the session.
 - A session's id is the platform's: `harness` takes `session:<id>` from `CLAUDE_CODE_SESSION_ID` and refuses an `--actor session:<id>` that differs (outside Claude Code, with no variable set, it takes the flag as given). A session can still set the variable or call `apply()` itself, so `harness verify-actors` checks every session id in the log against the platform's ledger afterwards.
 - Subagents are not separate actors. Measured for M3 in a Projects container: a subagent's Bash calls see the same environment as its parent's, variable for variable, with the same values for `CLAUDE_CODE_SESSION_ID`, `TRACEPARENT`, `CLAUDE_PID`, `AI_AGENT` and the rest, under the same `claude` process. Nothing in a Bash call tells a subagent from its parent, so one session's subagents are one actor: builder, triager, reviewer and stand-in must be separate threads (sessions), not subagents of one session.
-- Checked only afterwards: that a tap happened (`--source tap:` through `send`, until M4).
+- A tap is bound to the card the machine asked for: its ref must be the message id recorded from the ack of
+  that decision's or audit's own card effect, and its choice one of the card's options. That the person
+  really tapped it is checked only afterwards, against the platform: `harness verify-taps`, by another
+  session.
 
 ## Use
 
@@ -183,8 +209,11 @@ harness send '{"type":"RUN_SUCCEEDED"}' --to item:a --actor session:$CLAUDE_CODE
 harness send '{"type":"CRITERION_CHECKED","criterion":"login works in Safari","verdict":"met","evidence":"test/login.test.js"}' \
   --to item:a                                                                                            # the reviewer's
 harness status                      # summary JSON; decisions carry their address
+harness card e9.0                   # request_decision arguments for the decision's postDecisionCard
+harness ack e9.0 --card cmsg_123    # after posting it: the card's message id, which the decision records
 harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1 \
-  --actor person:<id> --source tap:<card message id>
+  --actor person:<id> --source tap:cmsg_123   # the person's tap on that card
+harness verify-taps --store .harness   # later, from another session: check each tap against its card
 harness from-github wake.txt        # CI and merges: the wake's text, applied once GitHub agrees
 harness verify-facts --store .harness  # later, from outside: re-read every GitHub fact in the log
 harness verify-actors --store .harness # later: every session in the log has a ledger covering its events

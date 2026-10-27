@@ -1,10 +1,8 @@
 // The decision log: the store's own records of decided decisions, so the stand-in can learn from past
 // choices and the person can see how often it agreed with them. Each logPrecedent effect in the outbox is
-// one row as soon as it is queued, and each answered audit (audits/<day>.json) adds the person's verdict on
-// its picks. Nothing is copied into a second file. Each class sits on a ladder (shadow, recommend, act)
-// worked out from the log: see ladder().
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+// one row as soon as it is queued, and each AUDIT_ANSWERED event (the person's tap on the day's audit card)
+// adds the person's verdict on the picks of its AUDIT_PICKED. No file is read: a hand-written one changes
+// nothing. Each class sits on a ladder (shadow, recommend, act) worked out from the log: see ladder().
 import { ack } from './runtime.js';
 import { esc, time, pct, wrapPage, CSS } from './page.js';
 import { calibration } from './calibration.js';
@@ -14,23 +12,27 @@ export const EARN_ACT = { decisions: 20, agreement: 0.9 };
 /** The choice that goes against a lean: revise an approval, approve anything else. */
 export const reverseOf = (choice) => (choice === 'approve' ? 'revise' : 'approve');
 
-// An answered audit: each pick becomes the person's decision on it, dated when the person answered.
-const auditRows = (store) => {
-  const dir = join(store.dir, 'audits');
-  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : [];
-  return files.flatMap((f) => {
-    const { picks = [], answered } = JSON.parse(readFileSync(join(dir, f), 'utf8'));
-    return answered
-      ? picks.map((r, i) => ({ ...r, effectId: `audit-${r.effectId}`, at: answered.at, choice: answered.option === i + 1 ? reverseOf(r.choice) : r.choice, decidedBy: 'person', audit: true, audited: r.effectId }))
-      : [];
-  });
+// An answered audit: each pick that names a stand-in decision in the outbox becomes the person's decision on
+// it, dated when the person tapped. Option i (1..n) reverses pick i; 0 confirms them all.
+const auditRows = (events, decided) => {
+  const picked = new Map(events.filter((e) => e.event.type === 'AUDIT_PICKED').map((e) => [`audit:${e.event.day}`, e.event.picks]));
+  const byId = new Map(decided.map((r) => [r.effectId, r]));
+  return events
+    .filter((e) => e.event.type === 'AUDIT_ANSWERED')
+    .flatMap((e) =>
+      (picked.get(e.to) ?? [])
+        .map((id, i) => [byId.get(id), i])
+        .filter(([r]) => r?.decidedBy === 'stand-in' && r.choice)
+        .map(([r, i]) => ({ ...r, effectId: `audit-${r.effectId}`, at: e.at, choice: e.event.option === i + 1 ? reverseOf(r.choice) : r.choice, decidedBy: 'person', audit: true, audited: r.effectId }))
+    );
 };
 
 /** The log's decisions, oldest first. The earliest effects (before effects carried detail) record no
  * choice and no decider, so they say nothing about the stand-in and are left out. */
 export function readDecisionLog(store) {
   const seen = new Set();
-  return [...store.outbox().filter((e) => e.name === 'logPrecedent').map(row), ...auditRows(store)]
+  const decided = store.outbox().filter((e) => e.name === 'logPrecedent').map(row);
+  return [...decided, ...auditRows(store.events(), decided)]
     .filter((r) => (r.choice != null || r.decidedBy != null) && !seen.has(r.effectId) && seen.add(r.effectId))
     .sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
