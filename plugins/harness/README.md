@@ -5,6 +5,7 @@ This folder is the installable plugin. The setup script links it as it is
 (`.claude-plugin/marketplace.json`) yet: marketplace plugins on this account sync into every project.
 
 **Mid-session updates.** Updates on its own: the code hooks run, because the Stop hook fast-forwards the clone they run from to origin/main (at most every 10 minutes, only when safe).
+A clone still running pre-S1 code (plugin 0.4.x or older, before `refresh()` shipped) never pulls that code in by itself: it needs a single manual fast-forward (`git -C <clone> merge --ff-only origin/main` after a fetch) or a new container, and refreshes itself from then on.
 Needs a new session: the hook list and the skills list, which load at session start (a session started before a hook shipped never runs it).
 To see which you are on, read the ledger stamp `harness`: `commit`/`version` (code that ran), `behind` and `refreshed` (the clone), and `hooks` (`["settings"]` alone means no plugin hooks: restart).
 
@@ -38,9 +39,14 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   file-turns.js as a Stop hook (the old setup.sh did, without the argument), else `unknown`; a
   session whose `hooks` lacks `plugin` started before the plugin hooks shipped. Before filing, the hook
   refreshes the clone it runs from (`refresh()` in `host.js`): at most once per 10 minutes per clone
-  (state in `$TMPDIR/harness-refresh/`), and only when it is not a linked worktree, HEAD is detached or
+  (state in `$TMPDIR/harness-refresh/`), and only when it is not a linked worktree, no rebase, merge, cherry-pick, revert or bisect is in
+  progress (`rebase-merge`, `rebase-apply`, `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG` or
+  `sequencer` in the git dir), HEAD is detached or
   on main, tracked files are clean, `git fetch` succeeds within 5 s and the update is a fast-forward
-  (`git merge --ff-only`); it never resets or discards. The stamp gains `refreshed` (`{ at, from, to }`,
+  (`git merge --ff-only`); it never resets or discards. Its git calls drop the `GIT_*` variables that
+  would point them at another repository (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, ...), all of them
+  together fit in 12 s (`REFRESH_BUDGET_MS`), and the fetch runs in its own process group, killed whole
+  when it times out, so no ssh child outlives the hook. The stamp gains `refreshed` (`{ at, from, to }`,
   or `{ at, skipped }` with the reason) and `behind` (commits behind origin/main as of the last fetch,
   `null` when unknown). Filing is idempotent (one file per session, replaced atomically). It never fails the
   session. `ledger collect` merges the filed sessions into one ledger for the report.
