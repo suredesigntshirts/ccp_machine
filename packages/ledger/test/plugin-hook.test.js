@@ -1,6 +1,6 @@
 // The harness plugin's hooks, run as the host runs them, on copies of the committed plugin: the
-// per-project gate, the SessionStart version line, the stamp on filed ledger records, and the CI check
-// that a plugin change raises its version.
+// per-project gate, the SessionStart version line, the status mod's data, the stamp on filed ledger
+// records, and the CI check that a plugin change raises its version.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, cpSync } from 'node:fs';
@@ -104,6 +104,55 @@ test('Stop: files nothing until installed, then stamps each record with the vers
   assert.deepEqual(record.harness.hooks, ['plugin', 'settings']);
 
   run(root, 'file-turns.js', { HARNESS_LIBRARY_DIR: lib }, ['plugin'], 'not json'); // exits 0 or execFileSync throws
+});
+
+test('status mod data: the gate and the status text, the load record only when installed, no network', () => {
+  const { tmp, lib, root, install } = scratch();
+  const env = { HARNESS_LIBRARY_DIR: lib };
+  const status = (extra = {}, args = []) => JSON.parse(run(root, 'status.js', { ...env, ...extra }, args));
+  const record = join(lib, 'status-mod/s1.json');
+
+  assert.deepEqual(status({ HARNESS_DISABLED: '1' }, ['--record', 's1']), { state: 'disabled', text: null });
+  let s = status({}, ['--record', 's1']);
+  assert.equal(s.state, 'absent');
+  assert.equal(s.text, `harness ${version}: available, not installed`);
+  assert.equal(s.marker, join(lib, 'install.json'));
+  assert.ok(!existsSync(join(lib, 'status-mod')), 'no writes without the marker');
+
+  install();
+  assert.deepEqual(status({ HARNESS_DISABLED: '1' }, ['--record', 's1']), { state: 'disabled', text: null }, 'the override wins over the marker');
+  assert.ok(!existsSync(record), 'no writes when disabled');
+  s = status({}, ['--record', 's1']);
+  assert.equal(s.text, `harness ${version} commit unknown (no git) · installed`);
+  assert.deepEqual({ ...s, text: undefined }, { state: 'installed', text: undefined, name: 'harness', version, commit: null, root, marker: join(lib, 'install.json'), record });
+  const loaded = JSON.parse(readFileSync(record, 'utf8'));
+  assert.deepEqual({ ...loaded, at: undefined }, { session: 's1', event: 'loaded', plugin: 'harness', version, commit: null, root, at: undefined });
+  assert.ok(!Number.isNaN(Date.parse(loaded.at)));
+  assert.equal(status().record, undefined, 'a refresh without --record writes nothing');
+  status({}, ['--record', '../x']);
+  assert.ok(existsSync(join(lib, 'status-mod/___x.json')), 'a session id cannot leave the folder');
+
+  git(root, 'init', '-q');
+  git(root, 'add', '.');
+  git(root, 'commit', '-qm', 'one');
+  git(root, 'remote', 'add', 'origin', 'ssh://example.invalid/repo.git');
+  const head = git(root, 'rev-parse', 'HEAD');
+  const t0 = Date.now();
+  s = status({ GIT_SSH_COMMAND: 'sleep 20; :' }); // would hang if it touched the remote
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  assert.equal(s.commit, head);
+  assert.equal(s.text, `harness ${version} commit ${head.slice(0, 7)} · installed`);
+});
+
+test('the status mod ships in the plugin: hooks.json names its module and plugin.json its state contract', () => {
+  const hooks = JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8'));
+  assert.deepEqual(hooks.modules, ['./status.tsx']);
+  assert.ok(existsSync(join(plugin, 'hooks/status.tsx')));
+  const manifest = JSON.parse(readFileSync(join(plugin, '.claude-plugin/plugin.json'), 'utf8'));
+  assert.ok(existsSync(join(plugin, manifest.types)));
+  const mod = readFileSync(join(plugin, 'hooks/status.tsx'), 'utf8');
+  assert.doesNotMatch(mod, /state\/main|\$\.fs\.|\$\.net/, 'no reads of the retired store, no direct Library reads, no network');
+  assert.match(mod, /scripts\/status\.js/);
 });
 
 test('both registrations pass their tag: hooks.json says plugin, .claude/settings.json says settings', () => {

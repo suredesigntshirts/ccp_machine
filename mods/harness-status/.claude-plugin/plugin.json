@@ -1,6 +1,0 @@
-{
-  "name": "harness-status",
-  "version": "0.1.0",
-  "description": "A pane and status line with the agent harness at a glance: what needs you, what is in flight, budget mode",
-  "types": "./types/index.d.ts"
-}
