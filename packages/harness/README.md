@@ -225,6 +225,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 
 ```sh
 harness init --wip 3                # this session ($CLAUDE_CODE_SESSION_ID) is the orchestrator
+harness send '{"type":"WIP_SET","limit":2}'   # later, the orchestrator only: 1 to 4, raising starts queued items now
 harness send '{"type":"DAY_STARTED","sevenDay":0.07,"fiveHour":0.04}' --to budget --id day-2026-10-26
 harness send '{"type":"REQUEST_RECEIVED","request":{"id":"a","title":"Fix login","expect":"login works"}}' --id req-a
 # each of these runs in its own thread, so it is sent as that session

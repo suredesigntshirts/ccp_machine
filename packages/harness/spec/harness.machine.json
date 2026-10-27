@@ -46,7 +46,8 @@
     "inbox": [],
     "budgetMode": "normal",
     "orchestrator": null,
-    "audited": []
+    "audited": [],
+    "wipLimitAtInit": null
   },
   "invoke": {
     "src": "budget",
@@ -127,6 +128,7 @@
     },
     "scheduler": {
       "initial": "accepting",
+      "description": "Holds the WIP limit. WIP_SET from the orchestrator records a new wipLimit (the first one keeps init's as wipLimitAtInit, which replay starts from); outside accepting it starts nothing, and lowering it never stops an item in flight. An item that finishes, even one cancelled while still queued, leaves inFlight and queued, so no slot goes to it; and whenever items start, any id in inFlight or queued whose item has already finished is dropped (a store from before that rule), so a finished item never holds a slot.",
       "on": {
         "ITEM_FINISHED": {
           "actions": [
@@ -193,11 +195,36 @@
               }
             ]
           }
+        ],
+        "WIP_SET": [
+          {
+            "guard": {
+              "type": "notFromOrchestrator"
+            },
+            "description": "Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once."
+          },
+          {
+            "guard": {
+              "type": "wipOutOfRange",
+              "params": {
+                "min": 1,
+                "max": 4
+              }
+            },
+            "description": "Refused unless limit is an integer from min to max."
+          },
+          {
+            "actions": [
+              {
+                "type": "recordWipLimit"
+              }
+            ]
+          }
         ]
       },
       "states": {
         "accepting": {
-          "description": "Start ready items while fewer than wipLimit are in flight.",
+          "description": "Start ready items while fewer than wipLimit are in flight, and again at once when WIP_SET raises the limit.",
           "entry": [
             {
               "type": "startReadyItems"
@@ -240,6 +267,34 @@
                 "actions": [
                   {
                     "type": "releaseSlot"
+                  },
+                  {
+                    "type": "startReadyItems"
+                  }
+                ]
+              }
+            ],
+            "WIP_SET": [
+              {
+                "guard": {
+                  "type": "notFromOrchestrator"
+                },
+                "description": "Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once."
+              },
+              {
+                "guard": {
+                  "type": "wipOutOfRange",
+                  "params": {
+                    "min": 1,
+                    "max": 4
+                  }
+                },
+                "description": "Refused unless limit is an integer from min to max."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordWipLimit"
                   },
                   {
                     "type": "startReadyItems"
