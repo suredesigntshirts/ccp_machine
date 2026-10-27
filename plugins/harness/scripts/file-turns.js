@@ -3,13 +3,14 @@
 // session (this session is its only writer). Each record names the harness code that wrote it and the
 // registration that ran it: the first argument, `plugin` (hooks/hooks.json) or `settings`
 // (.claude/settings.json). `hooks` keeps every registration seen for the session, so a session where
-// both fire shows both from its second turn (on one turn they run at once and the last write wins).
+// both fire shows both from its second turn (on one turn they run at once and the last write wins),
+// and `updates` what the UserPromptSubmit hook did about newer harness versions (notice-behind.js).
 // It does nothing unless the project has installed the harness (host.js), and
 // it must never get in the session's way, so every failure is swallowed and it always exits 0.
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildLedger } from '../lib/ledger/index.js';
-import { gate, libraryDir, version } from './host.js';
+import { gate, libraryDir, version, updatesPath } from './host.js';
 
 const hook = ['plugin', 'settings'].includes(process.argv[2]) ? process.argv[2] : 'unknown';
 
@@ -24,7 +25,9 @@ try {
       const file = join(dir, `${id}.json`);
       let seen = [];
       try { seen = JSON.parse(readFileSync(file, 'utf8')).harness?.hooks ?? []; } catch {}
-      const harness = { ...version(), hook, hooks: [...new Set([...seen, hook])].sort() };
+      let updates = []; // what notice-behind.js did when this session's harness fell behind
+      try { updates = JSON.parse(readFileSync(updatesPath(id), 'utf8')).updates ?? []; } catch {}
+      const harness = { ...version(), hook, hooks: [...new Set([...seen, hook])].sort(), ...(updates.length && { updates }) };
       const record = { filedAt: new Date().toISOString(), cwd: input.cwd ?? null, remoteSessionId: process.env.CLAUDE_CODE_REMOTE_SESSION_ID ?? null, harness, session };
       const tmp = join(dir, `.${id}.${process.pid}.json.tmp`);
       writeFileSync(tmp, JSON.stringify(record));

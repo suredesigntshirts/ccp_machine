@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { execFile, execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 /** The harness's own Library folder; tests point it elsewhere. */
@@ -15,6 +16,13 @@ export const libraryDir = () => process.env.HARNESS_LIBRARY_DIR ?? '/mnt/project
 export const markerPath = () => join(libraryDir(), 'install.json');
 /** Set to 1 to turn every hook off, even where the marker exists. */
 export const DISABLE_ENV = 'HARNESS_DISABLED';
+
+/**
+ * A session's update state: when notice-behind.js last checked, which newer versions it has told the
+ * session about, and its `updates` log, which file-turns.js copies into the ledger record. Local to the
+ * machine (not the slow Library mount); the session id is reduced to a safe file name.
+ */
+export const updatesPath = (session) => join(tmpdir(), 'harness-updates', `${String(session).replace(/[^A-Za-z0-9_-]/g, '')}.json`);
 
 /** The plugin folder this code runs from (never cached: an update lands in a new sibling folder). */
 export const pluginRoot = () => dirname(dirname(fileURLToPath(import.meta.url)));

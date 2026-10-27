@@ -15,9 +15,19 @@ This folder is the installable plugin. The setup script links it as it is
   its version names the build. `behind` compares with origin/main by `git ls-remote` (2.5 s cap), else
   `unknown`. Without the marker it prints only `available but not installed`. It always exits 0 within
   about 4 s.
+- **UserPromptSubmit hook** (`scripts/notice-behind.js`): so a long-running session learns that its
+  harness is old. At most once per 30 minutes per session (state in `$TMPDIR/harness-updates/<session>.json`,
+  `updatesPath` in `host.js`; the check time is saved before any network call) and within about 3 s, it
+  compares a checkout with origin/main (`behind()`, as SessionStart does) and a synced copy with its
+  sibling folders `<folder>~gN` (plugin.json version). When behind, it tells the model once per newer
+  version through `additionalContext`: the running version, the newest, and what to do. A checkout is
+  fast-forwarded (`git fetch origin main` + `git merge --ff-only`) only when its tracked files are clean
+  and HEAD is a branch tracking origin/main or detached at an ancestor of it; otherwise, and for synced
+  copies, it only reports. Each update or skip is logged as `{ from, to, at, action }` and filed by the
+  Stop hook as `harness.updates`.
 - **Stop hook** (`scripts/file-turns.js`): after every turn, re-reads the session transcript and writes
   its ledger to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>.json`. Each record carries
-  `harness: { name, version, commit, root, hook, hooks }`: `hook` is the registration that wrote it
+  `harness: { name, version, commit, root, hook, hooks, updates? }`: `hook` is the registration that wrote it
   (`plugin` from `hooks/hooks.json`, `settings` from the repo's `.claude/settings.json`, passed as the
   first argument) and `hooks` every registration seen for the session, so a session where both fire
   shows both. Filing is idempotent (one file per session, replaced atomically). It never fails the

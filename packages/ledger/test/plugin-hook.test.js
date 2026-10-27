@@ -181,3 +181,146 @@ test('CI version check: a plugin change without a higher version fails, with one
   write('0.10.0', 'two');
   check();
 });
+
+// notice-behind.js (UserPromptSubmit): each test gets its own TMPDIR, so its own update state.
+const notice = (root, lib, tmp, extra = {}) => {
+  const out = run(root, 'notice-behind.js', { HARNESS_LIBRARY_DIR: lib, TMPDIR: tmp, ...extra }, [], JSON.stringify({ session_id: 's1', hook_event_name: 'UserPromptSubmit' }));
+  return out ? JSON.parse(out).hookSpecificOutput : null;
+};
+const updatesFile = (tmp) => join(tmp, 'harness-updates/s1.json');
+const age = (tmp, minutes) => { // pretend the last check was `minutes` ago
+  const state = JSON.parse(readFileSync(updatesFile(tmp), 'utf8'));
+  writeFileSync(updatesFile(tmp), JSON.stringify({ ...state, checkedAt: new Date(Date.now() - minutes * 60000).toISOString() }));
+};
+
+/** The scratch plugin as a checkout of a local bare origin whose main is one commit ahead of HEAD (detached). */
+function behindCheckout() {
+  const s = scratch();
+  s.install();
+  const origin = join(s.tmp, 'origin.git');
+  git(s.tmp, 'init', '-q', '--bare', origin);
+  git(s.root, 'init', '-q');
+  git(s.root, 'add', '.');
+  git(s.root, 'commit', '-qm', 'one');
+  git(s.root, 'remote', 'add', 'origin', origin);
+  s.old = git(s.root, 'rev-parse', 'HEAD');
+  writeFileSync(join(s.root, 'NEW'), 'two');
+  git(s.root, 'add', 'NEW');
+  git(s.root, 'commit', '-qm', 'two');
+  git(s.root, 'push', '-q', 'origin', 'HEAD:main');
+  s.main = git(s.root, 'rev-parse', 'HEAD');
+  git(s.root, 'fetch', '-q', 'origin');
+  git(s.root, 'checkout', '-q', '--detach', s.old);
+  return s;
+}
+
+test('UserPromptSubmit: nothing without the marker or when disabled, and no state written', () => {
+  const { tmp, lib, root, install } = scratch();
+  assert.equal(notice(root, lib, tmp), null);
+  install();
+  assert.equal(notice(root, lib, tmp, { HARNESS_DISABLED: '1' }), null);
+  assert.ok(!existsSync(updatesFile(tmp)));
+  assert.equal(notice(root, lib, tmp), null, 'a synced copy with no newer sibling says nothing');
+  assert.ok(existsSync(updatesFile(tmp)), 'but records the check time');
+});
+
+test('UserPromptSubmit in a clean detached checkout behind origin/main: fast-forwards and says so once', () => {
+  const { tmp, lib, root, old, main } = behindCheckout();
+  const out = notice(root, lib, tmp);
+  assert.equal(out.hookEventName, 'UserPromptSubmit');
+  assert.match(out.additionalContext, new RegExp(`started on harness ${version} commit ${old.slice(0, 7)}; origin/main is at ${main.slice(0, 7)}.*fast-forwarded the plugin checkout`));
+  assert.equal(git(root, 'rev-parse', 'HEAD'), main);
+  const { updates } = JSON.parse(readFileSync(updatesFile(tmp), 'utf8'));
+  assert.deepEqual(updates.map(({ at, ...u }) => u), [{ from: old, to: main, action: 'fast-forward' }]);
+
+  age(tmp, 31);
+  assert.equal(notice(root, lib, tmp), null, 'up to date now: nothing to say');
+
+  const input = transcript(tmp); // the Stop hook files the updates in the ledger record
+  run(root, 'file-turns.js', { HARNESS_LIBRARY_DIR: lib, TMPDIR: tmp }, ['plugin'], input);
+  const record = JSON.parse(readFileSync(join(lib, 'ledger/sessions/s1.json'), 'utf8'));
+  assert.deepEqual(record.harness.updates, updates);
+});
+
+test('UserPromptSubmit cache: one check per 30 minutes, and a hanging remote costs at most about 3 s', () => {
+  const { tmp, lib, root } = behindCheckout();
+  git(root, 'remote', 'set-url', 'origin', 'ssh://example.invalid/repo.git');
+  let t0 = Date.now();
+  assert.equal(notice(root, lib, tmp, { GIT_SSH_COMMAND: 'sleep 20; :' }), null);
+  assert.ok(Date.now() - t0 < 3600, `took ${Date.now() - t0} ms`);
+
+  git(root, 'remote', 'set-url', 'origin', join(tmp, 'origin.git'));
+  t0 = Date.now();
+  assert.equal(notice(root, lib, tmp), null, 'checked under 30 minutes ago: no network, no message');
+  age(tmp, 29);
+  assert.equal(notice(root, lib, tmp), null);
+  age(tmp, 31);
+  assert.match(notice(root, lib, tmp).additionalContext, /fast-forwarded/);
+});
+
+test('UserPromptSubmit never touches a dirty tree or another branch, and reports each newer version once', () => {
+  const dirty = behindCheckout();
+  writeFileSync(join(dirty.root, 'README.md'), 'local edit');
+  let out = notice(dirty.root, dirty.lib, dirty.tmp);
+  assert.match(out.additionalContext, new RegExp(`runs harness ${version} commit ${dirty.old.slice(0, 7)} .* older than origin/main ${dirty.main.slice(0, 7)}\\. Not updated \\(the checkout has uncommitted changes\\)`));
+  assert.equal(git(dirty.root, 'rev-parse', 'HEAD'), dirty.old);
+  assert.equal(readFileSync(join(dirty.root, 'README.md'), 'utf8'), 'local edit');
+  age(dirty.tmp, 31);
+  assert.equal(notice(dirty.root, dirty.lib, dirty.tmp), null, 'same version: not told again');
+  git(dirty.root, 'stash', '-q');
+  git(dirty.root, 'checkout', '-q', '--detach', dirty.main);
+  git(dirty.root, 'commit', '-q', '--allow-empty', '-m', 'three');
+  git(dirty.root, 'push', '-q', 'origin', 'HEAD:main'); // origin/main moves on again
+  git(dirty.root, 'checkout', '-q', '--detach', dirty.old);
+  git(dirty.root, 'stash', 'pop', '-q');
+  age(dirty.tmp, 31);
+  assert.match(notice(dirty.root, dirty.lib, dirty.tmp).additionalContext, /Not updated \(the checkout has uncommitted changes\)/, 'a newer version is told');
+  assert.equal(JSON.parse(readFileSync(updatesFile(dirty.tmp), 'utf8')).updates.length, 2);
+
+  const other = behindCheckout();
+  git(other.root, 'checkout', '-q', '-b', 'feat');
+  out = notice(other.root, other.lib, other.tmp);
+  assert.match(out.additionalContext, /Not updated \(the checkout is on branch feat, which does not track origin\/main\)/);
+  assert.equal(git(other.root, 'rev-parse', 'HEAD'), other.old);
+
+  const detached = behindCheckout(); // detached, clean, but not an ancestor of origin/main
+  git(detached.root, 'commit', '-q', '--allow-empty', '-m', 'local');
+  out = notice(detached.root, detached.lib, detached.tmp);
+  assert.match(out.additionalContext, /Not updated \(detached HEAD is not an ancestor of origin\/main\)/);
+
+  const tracking = behindCheckout(); // a branch tracking origin/main fast-forwards
+  git(tracking.root, 'checkout', '-q', '-b', 'trunk');
+  git(tracking.root, 'branch', '-q', '-u', 'origin/main');
+  assert.match(notice(tracking.root, tracking.lib, tracking.tmp).additionalContext, /fast-forwarded/);
+  assert.equal(git(tracking.root, 'rev-parse', 'trunk'), tracking.main);
+});
+
+test('UserPromptSubmit in a synced copy: reports a newer sibling <folder>~gN once, and never switches', () => {
+  const { tmp, lib, install } = scratch();
+  install();
+  const dir = join(tmp, 'synced');
+  const own = join(dir, 'harness~g1');
+  mkdirSync(dir);
+  cpSync(plugin, own, { recursive: true });
+  const sibling = (name, v) => {
+    mkdirSync(join(dir, name, '.claude-plugin'), { recursive: true });
+    writeFileSync(join(dir, name, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'harness', version: v }));
+  };
+  sibling('harness', '0.0.1'); // older
+  sibling('other~g3', '99.0.0'); // another plugin
+  assert.equal(notice(own, lib, tmp), null);
+  sibling('harness~g2', '99.1.0');
+  sibling('harness~g3', '99.0.5');
+  age(tmp, 31);
+  const out = notice(own, lib, tmp);
+  assert.match(out.additionalContext, new RegExp(`runs harness ${version} from the synced copy .*harness~g1; a newer synced copy, harness 99\\.1\\.0, is at .*harness~g2\\. .*start a new session`));
+  assert.deepEqual(JSON.parse(readFileSync(updatesFile(tmp), 'utf8')).updates.map(({ at, ...u }) => u), [{ from: version, to: '99.1.0', action: 'reported: synced copy, not switched' }]);
+  age(tmp, 31);
+  assert.equal(notice(own, lib, tmp), null, 'told once per version');
+});
+
+test('the UserPromptSubmit registration runs notice-behind.js within its timeout', () => {
+  const [h] = JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8')).hooks.UserPromptSubmit[0].hooks;
+  assert.deepEqual(h.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/notice-behind.js']);
+  assert.ok(h.timeout >= 4);
+});

@@ -1,5 +1,5 @@
 {
-  "description": "Print the harness version at session start; after each turn, file this session's turn ledger in the Library; keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
+  "description": "Print the harness version at session start; before each prompt, at most every 30 minutes, tell the session when a newer harness exists (and fast-forward a clean skills-dir checkout); after each turn, file this session's turn ledger in the Library; keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
   "hooks": {
     "SessionStart": [
       {
@@ -9,6 +9,20 @@
             "command": "node",
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/notice-behind.js"
             ],
             "timeout": 5
           }
