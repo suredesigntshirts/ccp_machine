@@ -41,9 +41,12 @@ const external = (sink, ...names) =>
     ])
   );
 
-// Tell the parent actor, when there is one. A plain function (not sendParent) so that pure
-// transition() returns it by name, like every other effect, and a standalone actor does not throw.
-const toParent = (make) => ({ self, ...args }, params) => self._parent?.send(make({ self, ...args }, params));
+// Tell the parent actor, when there is one and make gives an event. A plain function (not sendParent) so that
+// pure transition() returns it by name, like every other effect, and a standalone actor does not throw.
+const toParent = (make) => ({ self, ...args }, params) => {
+  const event = make({ self, ...args }, params);
+  if (event) self._parent?.send(event);
+};
 
 // Today's spend accumulates sample by sample, so a 7-day window that resets mid-day (its resetsAt
 // changes, or its utilization drops) restarts from 0 instead of going negative.
@@ -71,6 +74,14 @@ export const expectationsMet = ({ context: c }) =>
 // other events without them. These guards are the refusing first transition of an event (true refuses).
 // They check kinds, that a ref is there and that ids differ. from-github reads a GitHub ref's fact from GitHub
 // before it sends; whether a tap or a session id is real is checked afterwards.
+// One session plays one part on an item (spec workItem, Roles). Each role is a list of session ids on the item's
+// context (the decision gets a copy at spawn); an event from a session holding another role is refused. The
+// person, GitHub and timers are exempt, and only sessions are recorded.
+const ROLES = { requester: (c) => [c.requester], triager: (c) => c.triagers, worker: (c) => c.workers, checker: (c) => c.checkers, answerer: (c) => c.answerers };
+const holdsAnotherRole = ({ context: c, event: { actor } }, { role }) =>
+  actor?.kind === 'session' && Object.entries(ROLES).some(([r, ids]) => r !== role && (ids(c) ?? []).includes(actor.id));
+const asSession = (list, actor) => (actor?.kind === 'session' ? [...new Set([...(list ?? []), actor.id])] : list ?? []);
+
 const provenance = {
   unattested: ({ event }, p) => (p.actor != null && event.actor?.kind !== p.actor) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
   fromOutside: ({ event }) => event.actor != null
@@ -123,6 +134,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
   const decisionMachine = setup({
     guards: {
       unattested: provenance.unattested,
+      holdsAnotherRole,
       answeredByOrchestratorOrWorker: ({ context, event }) => event.actor?.id === context.orchestrator || (context.workers ?? []).includes(event.actor?.id),
       answerOverreaches: ({ event: { answer: a } }) =>
         !a || typeof a.choice !== 'string' || typeof a.confidence !== 'number' || !(a.confidence >= 0 && a.confidence <= 1) || Object.keys(a).some((k) => !['choice', 'confidence', 'reason'].includes(k)),
@@ -133,6 +145,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     },
     actions: {
       recordStandInAnswer: assign({ standIn: ({ event }) => event.answer }),
+      reportAnswerer: toParent(({ event }) => event.actor?.kind === 'session' && { type: 'STAND_IN_RECORDED', by: event.actor.id }),
       acceptStandInChoice: assign({
         choice: ({ context }) => context.standIn.choice,
         decidedBy: 'stand-in'
@@ -159,6 +172,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     actors: { decision: decisionMachine },
     guards: {
       ...provenance,
+      holdsAnotherRole,
       reportedByOrchestrator: ({ context, event }) => !context.orchestrator || event.actor?.id === context.orchestrator,
       triagedByParty: ({ context: c, event }) => !c.orchestrator || !event.actor?.id || [c.requester, c.orchestrator, ...(c.workers ?? [])].includes(event.actor?.id),
       // A tier, once set, is a floor: a re-triage (after a revise) may keep or raise it, never lower it.
@@ -175,8 +189,9 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     },
     actions: {
       recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
-      recordTriage: assign(({ event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {} })),
-      recordCheck: assign({ checks: ({ context, event: e }) => ({ ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }) }),
+      recordTriage: assign(({ context, event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {}, triagers: asSession(context.triagers, event.actor) })),
+      recordCheck: assign(({ context, event: e }) => ({ checks: { ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }, checkers: asSession(context.checkers, e.actor) })),
+      recordAnswerer: assign({ answerers: ({ context, event }) => [...new Set([...(context.answerers ?? []), event.by])] }),
       clearChecks: assign({ checks: {} }),
       recordExpectations: assign((_, params) => ({ expectationsMet: params.met })),
       recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
@@ -191,7 +206,8 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         enqueue.spawnChild('decision', {
           id,
           input: { id, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
-            workers: context.workers ?? [], ...(params.gate === 'accept' && { expectationsMet: context.expectationsMet }), ...(rung && { autonomy: rung(params.gate) }) }
+            requester: context.requester, triagers: context.triagers ?? [], workers: context.workers ?? [], checkers: context.checkers ?? [], answerers: context.answerers ?? [],
+            ...(params.gate === 'accept' && { expectationsMet: context.expectationsMet }), ...(rung && { autonomy: rung(params.gate) }) }
         });
       }),
       withdrawDecision: enqueueActions(({ enqueue, context }) => {

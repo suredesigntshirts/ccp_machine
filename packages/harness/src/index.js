@@ -26,3 +26,4 @@ export { parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, splitWake
 export { readFact, restFetcher, combined, resolveGh, ghPath } from './github-read.js';
 export { bindingError, requestedAt, itemOf } from './pr-binding.js';
 export { verifyFacts, verifyFactsText } from './verify-facts.js';
+export { verifyActors, verifyActorsText, ledgerDir, WINDOW_TOLERANCE_MS } from './verify-actors.js';

@@ -79,7 +79,7 @@ test('one PR binds to at most one item', () => {
 test('harness send refuses a rebinding with a clear error and exit 1', () => {
   const { dir, store } = itemAtVerify('x', 'o/r#7');
   const before = counts(store);
-  const r = spawnSync(process.execPath, [bin, 'send', '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/9"}', '--to', 'item:x', '--actor', 'session:worker-1', '--source', 'cli:handback', '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orch' } });
+  const r = spawnSync(process.execPath, [bin, 'send', '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/9"}', '--to', 'item:x', '--actor', 'session:worker-1', '--source', 'cli:handback', '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'worker-1' } });
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /item x is bound to o\/r#7/);
   assert.deepEqual(counts(store), before);

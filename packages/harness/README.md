@@ -144,6 +144,14 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   exits 1 on any mismatch (else 3 if any could not be read), never writes to the store, and takes the same
   injectable fetcher, so its tests run offline. Run it from outside the session that wrote the log. A
   `--store` with no `events.jsonl` is an error (exit 2) and no folder is made.
+- `src/verify-actors.js`: `harness verify-actors [--store DIR]` checks every `session:` actor in the log
+  against the ledger the Stop hook files for that session (`$HARNESS_LIBRARY_DIR/ledger/sessions/<id>.json`,
+  written after each turn, outside the model's choice). One line per actor: `ok`, `no ledger` (no session ran
+  under that id) or `outside window` (an event dated outside the ledger's `start..end`, give or take 5
+  minutes). It exits 1 on any failure and never writes; run it once the sessions' turns have ended.
+- Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
+  stand-in answerers by session id, and refuses an event from a session that already holds another role on
+  it. The person and GitHub are exempt.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` sent with
@@ -159,7 +167,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - The machine checks who an event says it is from: actor and source kinds, that a ref is there, and that a worker is not the orchestrator.
 - The GitHub read checks CI and merges: `from-github` applies them only when GitHub's REST API says the same, for the item's own PR, and `send` cannot claim GitHub.
 - Local checks stop mistakes, not a hostile session. Code that runs inside a session can be forged by that session: a fake `gh` first on its PATH, an edited `github-read.js`, or a direct `apply()` with any ref. Nothing more is done locally against that. The check is `harness verify-facts`, which re-reads every GitHub fact in the log from GitHub, run afterwards from outside the session.
-- Checked only afterwards: that session ids are who they say (a worker's run result), and that a tap happened (`--source tap:` through `send`, until M4).
+- A session's id is the platform's: `harness` takes `session:<id>` from `CLAUDE_CODE_SESSION_ID` and refuses an `--actor session:<id>` that differs (outside Claude Code, with no variable set, it takes the flag as given). A session can still set the variable or call `apply()` itself, so `harness verify-actors` checks every session id in the log against the platform's ledger afterwards.
+- Subagents are not separate actors. Measured for M3 in a Projects container: a subagent's Bash calls see the same environment as its parent's, variable for variable, with the same values for `CLAUDE_CODE_SESSION_ID`, `TRACEPARENT`, `CLAUDE_PID`, `AI_AGENT` and the rest, under the same `claude` process. Nothing in a Bash call tells a subagent from its parent, so one session's subagents are one actor: builder, triager, reviewer and stand-in must be separate threads (sessions), not subagents of one session.
+- Checked only afterwards: that a tap happened (`--source tap:` through `send`, until M4).
 
 ## Use
 
@@ -167,15 +177,17 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 harness init --wip 3                # this session ($CLAUDE_CODE_SESSION_ID) is the orchestrator
 harness send '{"type":"DAY_STARTED","sevenDay":0.07,"fiveHour":0.04}' --to budget --id day-2026-10-26
 harness send '{"type":"REQUEST_RECEIVED","request":{"id":"a","title":"Fix login","expect":"login works"}}' --id req-a
-harness send '{"type":"TRIAGED","tier":1,"criteria":["login works in Safari"]}' --to item:a --actor session:<triager id>
-harness send '{"type":"RUN_SUCCEEDED"}' --to item:a --actor session:<worker id> --source cli:<handback ref>
+# each of these runs in its own thread, so it is sent as that session
+harness send '{"type":"TRIAGED","tier":1,"criteria":["login works in Safari"]}' --to item:a           # the triager's
+harness send '{"type":"RUN_SUCCEEDED"}' --to item:a --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<handback ref>  # the worker's
 harness send '{"type":"CRITERION_CHECKED","criterion":"login works in Safari","verdict":"met","evidence":"test/login.test.js"}' \
-  --to item:a --actor session:<reviewer id>
+  --to item:a                                                                                            # the reviewer's
 harness status                      # summary JSON; decisions carry their address
 harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1 \
   --actor person:<id> --source tap:<card message id>
 harness from-github wake.txt        # CI and merges: the wake's text, applied once GitHub agrees
 harness verify-facts --store .harness  # later, from outside: re-read every GitHub fact in the log
+harness verify-actors --store .harness # later: every session in the log has a ledger covering its events
 harness effects                     # what the host still has to do
 harness ack e3.0 --note "posted"
 harness page --standalone           # .harness/mission-control.html

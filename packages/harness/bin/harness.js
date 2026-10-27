@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
+import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -17,11 +17,13 @@ const HELP = `harness <command> [options]
                                  --id makes the send idempotent. Prints the effects it queued. An event
                                  the machine would not take is refused: nothing is written, exit 1.
                                  An event whose guard checks who sent it needs --actor and --source:
-                                 a worker's run (RUN_SUCCEEDED, RUN_FAILED) --actor session:<worker id>,
+                                 a worker's run (RUN_SUCCEEDED, RUN_FAILED), from the worker's own
+                                 session, --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<ref>,
                                  a tap (PERSON_DECIDED) --actor person:<id> --source tap:<card message id>,
                                  CI and merges come only from from-github (send refuses --actor github
                                  and --source github-wake). Any other event is sent as this
-                                 session ($CLAUDE_CODE_SESSION_ID) from the cli. Triage answers with
+                                 session ($CLAUDE_CODE_SESSION_ID) from the cli; an --actor session:<id>
+                                 that is not this session is refused. Triage answers with
                                  {"type":"TRIAGED","tier":N,"criteria":[...]} --to item:<id>, from a session
                                  that is not the requester, the orchestrator or a worker; a reviewer who is
                                  neither sends {"type":"CRITERION_CHECKED","criterion":"...","verdict":
@@ -79,6 +81,12 @@ const HELP = `harness <command> [options]
                                  unreachable. Never writes to the store. Exits 1 on any mismatch, else 3
                                  when any could not be read; 2, writing nothing, when DIR has no events.jsonl. The check against a session that forged a
                                  fact: run it from outside that session
+  verify-actors [--store DIR]    check every session actor in the log against the session ledgers the Stop
+                                 hook files ($HARNESS_LIBRARY_DIR/ledger/sessions/<id>.json): one line per
+                                 actor, ok, no ledger, or outside window (an event outside the ledger's
+                                 start..end, give or take 5 minutes). Never writes. Exits 1 on any failure;
+                                 2, writing nothing, when DIR has no events.jsonl. Run it after the sessions'
+                                 turns have ended, so their ledgers are filed
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -167,9 +175,9 @@ try {
 }
 const { values: o, positionals: [cmd, ...args] } = parsed;
 if (o.store) o.dir = o.store;
-// verify-facts only reads: a folder without a log is a wrong --store to report, never a folder to make.
-if (cmd === 'verify-facts' && !existsSync(join(o.dir, 'events.jsonl'))) {
-  console.error(`harness: verify-facts: no events.jsonl in ${o.dir}, so no facts to verify (is --store the harness folder?)`);
+// verify-facts and verify-actors only read: a folder without a log is a wrong --store to report, never a folder to make.
+if (['verify-facts', 'verify-actors'].includes(cmd) && !existsSync(join(o.dir, 'events.jsonl'))) {
+  console.error(`harness: ${cmd}: no events.jsonl in ${o.dir}, so nothing to verify (is --store the harness folder?)`);
   process.exit(2);
 }
 const store = openStore(o.dir);
@@ -184,7 +192,7 @@ const tick = (now) => {
   return apply(store, { type: 'TICK', now, ...(costSince != null && { costSince }), ...timer(now) }, { to: 'budget', id: `tick-${now.slice(0, 16)}` });
 };
 // Filed session ledgers, by id, for the item pages' turns (missing folder: none).
-const readSessions = (dir = '/mnt/project-files/harness/ledger/sessions') => {
+const readSessions = (dir = ledgerDir()) => {
   try {
     return Object.fromEntries(
       readdirSync(dir)
@@ -200,7 +208,8 @@ const readSessions = (dir = '/mnt/project-files/harness/ledger/sessions') => {
 const print = (x) => console.log(JSON.stringify(x, null, 2));
 // Who sends from here: --actor and --source, else this session from the cli. Nothing here defaults to a
 // person or a tap; an event whose guard checks the source (a tap, a GitHub wake) or the worker must name
-// its sender with the flags.
+// its sender with the flags. A session is the one the platform says this is: --actor session:<id> must be
+// $CLAUDE_CODE_SESSION_ID when it is set (outside Claude Code there is none; verify-actors checks later).
 const pair = (flag, a, b) => {
   const v = o[flag];
   if (v == null) return null;
@@ -209,8 +218,9 @@ const pair = (flag, a, b) => {
   return { [a]: v.slice(0, i), [b]: v.slice(i + 1) };
 };
 const flagged = { actor: pair('actor', 'kind', 'id'), source: pair('source', 'kind', 'ref') };
+const platform = process.env.CLAUDE_CODE_SESSION_ID || null;
 const by = (what) => {
-  const actor = flagged.actor ?? (process.env.CLAUDE_CODE_SESSION_ID ? { kind: 'session', id: process.env.CLAUDE_CODE_SESSION_ID } : null);
+  const actor = flagged.actor ?? (platform ? { kind: 'session', id: platform } : null);
   if (!actor) throw new Error(`${what} needs --actor session:<id> outside a Claude Code session`);
   return { actor, source: flagged.source ?? { kind: 'cli', ref: `harness ${cmd}` } };
 };
@@ -228,6 +238,8 @@ try {
   // GitHub's word comes only through from-github, which reads it from GitHub; no flag can claim it.
   if (flagged.actor?.kind === 'github' || flagged.source?.kind === 'github-wake')
     throw new Error(`${cmd} refuses --actor github and --source github-wake: only harness from-github sends as GitHub, after reading the result from GitHub`);
+  if (flagged.actor?.kind === 'session' && platform && flagged.actor.id !== platform)
+    throw new Error(`--actor session:${flagged.actor.id} is not this session (CLAUDE_CODE_SESSION_ID is ${platform}): a session's id comes from the platform, so one session cannot act as another; nothing was written`);
   switch (cmd) {
     case 'init': {
       const sender = by('init');
@@ -326,6 +338,14 @@ try {
       const n = (k) => results.filter((r) => r.result === k).length;
       console.error(`harness: ${results.length} GitHub facts: ${n('ok')} ok, ${n('mismatch')} mismatch, ${n('unreachable')} unreachable`);
       process.exitCode = n('mismatch') ? 1 : n('unreachable') ? 3 : 0;
+      break;
+    }
+    case 'verify-actors': {
+      const results = verifyActors(store);
+      if (results.length) console.log(verifyActorsText(results));
+      const n = (k) => results.filter((r) => r.result === k).length;
+      console.error(`harness: ${results.length} session actors: ${n('ok')} ok, ${n('no ledger')} no ledger, ${n('outside window')} outside window`);
+      process.exitCode = results.length === n('ok') ? 0 : 1;
       break;
     }
     case 'issue-request': {

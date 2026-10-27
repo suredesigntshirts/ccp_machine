@@ -64,16 +64,22 @@
       { "type": "TRIAGED", "tier": 3, "criteria": ["a works"], "actor": { "kind": "session", "id": "triager" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "CRITERION_CHECKED", "criterion": "a works", "verdict": "met", "evidence": "test a", "actor": { "kind": "session", "id": "worker" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "CRITERION_CHECKED", "criterion": "a works", "verdict": "met", "evidence": "test a", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
-      { "type": "CRITERION_CHECKED", "criterion": "a works", "verdict": "met", "evidence": "", "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness send" } }
+      { "type": "CRITERION_CHECKED", "criterion": "a works", "verdict": "met", "evidence": "", "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_SUCCEEDED", "actor": { "kind": "session", "id": "triager" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_FAILED", "actor": { "kind": "session", "id": "triager" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "CRITERION_CHECKED", "criterion": "a works", "verdict": "met", "evidence": "test a", "actor": { "kind": "session", "id": "triager" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "TRIAGED", "tier": 1, "criteria": ["a works"], "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "RUN_SUCCEEDED", "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "STAND_IN_RECORDED", "by": "stand-in", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } }
     ]
   },
   "decision": {
     "inputs": [
-      {"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w", "autonomy": "recommend", "orchestrator": "orchestrator", "workers": ["worker"]},
-      {"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 2, "question": "plan: w", "autonomy": "recommend", "orchestrator": "orchestrator", "workers": ["worker"]},
-      {"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w", "autonomy": "act", "orchestrator": "orchestrator", "workers": ["worker"]},
-      {"id": "decision:w:accept:2", "decisionClass": "accept", "tier": 1, "question": "accept: w", "autonomy": "act", "expectationsMet": true, "orchestrator": "orchestrator", "workers": ["worker"]},
-      {"id": "decision:w:accept:2", "decisionClass": "accept", "tier": 1, "question": "accept: w", "autonomy": "act", "expectationsMet": false, "orchestrator": "orchestrator", "workers": ["worker"]}
+      {"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w", "autonomy": "recommend", "orchestrator": "orchestrator", "workers": ["worker"], "requester": "orchestrator", "triagers": ["triager"]},
+      {"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 2, "question": "plan: w", "autonomy": "recommend", "orchestrator": "orchestrator", "workers": ["worker"], "requester": "orchestrator", "triagers": ["triager"]},
+      {"id": "decision:w:plan:1", "decisionClass": "plan", "tier": 1, "question": "plan: w", "autonomy": "act", "orchestrator": "orchestrator", "workers": ["worker"], "requester": "orchestrator", "triagers": ["triager"]},
+      {"id": "decision:w:accept:2", "decisionClass": "accept", "tier": 1, "question": "accept: w", "autonomy": "act", "expectationsMet": true, "orchestrator": "orchestrator", "workers": ["worker"], "requester": "orchestrator", "triagers": ["triager"], "checkers": ["reviewer"]},
+      {"id": "decision:w:accept:2", "decisionClass": "accept", "tier": 1, "question": "accept: w", "autonomy": "act", "expectationsMet": false, "orchestrator": "orchestrator", "workers": ["worker"], "requester": "orchestrator", "triagers": ["triager"]}
     ],
     "events": [
       { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95, "reason": "small" }, "actor": { "kind": "session", "id": "stand-in" }, "source": { "kind": "cli", "ref": "harness answer" } },
@@ -88,7 +94,9 @@
       { "type": "PERSON_DECIDED", "choice": "reject", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" } },
       { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "cli", "ref": "cmsg_card" } },
-      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "" } }
+      { "type": "PERSON_DECIDED", "choice": "approve", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "" } },
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95 }, "actor": { "kind": "session", "id": "triager" }, "source": { "kind": "cli", "ref": "harness answer" } },
+      { "type": "STAND_IN_ANSWERED", "answer": { "choice": "approve", "confidence": 0.95 }, "actor": { "kind": "session", "id": "reviewer" }, "source": { "kind": "cli", "ref": "harness answer" } }
     ]
   }
 }
