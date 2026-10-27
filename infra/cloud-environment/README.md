@@ -12,12 +12,13 @@ environment then caches the container, so a change reaches threads only after th
 
 What it does, because threads ignore the repo's own `.claude/` (untrusted workspace):
 
-1. Merges the repo's `.claude/settings.json` into `~/.claude/settings.json` (repo values win).
+1. Merges the repo's `.claude/settings.json` into `~/.claude/settings.json` (repo values win), and removes a stale `file-turns.js` Stop hook entry
+   left by older builds (the harness plugin registers that hook itself).
    This is how `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` reaches threads, which launch with it set to 1.
 2. Links each skill in `.claude/skills/` into `~/.claude/skills/`.
 3. Links every plugin in the repo (a folder with `.claude-plugin/plugin.json`) into
    `~/.claude/skills/<name>`, where it loads as `<name>@skills-dir`. `plugins/harness` is
-   self-contained, so this needs no install; `mods/` is skipped.
+   self-contained, so this needs no install.
 4. Runs `npm ci` in the clone for the harness and ledger CLIs (`packages/`).
 5. Writes an environment audit.
 

@@ -8,11 +8,5 @@
       "Edit(/.claude/settings.json)",
       "Write(/.claude/settings.json)"
     ]
-  },
-  "hooks": {
-  "Stop": [
-    { "hooks": [ { "type": "command", "command": "node",
-      "args": ["/home/user/ccp_machine/plugins/harness/scripts/file-turns.js", "settings"], "timeout": 30 } ] }
-  ]
-}
+  }
 }
