@@ -24,7 +24,19 @@
         "description": "The harness's own clock (tick, digest, canary)."
       }
     },
-    "roles": "Actors marked roles (session and agent) are recorded in an item's roles and compared there by the whole actor, kind and id: the id patterns are disjoint, so the recorded id names one actor. An event whose actor is not one of these kinds, or whose id does not match its kind's pattern, is refused before any machine sees it."
+    "roles": "Actors marked roles (session and agent) are recorded in an item's roles and compared there by the whole actor, kind and id: the id patterns are disjoint, so the recorded id names one actor. An event whose actor is not one of these kinds, or whose id does not match its kind's pattern, is refused before any machine sees it.",
+    "invariants": {
+      "envelope": "runtime.apply refuses an event without an actor of a kind in meta.actors (its id of that form) and a source, or one carrying \"person\", before any machine sees it.",
+      "prBinding": "runtime.apply refuses an event naming a PR bound to another item, or naming another PR than its item is bound to: one PR binds to one item, once (src/pr-binding.js).",
+      "tapOnly": "runtime.apply refuses an event from a person or a tap unless its machine binds the tap to its card (the events guarded by tapUnbound).",
+      "setsHarnessAgent": "The plugin's PreToolUse hook denies a Bash command that sets, exports, clears or passes HARNESS_AGENT or HARNESS_CALL itself: only the hook sets them.",
+      "hookSawCall": "The CLI takes an agent actor (HARNESS_AGENT) only when the plugin's PreToolUse record for the call it runs in (HARNESS_CALL: session, agent_id, tool_use_id, command hash, time) names that session and agent; under HARNESS_ENFORCE=1 a call the hook did not record sends nothing.",
+      "roleLine": "The spawn gate reads a brief's role from one line 'Harness-Role: <role> item:<id>' naming an item in the store; under HARNESS_ENFORCE=1 a brief with a malformed or repeated role line, or a harness:builder or harness:verifier spawn without one, is denied.",
+      "storeReachable": "Under HARNESS_ENFORCE=1 the spawn and merge gates deny a call they must judge when the store or the harness CLI cannot be read.",
+      "mergeBound": "Under HARNESS_ENFORCE=1 the merge gate denies a merge of a PR it cannot name, or one bound to no item.",
+      "pinnedHead": "Under HARNESS_ENFORCE=1 the merge gate denies a merge call that does not pin the head sha (expectedHeadSha, --match-head-commit or sha).",
+      "reviewOnHead": "Under HARNESS_ENFORCE=1 the merge gate denies a merge unless the PR carries the item's PASS verdict, verbatim, as a review on the pinned head sha (commit_id), read from GitHub's REST API."
+    }
   },
   "type": "parallel",
   "context": {

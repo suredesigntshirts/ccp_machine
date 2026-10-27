@@ -82,6 +82,10 @@ export function renderSpec() {
     const actors = Object.entries(config.meta?.actors ?? {});
     if (actors.length)
       out.push('Actors:', '', ...actors.map(([kind, a]) => `- \`${kind}\`${a.id ? ` (id \`${a.id}\`)` : ''}${a.roles ? ', holds roles' : ''}: ${a.description}`), '', config.meta.roles ?? '', '');
+    // The refusals that live in host code: each one's name is what its refusal or deny site cites (test/rules.test.js).
+    const invariants = Object.entries(config.meta?.invariants ?? {});
+    if (invariants.length)
+      out.push('Host invariants (refused or denied outside the machines; every such site in the code names one of these or a guard):', '', ...invariants.map(([k, v]) => `- \`${k}\`: ${v}`), '');
     out.push('```mermaid', diagram(config), '```', '');
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');

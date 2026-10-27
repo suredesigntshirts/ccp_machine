@@ -4,6 +4,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// A test run starts with none of the variables the plugin's hooks or the session set for the harness CLI (a call's
+// agent and record, enforcement): each test that runs the CLI sets the ones it means to test.
+for (const k of ['HARNESS_AGENT', 'HARNESS_CALL', 'HARNESS_ENFORCE', 'HARNESS_DIR']) delete process.env[k];
+
 const made = [];
 process.on('exit', () => {
   for (const dir of made) rmSync(dir, { recursive: true, force: true });
