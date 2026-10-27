@@ -22,6 +22,20 @@ This folder is the installable plugin. The setup script links it as it is
   first argument) and `hooks` every registration seen for the session, so a session where both fire
   shows both. Filing is idempotent (one file per session, replaced atomically). It never fails the
   session. `ledger collect` merges the filed sessions into one ledger for the report.
+- **Status line and `/harness` pane** (`hooks/status.tsx`, the harness-status mod, named under `modules`
+  in `hooks/hooks.json`; its `$.state` contract is `types/index.d.ts`). A hooks module, so it loads with
+  the plugin by the same route, `harness@skills-dir` included; there is no separate copy. Placeholder
+  content only: it runs `scripts/status.js`, which answers host.js's gate and version (one Library read,
+  the marker; no network), at session start and then at most once a minute. The status line reads
+  `harness 0.3.0 commit <sha7> · installed`, or `harness 0.3.0: available, not installed` without the
+  marker; `HARNESS_DISABLED=1` shows nothing. `/harness` (registered only when installed) opens a pane
+  with the same facts. Every hook swallows its errors.
+- **Load record**: when the module loads in an installed project, `status.js --record <session>` writes
+  `$HARNESS_LIBRARY_DIR/status-mod/<session>.json`, one JSON object
+  `{ session, event: "loaded", plugin, version, commit, root, at }`, replaced at each load or reload.
+  No file for a session that ran the hooks (its ledger exists) means the module did not load there; the
+  reason is in that session's debug log as `hooks module harness@skills-dir not loaded: <reason>`. A
+  headless `claude -p` loads it the same way (verified), but has no status row to draw in.
 - **Version**: `.claude-plugin/plugin.json`. CI fails a pull request that changes `plugins/harness`
   without raising it (`scripts/check-plugin-version.mjs`), so one version is one build.
 - **`lib/ledger/`**: a copy of `packages/ledger/src` (no dependencies), so the plugin needs no

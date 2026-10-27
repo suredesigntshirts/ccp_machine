@@ -1,6 +1,9 @@
 {
   "name": "harness",
-  "version": "0.2.0",
-  "description": "Agent harness for Claude Projects: prints its version at session start and files every session's turn ledger in the Library after each turn, in projects that installed it.",
-  "author": { "name": "suredesigntshirts" }
+  "version": "0.3.0",
+  "description": "Agent harness for Claude Projects: prints its version at session start, keeps it in the status line, and files every session's turn ledger in the Library after each turn, in projects that installed it.",
+  "author": {
+    "name": "suredesigntshirts"
+  },
+  "types": "./types/index.d.ts"
 }

@@ -46,7 +46,7 @@ If a safety check blocks a safe request, retry once with the intent stated plain
 ## The harness
 
 The agent harness lives here: `packages/harness` (spec and runtime), `packages/ledger`, `plugins/harness`
-(the plugin threads load), `mods/harness-status`. `suredesigntshirts/ccp_machine_test` holds only
+(the plugin threads load, with the harness-status mod as its hooks module `hooks/status.tsx`). `suredesigntshirts/ccp_machine_test` holds only
 standalone tools the harness can use; nothing is cloned from it at runtime.
 
 - Node.js (22+) or Bun only. Prefer zero runtime dependencies and plain ES modules; no build step,

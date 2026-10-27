@@ -1,5 +1,5 @@
 {
-  "description": "Print the harness version at session start; after each turn, file this session's turn ledger in the Library. Both do nothing unless the project has installed the harness.",
+  "description": "Print the harness version at session start; after each turn, file this session's turn ledger in the Library; keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,9 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"],
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.js"
+            ],
             "timeout": 5
           }
         ]
@@ -19,11 +21,17 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/file-turns.js", "plugin"],
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/file-turns.js",
+              "plugin"
+            ],
             "timeout": 30
           }
         ]
       }
     ]
-  }
+  },
+  "modules": [
+    "./status.tsx"
+  ]
 }
