@@ -1,0 +1,10 @@
+{
+  "name": "@ccp/ledger",
+  "version": "0.1.0",
+  "description": "Turn-level audit ledger for Claude Code sessions: turns, requests, tools, subagents, cost and usage windows",
+  "type": "module",
+  "bin": { "ledger": "bin/ledger.js" },
+  "exports": { ".": "./src/index.js" },
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test \"test/*.test.js\"" }
+}

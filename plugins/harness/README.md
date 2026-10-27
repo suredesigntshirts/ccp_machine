@@ -1,17 +1,23 @@
-# harness plugin (installed copy)
+# harness plugin
 
-Built from suredesigntshirts/ccp_machine_test at commit `1244253` (2026-10-27): `plugins/harness`
-plus `packages/ledger/src` as `lib/ledger`, without `hooks/`. Do not edit it here: change the source
-there and copy it again, and update the commit above when you do.
+This folder is the installable plugin. The setup script links it as it is
+(`infra/cloud-environment/setup.sh`): nothing is copied by hand. It is not in the marketplace
+(`.claude-plugin/marketplace.json`) until it gates itself per project: marketplace plugins on this
+account sync into every project.
 
-- **Stop hook: registered.** `.claude/settings.json` on main registers `scripts/file-turns.js` as a
-  Stop hook (since e664b49, 2026-10-26 18:21 UTC). It files each session's turn ledger in
-  `/mnt/project-files/harness/ledger/sessions/<session>.json`. `infra/cloud-environment/setup.sh`
-  merges the repo settings into `~/.claude/settings.json`, so it takes effect only in containers built
-  after the change. Check a session with `jq .hooks ~/.claude/settings.json`.
-- **Orchestrator skill: parked.** It was removed from this copy on 2026-10-27, because its prose had
-  drifted from the XState machines (Library `research/harness-root-cause-audit/README.md`, R4 and R6).
-  It comes back only once it is derived from the machines again; see the Library
-  `notes/harness-reflection/plan.md`.
-- `harness-plugin.zip` in the Library (`harness/plugin/`) is the 18:06 first build. It is not needed:
-  the setup script installs this folder. Do not upload it.
+- **Stop hook** (`hooks/hooks.json`, `scripts/file-turns.js`): after every turn, re-reads the session
+  transcript and writes its ledger to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>.json` (default
+  `/mnt/project-files/harness`). It writes only if that folder already exists, and it never fails the
+  session. `ledger collect` merges the filed sessions into one ledger for the report, so the
+  coordinator and every thread show up, not only the session that builds the report. The repo's
+  `.claude/settings.json` also registers `scripts/file-turns.js` as a Stop hook; filing is idempotent
+  (one file per session, replaced atomically), so a second run rewrites the same file.
+- **`lib/ledger/`**: a copy of `packages/ledger/src` (no dependencies), so the plugin needs no
+  `npm ci`. Do not edit it here: change `packages/ledger/src`, run `npm run build:plugin` from the repo
+  root, and commit both. `npm test` and CI run `npm run build:plugin -- --check`, which fails when the
+  copy differs from a fresh build. `npm run build:plugin -- --zip` also writes `dist/harness-plugin.zip`.
+- **Orchestrator skill: parked.** It is not in this plugin, because its prose had drifted from the
+  XState machines (Library `research/harness-root-cause-audit/README.md`, R4 and R6). Its last version
+  and its lint test are in `suredesigntshirts/ccp_machine_test` (`plugins/harness/skills/orchestrator/`,
+  `packages/harness/test/skill-lint.test.js` at commit `1244253`). It comes back only once it is derived
+  from the machines in `packages/harness/spec/`; see the Library `notes/harness-reflection/plan.md`.

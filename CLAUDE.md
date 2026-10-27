@@ -42,3 +42,15 @@ The Library (`/mnt/project-files`) is shared by every session and kept organized
 ## Safeguard false positives
 
 If a safety check blocks a safe request, retry once with the intent stated plainly: name the flagged thing you are not doing and why you need the result. If it is blocked again, stop, report the error, and use another legitimate route (such as reading the source on disk).
+
+## The harness
+
+The agent harness lives here: `packages/harness` (spec and runtime), `packages/ledger`, `plugins/harness`
+(the plugin threads load), `mods/harness-status`. `suredesigntshirts/ccp_machine_test` holds only
+standalone tools the harness can use; nothing is cloned from it at runtime.
+
+- Node.js (22+) or Bun only. Prefer zero runtime dependencies and plain ES modules; no build step,
+  except the plugin bundle: `npm run build:plugin` copies `packages/ledger/src` into
+  `plugins/harness/lib/ledger`, and both are committed together (CI fails when they differ).
+- Tests use `node:test`; `npm test` at the root runs every workspace's tests.
+- `packages/harness/spec/*.machine.json` is the source of truth for behaviour; the code follows it.

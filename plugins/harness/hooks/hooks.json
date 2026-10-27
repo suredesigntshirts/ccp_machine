@@ -1,0 +1,17 @@
+{
+  "description": "After each turn, file this session's turn ledger (turns, requests, tools, subagents, cost) in the Library",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/file-turns.js"],
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
