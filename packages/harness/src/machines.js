@@ -25,7 +25,7 @@ const withInput = (config) => ({
 // the sink as data ({ name, actor, params, subject, detail }); the host's outbox carries it out
 // later, so detail holds what the host needs to do it without reading the snapshot.
 // The default sink drops them, and pure transition() returns them by name either way.
-const DETAIL = ['title', 'url', 'project', 'tier', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn'];
+const DETAIL = ['title', 'url', 'project', 'tier', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy'];
 const external = (sink, ...names) =>
   Object.fromEntries(
     names.map((name) => [
@@ -66,8 +66,8 @@ const provenance = {
   fromOutside: ({ event }) => event.actor != null
 };
 
-// One set of machines per sink, so a host can collect the effects of the events it applies.
-export function createMachines(sink = () => {}) {
+// One set per sink, so a host collects the effects it applies; rung(class): the ladder's autonomy as a decision opens.
+export function createMachines(sink = () => {}, { rung } = {}) {
   const budgetMachine = setup({
     guards: {
       // Judge an old reading by the work since it: an idle harness spends almost nothing, so its last
@@ -113,18 +113,11 @@ export function createMachines(sink = () => {}) {
   const decisionMachine = setup({
     guards: {
       unattested: provenance.unattested,
-      // The stand-in decides alone only for tiers below 2, for a class whose autonomy is earned
-      // ("act"), with confidence at or above that class's threshold.
-      standInMayDecide: ({ context }) => {
-        const a = context.standIn;
-        return (
-          !!a &&
-          context.tier < 2 &&
-          a.autonomy === 'act' &&
-          typeof a.confidence === 'number' &&
-          a.confidence >= (a.threshold ?? 1)
-        );
-      }
+      answeredByOrchestratorOrWorker: ({ context, event }) => event.actor?.id === context.orchestrator || (context.workers ?? []).includes(event.actor?.id),
+      answerOverreaches: ({ event: { answer: a } }) =>
+        !a || typeof a.choice !== 'string' || typeof a.confidence !== 'number' || !(a.confidence >= 0 && a.confidence <= 1) || Object.keys(a).some((k) => !['choice', 'confidence', 'reason'].includes(k)),
+      // Tier from the item, autonomy and threshold from this decision's context, confidence from the stand-in.
+      standInMayDecide: ({ context }) => context.tier < 2 && context.autonomy === 'act' && context.standIn.confidence >= context.threshold
     },
     actions: {
       recordStandInAnswer: assign({ standIn: ({ event }) => event.answer }),
@@ -161,7 +154,7 @@ export function createMachines(sink = () => {}) {
     },
     actions: {
       recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
-      recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
+      recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0, workers: ({ context, event }) => [...new Set([...(context.workers ?? []), event.actor?.id].filter(Boolean))] }),
       countRetry: assign({ retries: ({ context }) => context.retries + 1 }),
       recordChoice: assign({ choice: ({ event }) => event.choice }),
       // Each decision gets a fresh id; leaving its gate state (decided, blocked, cancelled) withdraws it,
@@ -171,7 +164,8 @@ export function createMachines(sink = () => {}) {
         enqueue.assign({ decisions: context.decisions + 1, decisionId: id });
         enqueue.spawnChild('decision', {
           id,
-          input: { id, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}` }
+          input: { id, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
+            workers: context.workers ?? [], ...(rung && { autonomy: rung(params.gate) }) }
         });
       }),
       withdrawDecision: enqueueActions(({ enqueue, context }) => {

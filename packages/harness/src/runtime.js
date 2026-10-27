@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
 import { createMachines } from './machines.js';
 import { bindingError } from './pr-binding.js';
+import { ladder, readDecisionLog } from './decision-log.js';
 
 const SEEN_IDS_KEPT = 500;
 
@@ -43,8 +44,11 @@ function resolve(root, to) {
   return actor;
 }
 
-function restore(state, input, sink) {
-  const { harness } = createMachines(sink);
+// A decision opening now takes its class's rung from the log rows before now; an unreadable log gives recommend.
+const rungAt = (store, now) => (cls) => { try { return ladder(readDecisionLog(store).filter((r) => r.at < now), cls).autonomy; } catch { return 'recommend'; } };
+
+function restore(state, input, sink, rung) {
+  const { harness } = createMachines(sink, { rung });
   return createActor(harness, { systemId: 'harness', ...(state ? { snapshot: state.snapshot } : { input }) });
 }
 
@@ -98,7 +102,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
 
     const effects = [];
     let collecting = false;
-    const actor = restore(state, null, (e) => collecting && effects.push(e));
+    const actor = restore(state, null, (e) => collecting && effects.push(e), rungAt(store, now));
     actor.start();
     const target = resolve(actor, to);
     const snap = target.getSnapshot();
@@ -150,7 +154,7 @@ export function status(store) {
         id: did,
         address: `${id}/${did}`,
         state: valueText(d.snapshot.value),
-        ...pick(d.snapshot.context, ['decisionClass', 'tier', 'question', 'choice', 'decidedBy']),
+        ...pick(d.snapshot.context, ['decisionClass', 'tier', 'question', 'choice', 'decidedBy', 'autonomy']),
         standIn: d.snapshot.context.standIn ?? null
       }));
       return {

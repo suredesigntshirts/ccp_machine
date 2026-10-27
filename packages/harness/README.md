@@ -21,7 +21,15 @@ The harness spec and the runtime that drives it.
   (ref: the card's message id), a run result only from an actor other than the orchestrator (its id is
   in context, set by `ORCHESTRATOR_STARTED`), CI and merge results only from a GitHub wake (ref: the
   GitHub fact `harness from-github` read), and `DECISION_MADE` and `BUDGET_MODE` only from inside the
-  harness. The trust model is below. `test/paths.test.js` replays generated paths through all four
+  harness. The trust model is below.
+- The stand-in's gate (`standInMayDecide`): each input has one supplier, and the stand-in's caller supplies
+  none of the rules. Tier is the item's (still the filer's, from the request, until M2b). Autonomy is the
+  ladder's rung for the class over `decisions.jsonl` (rows before the decision opened), set on the decision
+  when it is spawned; a log that cannot be read gives `recommend`, so the person decides. Threshold is the
+  constant in `decision.machine.json`'s context. Confidence is the stand-in's: `STAND_IN_ANSWERED` carries
+  only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, and is
+  refused from the orchestrator and from every worker that reported a run for the item (both recorded on the
+  decision at spawn). `test/paths.test.js` replays generated paths through all four
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.

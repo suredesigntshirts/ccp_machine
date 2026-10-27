@@ -70,7 +70,7 @@ export function renderItemPage(item, records = {}) {
   const decisions = decided
     .map(
       (d) => `<tr><td><b>${esc(d.decisionClass)}</b><br><span class="m">${esc(d.id)}</span></td><td>${esc(d.choice ?? '—')}</td><td class="m">${esc(d.decidedBy ?? leaf(d.state))}</td><td>${
-        d.standIn ? `${esc(d.standIn.choice)} ${esc(pct(d.standIn.confidence))} · ${esc(d.standIn.autonomy)}<br><span class="m">${esc(d.standIn.reason ?? '')}</span>` : '—'
+        d.standIn ? `${esc(d.standIn.choice)} ${esc(pct(d.standIn.confidence))} · ${esc(d.autonomy ?? d.standIn.autonomy)}<br><span class="m">${esc(d.standIn.reason ?? '')}</span>` : '—'
       }</td></tr>`
     )
     .join('');

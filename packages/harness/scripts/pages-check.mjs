@@ -25,15 +25,17 @@ const send = (event, to, h, id) => {
   const r = apply(store, { ...event, ...scripted(event.type, id ?? 'fixture') }, { to, now: at(h), id });
   if (r.refused) throw new Error(`fixture: ${r.why}`);
 };
-const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act', reason: 'small and covered by tests' };
+const sure = { choice: 'approve', confidence: 0.95, reason: 'small and covered by tests' };
 const pr = 'https://github.com/suredesigntshirts/ccp_machine_test/pull/1';
 send({ type: 'ORCHESTRATOR_STARTED' }, undefined, 8);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'merged-item', title: 'A merged change with a long title that has to wrap on a phone screen without scrolling sideways', project: 'packages/harness', tier: 1, url: pr, expect: 'It merges' } }, undefined, 8);
 send({ type: 'RUN_SUCCEEDED' }, 'item:merged-item', 8);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:merged-item/decision:merged-item:plan:1', 9);
+send({ type: 'PERSON_DECIDED', choice: 'approve' }, 'item:merged-item/decision:merged-item:plan:1', 9);
 send({ type: 'RUN_SUCCEEDED', pr }, 'item:merged-item', 9);
 send({ type: 'CHECKS_PASSED', pr }, 'item:merged-item', 10);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:merged-item/decision:merged-item:accept:2', 10);
+send({ type: 'PERSON_DECIDED', choice: 'approve' }, 'item:merged-item/decision:merged-item:accept:2', 10);
 send({ type: 'MERGED', pr }, 'item:merged-item', 10);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'needs-you', title: 'A tier-2 change', project: 'packages/harness', tier: 2 } }, undefined, 11);
 send({ type: 'RUN_SUCCEEDED' }, 'item:needs-you', 11);

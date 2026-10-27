@@ -36,7 +36,8 @@ function row(e) {
     question: d.question ?? null,
     choice: d.choice ?? null,
     decidedBy: d.decidedBy ?? null,
-    standIn: d.standIn ?? null
+    standIn: d.standIn ?? null,
+    autonomy: d.autonomy ?? d.standIn?.autonomy ?? null
   };
 }
 
@@ -156,7 +157,7 @@ export function renderDecisionLog(rows, { title = 'Decision log', back } = {}) {
             .map(
               (r) =>
                 `<tr><td class="m">${esc(time(r.at))}</td><td><a href="items/${esc(encodeURIComponent(r.item ?? ''))}.html">${esc(r.item)}</a></td><td>${esc(r.decisionClass)} <span class="m">t${esc(r.tier)}</span></td><td><b>${esc(r.choice)}</b></td><td class="m">${esc(r.decidedBy)}</td><td>${
-                  r.standIn ? `${esc(r.standIn.choice)} ${esc(pct(r.standIn.confidence))} · ${esc(r.standIn.autonomy)}<br><span class="m">${esc(r.standIn.reason ?? '')}</span>` : '—'
+                  r.standIn ? `${esc(r.standIn.choice)} ${esc(pct(r.standIn.confidence))} · ${esc(r.autonomy)}<br><span class="m">${esc(r.standIn.reason ?? '')}</span>` : '—'
                 }</td></tr>`
             )
             .join('')
