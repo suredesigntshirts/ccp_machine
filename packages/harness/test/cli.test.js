@@ -39,7 +39,10 @@ test('send reports a refused event and exits 1; tick and usage report it and go 
   const dir = tempDir('harness-cli-');
   const at = (...args) => run(...args, '--dir', dir);
   at('init');
-  at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}}');
+  const filerTier = at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}}');
+  assert.equal(filerTier.status, 1, 'the filer cannot set the tier');
+  assert.match(filerTier.stderr, /^harness: refused: REQUEST_RECEIVED in /);
+  at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a"}}');
   const r = at('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', '--actor', 'session:worker-1', '--source', 'cli:handback-1');
   assert.equal(r.status, 1);
   assert.equal(r.stderr, 'harness: refused: CHECKS_PASSED in active.triaging\n');

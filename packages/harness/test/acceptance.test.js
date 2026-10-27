@@ -17,10 +17,12 @@ test('peak in flight counts items from their first dispatched run to their merge
   assert.deepEqual(peakInFlight(events, outbox), { peak: 2, at: '2', items: 3 });
 });
 
-test('the person\'s touches split into requests and decisions by tier', () => {
+test('the person\'s touches split into requests and decisions by the tier triage set', () => {
   const events = [
-    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 2 }, person: true } },
-    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'b', tier: 1 } } },
+    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'a' }, person: true } },
+    { to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'b' } } },
+    { to: 'item:a', event: { type: 'TRIAGED', tier: 2, criteria: ['a works'] } },
+    { to: 'item:b', event: { type: 'TRIAGED', tier: 1, criteria: ['b works'] } },
     { to: 'item:a/decision:a:plan:1', event: { type: 'PERSON_DECIDED', person: true } },
     { to: 'item:b', event: { type: 'CANCEL', person: true } }
   ];
@@ -31,10 +33,10 @@ test('harness acceptance reports each v1 criterion with a verdict and evidence',
   const store = openStore(tempDir('harness-'));
   init(store, { wipLimit: 3 });
   start(store);
-  for (const id of ['a', 'b', 'c']) apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 0 } }, { id: `req-${id}` });
+  for (const id of ['a', 'b', 'c']) apply(store, { type: 'REQUEST_RECEIVED', request: { id } }, { id: `req-${id}` });
   for (const id of ['a', 'b', 'c']) {
     ack(store, store.pending().map((e) => e.id), { note: 'done' });
-    apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}` });
+    apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: `item:${id}` });
   }
   const scenarios = () => [{ file: 'x/budget-soft-limit.json', ok: true }];
   const none = tempDir('sessions-');

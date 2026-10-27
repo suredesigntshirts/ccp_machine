@@ -20,12 +20,10 @@ test('rows come from an ArtifactData result, a bare array or {docs}', () => {
   assert.deepEqual(rowsOf(null), []);
 });
 
-test('a row becomes a request with a readable id; a bad tier asks the stand-in (tier 1)', () => {
+test('a row becomes a request with a readable id; a tier on the row is dropped, as triage sets it', () => {
   const r = requestFor({ id: 'AbC123xyz', title: 'Fix the Safari export button!', project: 'web', done: 'works in Safari', tier: 0 });
-  assert.deepEqual(r, { id: 'ask-fix-the-safari-export-abc123', title: 'Fix the Safari export button!', tier: 0, source: 'request-box:AbC123xyz', project: 'web', expect: 'works in Safari' });
-  assert.equal(requestFor({ id: 'q', title: 't', tier: 7 }).tier, 1);
-  assert.equal(requestFor({ id: 'q', title: 't', tier: '' }).tier, 1);
-  assert.equal(requestFor({ id: 'q', title: 't', tier: '2' }).tier, 2);
+  assert.deepEqual(r, { id: 'ask-fix-the-safari-export-abc123', title: 'Fix the Safari export button!', source: 'request-box:AbC123xyz', project: 'web', expect: 'works in Safari' });
+  for (const tier of [0, 2, '2', 7]) assert.equal('tier' in requestFor({ id: 'q', title: 't', tier }), false, String(tier));
 });
 
 test('intake files new rows once, skips taken ones, and returns the updates to write back', () => {

@@ -12,6 +12,13 @@ for (const wip of [3, 12]) {
     assert.ok(r.doctor.ok, r.doctor.problems.join('; '));
     // The script covers each kind of trouble at least once.
     assert.ok(r.counts.RUN_FAILED && r.counts.CHECKS_FAILED && r.counts.BLOCK && r.counts.PERSON_DECIDED, JSON.stringify(r.counts));
+    // Triage and the criteria checks come from actors of their own, never the requester, orchestrator or a worker.
+    const by = (type) => new Set(r.store.events().filter((e) => e.event.type === type).map((e) => e.actor.id));
+    assert.deepEqual([...by('TRIAGED')], ['sim-triager']);
+    assert.deepEqual([...by('CRITERION_CHECKED')], ['sim-reviewer']);
+    for (const party of ['sim-orchestrator', 'sim-worker']) assert.ok(!by('TRIAGED').has(party) && !by('CRITERION_CHECKED').has(party));
+    assert.equal(r.store.events().filter((e) => e.event.type === 'TRIAGED').length, 13, 'each item triaged once, and item 5 again after its revise');
+    assert.ok(r.store.events().some((e) => e.event.type === 'PERSON_DECIDED' && /:accept:/.test(e.to) && e.event.choice === 'revise'), 'an unmet criterion sends accept back');
     assert.ok(r.peakAsks >= 3, 'cards pile up while the person is slow');
     assert.ok(Buffer.byteLength(r.html) < 1e6);
     assert.equal(tablesInCards(r.html), 0);
@@ -29,4 +36,6 @@ test('the script mixes tiers and trouble', () => {
   const s = Array.from({ length: 12 }, (_, i) => script(i));
   assert.deepEqual([0, 1, 2].map((t) => s.filter((x) => x.tier === t).length), [4, 4, 4]);
   assert.equal(s.filter((x) => x.revise).length, 1);
+  assert.equal(s.filter((x) => x.unmet).length, 1);
+  assert.ok(s.every((x) => x.criteria.length > 0));
 });

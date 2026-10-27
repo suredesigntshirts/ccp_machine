@@ -42,13 +42,21 @@
       "states": {
         "listening": {
           "on": {
-            "REQUEST_RECEIVED": {
-              "actions": [
-                {
-                  "type": "spawnWorkItem"
-                }
-              ]
-            }
+            "REQUEST_RECEIVED": [
+              {
+                "guard": {
+                  "type": "requestOverreaches"
+                },
+                "description": "Refused when the request has no id, or sets a field the work item's machine holds (tier, criteria, checks, workers, orchestrator, requester and the rest of its context, all but id and project). The filer names the work; triage sets the tier and the criteria. The requester is the event's actor, recorded by the item."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "spawnWorkItem"
+                  }
+                ]
+              }
+            ]
           }
         }
       }
@@ -117,13 +125,21 @@
             }
           ],
           "on": {
-            "REQUEST_RECEIVED": {
-              "actions": [
-                {
-                  "type": "startReadyItems"
-                }
-              ]
-            },
+            "REQUEST_RECEIVED": [
+              {
+                "guard": {
+                  "type": "requestOverreaches"
+                },
+                "description": "Refused when the request has no id, or sets a field the work item's machine holds (tier, criteria, checks, workers, orchestrator, requester and the rest of its context, all but id and project). The filer names the work; triage sets the tier and the criteria. The requester is the event's actor, recorded by the item."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "startReadyItems"
+                  }
+                ]
+              }
+            ],
             "ITEM_FINISHED": {
               "actions": [
                 {

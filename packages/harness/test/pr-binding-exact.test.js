@@ -29,8 +29,8 @@ function itemAtVerify(id, pr, store) {
     init(store);
     start(store);
   }
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 0 } }, { id: `req-${id}`, now: '2026-10-27T12:00:00.000Z' });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}` });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id } }, { id: `req-${id}`, now: '2026-10-27T12:00:00.000Z' });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: `item:${id}` });
   const r = apply(store, { type: 'RUN_SUCCEEDED', pr }, { to: `item:${id}` });
   assert.ok(!r.refused, r.why);
   return store;
@@ -122,8 +122,8 @@ test('prKey normalises: owner/repo lowercased, the number an integer, every spel
 
 test('a spelling variant of a bound PR is the same PR: refused as a second binding, fine for its own item', async () => {
   const store = itemAtVerify('x', 'https://github.com/o/r/pull/7');
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y', tier: 0 } }, { id: 'req-y' });
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:y' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'y' } }, { id: 'req-y' });
+  apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:y' });
   for (const variant of ['O/R#7', 'o/r#07', 'https://github.com/O/r/pull/0007']) {
     const before = counts(store);
     const r = apply(store, { type: 'RUN_SUCCEEDED', pr: variant }, { to: 'item:y' });

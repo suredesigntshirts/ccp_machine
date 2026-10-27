@@ -14,6 +14,8 @@ const worker = { actor: { kind: 'session', id: 'worker-1' }, source: { kind: 'cl
 const github = { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'delivery-42' } };
 const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', ref: 'cmsg_card1' } };
 const fromCli = (actor) => ({ actor, source: { kind: 'cli', ref: 'harness send' } });
+const triager = fromCli({ kind: 'session', id: 'triager-1' });
+const reviewer = fromCli({ kind: 'session', id: 'reviewer-1' });
 
 function fresh() {
   const store = openStore(tempDir('harness-envelope-'));
@@ -32,13 +34,14 @@ function refused(store, event, opts, why) {
   assert.deepEqual(counts(store), before, `${event.type}: a refusal writes nothing`);
 }
 
-/** An item a, tier 2, moved to `to`: 'triaging', 'plan' (decision open, card posted), 'verifying' or 'merging'. */
+/** An item a moved to `to`: 'triaging', 'plan' (triaged tier 2, decision open, card posted), or triaged tier 0 and at 'building', 'verifying' or 'merging'. */
 function itemAt(to) {
   const store = fresh();
   apply(store, { type: 'ORCHESTRATOR_STARTED', ...orchestrator }, { id: 'orchestrator-orch-1' });
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: to === 'plan' ? 2 : 0 }, ...orchestrator });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...orchestrator });
   if (to === 'triaging') return store;
-  apply(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' });
+  apply(store, { type: 'TRIAGED', tier: to === 'plan' ? 2 : 0, criteria: ['a works'], ...triager }, { to: 'item:a' });
+  if (to === 'building') return store;
   if (to === 'plan') {
     apply(store, { type: 'STAND_IN_FAILED', ...orchestrator }, { to: 'item:a/decision:a:plan:1' });
     return store;
@@ -51,7 +54,7 @@ function itemAt(to) {
 
 test('an event without an actor or a source is refused, with nothing written', () => {
   const store = fresh();
-  const request = { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 } };
+  const request = { type: 'REQUEST_RECEIVED', request: { id: 'a' } };
   refused(store, request, {}, /without an actor/);
   refused(store, { ...request, actor: orchestrator.actor }, {}, /without a source/);
   refused(store, { ...request, source: orchestrator.source }, {}, /without an actor/);
@@ -63,11 +66,11 @@ test('an event without an actor or a source is refused, with nothing written', (
 
 test('the log records actor, source and the harness version that applied the event', () => {
   const store = fresh();
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 }, ...orchestrator }, { id: 'req-a', now: '2026-10-27T09:01:00Z' });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...orchestrator }, { id: 'req-a', now: '2026-10-27T09:01:00Z' });
   const [row] = store.events();
   assert.deepEqual(Object.keys(row), ['id', 'version', 'at', 'to', 'actor', 'source', 'harness', 'event']);
   assert.deepEqual([row.actor, row.source], [orchestrator.actor, orchestrator.source]);
-  assert.deepEqual(row.event, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 } }, 'the envelope is not repeated in the event');
+  assert.deepEqual(row.event, { type: 'REQUEST_RECEIVED', request: { id: 'a' } }, 'the envelope is not repeated in the event');
   assert.equal(row.harness.version, '0.1.0');
   assert.ok(row.harness.commit === null || /^[0-9a-f]{40}$/.test(row.harness.commit), row.harness.commit);
 });
@@ -94,26 +97,56 @@ test('PERSON_DECIDED is taken only from a person through a tap with the card mes
 });
 
 test('a run result is taken only from an actor other than the orchestrator', () => {
-  const store = itemAt('triaging');
-  refused(store, { type: 'RUN_SUCCEEDED', ...orchestrator }, { to: 'item:a' }, /refused: RUN_SUCCEEDED in active.triaging/);
+  const store = itemAt('building');
+  refused(store, { type: 'RUN_SUCCEEDED', ...orchestrator }, { to: 'item:a' }, /refused: RUN_SUCCEEDED in active.building/);
   refused(store, { type: 'RUN_FAILED', ...orchestrator }, { to: 'item:a' }, /refused: RUN_FAILED/);
-  assert.equal(apply(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' }).refused, undefined);
-  assert.equal(state(store, 'a'), 'active.building');
   // A new orchestrator takes over: its own reports are refused now, in items already in flight too.
   const next = { actor: { kind: 'session', id: 'orch-2' }, source: orchestrator.source };
   assert.equal(apply(store, { type: 'ORCHESTRATOR_STARTED', ...next }).refused, undefined);
   refused(store, { type: 'RUN_SUCCEEDED', ...next }, { to: 'item:a' }, /refused/);
   assert.equal(apply(store, { type: 'RUN_FAILED', ...worker }, { to: 'item:a' }).refused, undefined);
+  assert.equal(apply(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' }).refused, undefined);
+  assert.equal(state(store, 'a'), 'active.verifying');
+});
+
+test('TRIAGED is taken only from a triager: not the requester, the orchestrator or a worker, and no run leaves triage', () => {
+  const store = fresh();
+  apply(store, { type: 'ORCHESTRATOR_STARTED', ...orchestrator }, { id: 'orchestrator-orch-1' });
+  const filer = fromCli({ kind: 'session', id: 'filer-1' });
+  refused(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 }, ...filer }, {}, /refused: REQUEST_RECEIVED in /);
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...filer });
+  const triage = { type: 'TRIAGED', tier: 1, criteria: ['a works'] };
+  refused(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' }, /refused: RUN_SUCCEEDED in active.triaging/);
+  refused(store, { ...triage, ...filer }, { to: 'item:a' }, /refused: TRIAGED in active.triaging/);
+  refused(store, { ...triage, ...orchestrator }, { to: 'item:a' }, /refused: TRIAGED/);
+  assert.equal(apply(store, { type: 'RUN_FAILED', ...worker }, { to: 'item:a' }).refused, undefined);
+  refused(store, { ...triage, ...worker }, { to: 'item:a' }, /refused: TRIAGED/);
+  refused(store, { ...triage, tier: 5, ...triager }, { to: 'item:a' }, /refused: TRIAGED/);
+  assert.equal(apply(store, { ...triage, ...triager }, { to: 'item:a' }).refused, undefined);
+  assert.equal(state(store, 'a'), 'active.awaitingPlanDecision');
+  assert.deepEqual([status(store).items[0].tier, status(store).items[0].criteria], [1, ['a works']]);
+});
+
+test('CRITERION_CHECKED is taken only from someone who is neither the orchestrator nor a worker', () => {
+  const store = itemAt('verifying');
+  const check = { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a' };
+  refused(store, { ...check, ...worker }, { to: 'item:a' }, /refused: CRITERION_CHECKED in active.verifying/);
+  refused(store, { ...check, ...orchestrator }, { to: 'item:a' }, /refused: CRITERION_CHECKED/);
+  refused(store, { ...check, criterion: 'b works', ...reviewer }, { to: 'item:a' }, /refused: CRITERION_CHECKED/);
+  assert.equal(apply(store, { ...check, ...reviewer }, { to: 'item:a' }).refused, undefined);
+  assert.deepEqual(status(store).items[0].checks, { 'a works': { verdict: 'met', evidence: 'test a', by: 'reviewer-1' } });
 });
 
 test('a run result is refused while no orchestrator is known, and only a session can start one', () => {
   const store = fresh();
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a', tier: 0 }, ...orchestrator });
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...orchestrator });
   refused(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' }, /refused/);
   refused(store, { type: 'ORCHESTRATOR_STARTED', ...tap }, {}, /refused: ORCHESTRATOR_STARTED/);
   refused(store, { type: 'ORCHESTRATOR_STARTED', orchestrator: 'worker-1', ...orchestrator }, { to: 'item:a' }, /refused/);
+  refused(store, { type: 'TRIAGED', tier: 0, criteria: ['a works'], ...triager }, { to: 'item:a' }, /refused/);
   apply(store, { type: 'ORCHESTRATOR_STARTED', ...orchestrator });
-  assert.equal(apply(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' }).refused, undefined, 'a queued or running item learns the orchestrator');
+  assert.equal(apply(store, { type: 'TRIAGED', tier: 0, criteria: ['a works'], ...triager }, { to: 'item:a' }).refused, undefined, 'a queued or running item learns the orchestrator');
+  assert.equal(apply(store, { type: 'RUN_SUCCEEDED', ...worker }, { to: 'item:a' }).refused, undefined);
 });
 
 test('CI and merge results are taken only from a GitHub wake with a delivery id', () => {

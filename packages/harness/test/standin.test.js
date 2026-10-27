@@ -1,11 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDir } from './tmp.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, ack, status, readDecisionLog, logPrecedents } from '../src/index.js';
-import { apply, start } from './send.js';
+import { apply, start, earn } from './send.js';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
 const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
@@ -16,9 +14,13 @@ test('one command answers a pending plan or accept decision and acks its ask', (
   const store = openStore(dir);
   init(store);
   start(store);
-  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', tier: 1, expect: 'a works' } });
+  // The stand-in has earned act on accept gates, so the machine's own rule is all that sends an accept to the person.
+  earn(store, 'accept');
+  apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x', expect: 'a works' } });
   ack(store, store.pending().map((e) => e.id));
-  apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:x' });
+  apply(store, { type: 'RUN_FAILED' }, { to: 'item:x' }); // the worker's triage run fails: it is one of the item's workers
+  ack(store, store.pending().map((e) => e.id));
+  apply(store, { type: 'TRIAGED', tier: 1, criteria: ['a works'] }, { to: 'item:x' });
   assert.deepEqual(pendingNames(store), ['askStandIn']);
 
   assert.match(harness(dir, 'answer', 'x', '--approve').stderr, /--reason/);
@@ -48,13 +50,19 @@ test('one command answers a pending plan or accept decision and acks its ask', (
   ack(store, store.pending().map((e) => e.id));
   apply(store, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/1' }, { to: 'item:x' });
   apply(store, { type: 'CHECKS_PASSED' }, { to: 'item:x' });
-  const refused = harness(dir, 'answer', 'x', '--approve', '--reason', 'green', '--confidence', '0.95', '--actor', 'session:stand-in');
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /write the check first/);
-  mkdirSync(join(dir, 'checks'), { recursive: true });
-  writeFileSync(join(dir, 'checks', 'x.md'), '- [met] a works | evidence: test a\n');
-  assert.equal(harness(dir, 'answer', 'x', '--approve', '--reason', 'green', '--confidence', '0.95', '--actor', 'session:stand-in').status, 0);
-  assert.match(status(store).items[0].state, /awaitingAcceptance/, 'at recommend the person still decides');
+  // No criterion checked: at act and 0.95 the stand-in still cannot approve accept, so the person decides.
+  const unchecked = harness(dir, 'answer', 'x', '--approve', '--reason', 'green', '--confidence', '0.95', '--actor', 'session:stand-in');
+  assert.equal(unchecked.status, 0, unchecked.stderr);
+  const accept = status(store).items[0].decisions.find((d) => d.decisionClass === 'accept');
+  assert.deepEqual([accept.id, accept.autonomy, accept.state], ['decision:x:accept:2', 'act', 'awaitingPerson']);
   assert.ok(pendingNames(store).includes('postDecisionCard'));
   assert.match(harness(dir, 'answer', 'x', '--approve', '--reason', 'again', '--confidence', '0.95', '--actor', 'session:stand-in').stderr, /no pending stand-in question/);
+  // A reviewer checks the criterion met: the gate reopens the decision, and now the stand-in may approve.
+  assert.equal(harness(dir, 'send', '{"type":"CRITERION_CHECKED","criterion":"a works","verdict":"met","evidence":"test a"}', '--to', 'item:x', '--actor', 'session:sim-worker').status, 1, 'not the worker');
+  const checked = harness(dir, 'send', '{"type":"CRITERION_CHECKED","criterion":"a works","verdict":"met","evidence":"test a"}', '--to', 'item:x', '--actor', 'session:reviewer');
+  assert.equal(checked.status, 0, checked.stderr);
+  const met = harness(dir, 'answer', 'x', '--approve', '--reason', 'every criterion met', '--confidence', '0.95', '--actor', 'session:stand-in');
+  assert.equal(met.status, 0, met.stderr);
+  assert.equal(JSON.parse(met.stdout).subject, 'decision:x:accept:3');
+  assert.equal(status(store).items[0].state, 'active.merging', 'the stand-in approved accept alone, tier 1 merges');
 });
