@@ -132,10 +132,12 @@ test('the hooks exit 0 on their own failure: bad input, odd ids and types, an un
     assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, input), '');
   // A type that is not a plain name is never pasted into the shell as code.
   const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib }, bash('harness send x', { agent_id: 'a1', agent_type: "x'; echo pwned; '" })));
-  assert.doesNotMatch(runCommand(o.updatedInput.command, bin), /pwned/);
+  assert.equal(runCommand(o.updatedInput.command, bin), 'agent=a1:xechopwned\n', 'the type is reduced to a name, and nothing in it runs');
   // An agent id that cannot name a file writes nothing outside the session's folder.
   assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, started('../../x', 'general-purpose')), '');
   assert.ok(!existsSync(join(lib, 'ledger', 'x.json')) && !existsSync(join(lib, 'x.json')));
-  writeFileSync(join(lib, 'ledger'), 'a file where the folder should be');
-  assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, started()), '');
+  const other = scratch();
+  other.install();
+  writeFileSync(join(other.lib, 'ledger'), 'a file where the folder should be');
+  assert.equal(hook(other.root, { HARNESS_LIBRARY_DIR: other.lib }, started()), '');
 });

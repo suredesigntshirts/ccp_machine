@@ -118,7 +118,7 @@ function cliItem() {
 test('CLI: the default actor is the agent when HARNESS_AGENT is set, else the session as before', () => {
   const dir = cliItem();
   assert.deepEqual(rows(dir).at(-1).actor, { kind: 'session', id: 'lead' });
-  const r = run(sub('a1b2', 'my-plugin:reviewer'), 'send', '{"type":"TRIAGED","tier":1,"criteria":["a works"]}', '--to', 'item:a', '--dir', dir);
+  const r = run(sub('a1b2', 'my-plugin:reviewer'), 'send', '{"type":"TRIAGED","tier":0,"criteria":["a works"]}', '--to', 'item:a', '--dir', dir);
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/a1b2', type: 'my-plugin:reviewer' });
   const w = run(sub('c3d4'), 'send', '{"type":"RUN_SUCCEEDED"}', '--to', 'item:a', '--actor', 'agent:lead/c3d4', '--source', 'cli:handback', '--dir', dir);
@@ -135,7 +135,7 @@ test('CLI: a subagent cannot record as its parent or another subagent, and the p
     [sub('a1'), ['--actor', 'agent:lead/a2'], /--actor agent:lead\/a2 is not this subagent/],
     [sub('a1'), ['--actor', 'agent:other/a1'], /--actor agent:other\/a1 is not this subagent/],
     [parent, ['--actor', 'agent:lead/a1'], /--actor agent:lead\/a1 .*not a subagent/],
-    [{ HARNESS_AGENT: 'a1:general-purpose', CLAUDE_CODE_SESSION_ID: undefined }, [], /HARNESS_AGENT .*CLAUDE_CODE_SESSION_ID/],
+    [{ HARNESS_AGENT: 'a1:general-purpose', CLAUDE_CODE_SESSION_ID: undefined }, [], /HARNESS_AGENT\S* .*CLAUDE_CODE_SESSION_ID/],
     [{ ...parent, HARNESS_AGENT: 'no-type' }, [], /HARNESS_AGENT/],
     [{ ...parent, HARNESS_AGENT: 'a/b:general-purpose' }, [], /HARNESS_AGENT/]
   ]) {

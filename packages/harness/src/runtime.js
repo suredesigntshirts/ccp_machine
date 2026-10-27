@@ -4,20 +4,22 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
-import { createMachines, tapEvents } from './machines.js';
+import { createMachines, tapEvents, specs } from './machines.js';
 import { bindingError } from './pr-binding.js';
 import { ladder, readDecisionLog } from './decision-log.js';
 
 const SEEN_IDS_KEPT = 500;
 
 // The envelope every event carries: who sent it and where it came from. The machines' guards read both.
-export const ACTOR_KINDS = ['person', 'session', 'github', 'timer'];
+// The actor kinds and their id forms are the spec's (harness meta.actors): an agent is <session_id>/<agent_id>.
+const ACTORS = specs.harness.meta.actors;
+export const ACTOR_KINDS = Object.keys(ACTORS);
 export const SOURCE_KINDS = ['tap', 'github-wake', 'cli', 'timer'];
 // No event says it is the person's: `person` is refused, and the person's touches are posted cards and taps.
 const envelopeError = ({ actor, source, relayedBy, ...event }) =>
   'person' in event ? 'carrying "person": no event marks itself as the person\'s; the person acts only by a tap on a card'
   : !actor ? 'without an actor'
-  : !ACTOR_KINDS.includes(actor.kind) || typeof actor.id !== 'string' || !actor.id ? `with actor ${JSON.stringify(actor)} (kind ${ACTOR_KINDS.join('|')} and an id)`
+  : !ACTOR_KINDS.includes(actor.kind) || typeof actor.id !== 'string' || !actor.id || !new RegExp(ACTORS[actor.kind].id ?? '').test(actor.id) ? `with actor ${JSON.stringify(actor)} (kind ${ACTOR_KINDS.join('|')} and an id of its form)`
   : !source ? 'without a source'
   : !SOURCE_KINDS.includes(source.kind) || typeof source.ref !== 'string' ? `with source ${JSON.stringify(source)} (kind ${SOURCE_KINDS.join('|')} and a ref)`
   : source.kind === 'tap' && !relayedBy && process.env.CLAUDE_CODE_SESSION_ID ? 'from a tap without the session that relayed it (relayedBy)' : null;

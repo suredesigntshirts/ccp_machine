@@ -23,7 +23,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   result says `refused: <EVENT> in <state>`. An item's PR is bound once, by the first event that names it
   (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a
   bound item, or a PR bound to another item, is refused the same way with the binding in the reason.
-- The envelope: every event carries `actor` {kind: person|session|github|timer, id} and `source`
+- The envelope: every event carries `actor` {kind: person|session|agent|github|timer, id} (the kinds and their
+  id forms are the spec's, `harness.machine.json` `meta.actors`; an agent is `<session_id>/<agent_id>`) and `source`
   {kind: tap|github-wake|cli|timer, ref}; one without them is refused, and so is one carrying `person`
   (no event marks itself as the person's). Each `events.jsonl` row is
   `{id, version, at, to, actor, source, harness: {version, commit}, event}`, the last two naming the
@@ -159,10 +160,14 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   against the ledger the Stop hook files for that session (`$HARNESS_LIBRARY_DIR/ledger/sessions/<id>.json`,
   written after each turn, outside the model's choice). One line per actor: `ok`, `no ledger` (no session ran
   under that id) or `outside window` (an event dated outside the ledger's `start..end`, give or take 5
-  minutes). It exits 1 on any failure and never writes; run it once the sessions' turns have ended.
+  minutes). Every `agent:` actor is checked against the SubagentStart hook's record
+  (`ledger/sessions/<session_id>/agents/<agent_id>.json`): `ok`, `no record` (no such subagent started in that
+  session, another agent_type, or no session ledger yet) or `outside window` (before the subagent started or
+  after the session's last filed turn). It exits 1 on any failure and never writes; run it once the sessions'
+  turns have ended.
 - Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
-  stand-in answerers by session id, and refuses an event from a session that already holds another role on
-  it. The person and GitHub are exempt from roles; the person acts only by a tap on a card (below).
+  stand-in answerers by actor, a session or an agent (a subagent), and refuses an event from an actor that
+  already holds another role on it. Two subagents of one session are two actors, and neither is the session. The person and GitHub are exempt from roles; the person acts only by a tap on a card (below).
 - Cards (spec decision and audit): a card exists only because the machine asked for it. A decision in
   `awaitingPerson` queues `postDecisionCard`, the day's audit `postAuditCard`. `src/card.js`:
   `harness card <effect-id>` turns either into `request_decision` arguments (approve, revise or drop, with
@@ -197,7 +202,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - The GitHub read checks CI and merges: `from-github` applies them only when GitHub's REST API says the same, for the item's own PR, and `send` cannot claim GitHub.
 - Local checks stop mistakes, not a hostile session. Code that runs inside a session can be forged by that session: a fake `gh` first on its PATH, an edited `github-read.js`, or a direct `apply()` with any ref. Nothing more is done locally against that. The check is `harness verify-facts`, which re-reads every GitHub fact in the log from GitHub, run afterwards from outside the session.
 - A session's id is the platform's: `harness` takes `session:<id>` from `CLAUDE_CODE_SESSION_ID` and refuses an `--actor session:<id>` that differs (outside Claude Code, with no variable set, it takes the flag as given). A session can still set the variable or call `apply()` itself, so `harness verify-actors` checks every session id in the log against the platform's ledger afterwards.
-- Subagents are not separate actors. Measured for M3 in a Projects container: a subagent's Bash calls see the same environment as its parent's, variable for variable, with the same values for `CLAUDE_CODE_SESSION_ID`, `TRACEPARENT`, `CLAUDE_PID`, `AI_AGENT` and the rest, under the same `claude` process. Nothing in a Bash call tells a subagent from its parent, so one session's subagents are one actor: builder, triager, reviewer and stand-in must be separate threads (sessions), not subagents of one session.
+- A subagent is an actor of its own: agent `<session_id>/<agent_id>`. Its Bash calls see its parent's environment, `CLAUDE_CODE_SESSION_ID` included; only hook input tells them apart (measured on Claude Code 2.1.311: a subagent's PreToolUse and SubagentStart carry `agent_id` and `agent_type`, the parent's PreToolUse neither). The plugin's PreToolUse hook (`plugins/harness/scripts/agent-actor.js`) exports `HARNESS_AGENT=<agent_id>:<agent_type>`, read-only, ahead of a subagent's command that names harness, and denies any command, the parent's included, that sets `HARNESS_AGENT` itself; the CLI then records the agent, and refuses `--actor session:<id>` or another agent for a subagent, and `--actor agent:...` for a session. Its SubagentStart hook files the record `harness verify-actors` checks agents against. As with sessions, this stops mistakes, not a hostile session: a command that hides the variable from the hook's text check (built by `eval`, or `env -i`) can still forge an agent, and verify-actors cannot tell one real subagent of a session from another.
 - A tap is bound to the card the machine asked for: its ref must be the message id recorded from the ack of
   that decision's or audit's own card effect, and its choice one of the card's options. That the person
   really tapped it is checked only afterwards, against the platform: `harness verify-taps`, by another
