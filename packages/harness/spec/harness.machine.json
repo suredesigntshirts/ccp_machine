@@ -114,6 +114,21 @@
               }
             ]
           }
+        ],
+        "ITEM_PARKED": [
+          {
+            "guard": {
+              "type": "fromOutside"
+            },
+            "description": "Sent by an item when it enters needsCriteria: it waits on the person and gives up its slot. The same event from outside (any event with an actor) is refused."
+          },
+          {
+            "actions": [
+              {
+                "type": "releaseSlot"
+              }
+            ]
+          }
         ]
       },
       "states": {
@@ -149,7 +164,25 @@
                   "type": "startReadyItems"
                 }
               ]
-            }
+            },
+            "ITEM_PARKED": [
+              {
+                "guard": {
+                  "type": "fromOutside"
+                },
+                "description": "Sent by an item when it enters needsCriteria: it waits on the person and gives up its slot. The same event from outside (any event with an actor) is refused."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "releaseSlot"
+                  },
+                  {
+                    "type": "startReadyItems"
+                  }
+                ]
+              }
+            ]
           }
         },
         "draining": {
@@ -192,6 +225,7 @@
           "description": "Nothing needs the person."
         },
         "needsPerson": {
+          "description": "The person's inbox is not empty: it holds every open decision and every item waiting in needsCriteria, and each leaves it when it closes (DECISION_CLOSED).",
           "tags": [
             "needs-human"
           ],
