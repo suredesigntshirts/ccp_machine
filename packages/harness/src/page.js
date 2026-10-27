@@ -59,7 +59,7 @@ function decisionCard(item, d) {
   return `<div class="card"><span class="eyebrow">${esc(d.decisionClass)} gate · tier ${esc(d.tier)}</span>
   <b>${esc(item.title ?? d.question)}</b>${item.url ? ` <a href="${esc(item.url)}">${esc(item.url)}</a>` : ''}
   <div>${lean}</div>
-  <div class="m">Answer: <code>harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to ${esc(d.address)}</code></div></div>`;
+  <div class="m">Answer on the card in the thread, or: <code>harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to ${esc(d.address)} --actor person:&lt;you&gt; --source tap:&lt;card-message-id&gt;</code></div></div>`;
 }
 
 function auditCardHtml(a) {

@@ -18,9 +18,8 @@ The harness spec and the runtime that drives it.
   from the wrong party (SPEC.md lists them under Refused): `PERSON_DECIDED` only from a person's tap
   (ref: the card's message id), a run result only from an actor other than the orchestrator (its id is
   in context, set by `ORCHESTRATOR_STARTED`), CI and merge results only from a GitHub wake (ref: the
-  delivery or event id), and `DECISION_MADE` and `BUDGET_MODE` only from inside the harness. The machine
-  checks kinds and that a ref is there; whether a ref is real is for a verifier to check against the
-  platform or GitHub. `test/paths.test.js` replays generated paths through all four
+  GitHub fact `harness from-github` read), and `DECISION_MADE` and `BUDGET_MODE` only from inside the
+  harness. The trust model is below. `test/paths.test.js` replays generated paths through all four
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
@@ -55,8 +54,8 @@ The harness spec and the runtime that drives it.
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
-  file, an empty title or a page over 1 MB, and saves screenshots to `--shots` (default
-  `/mnt/project-files/harness/state/sim/shots` when the Library is mounted). CI runs it and uploads the shots.
+  file, an empty title or a page over 1 MB, and saves screenshots to `--shots` (default a temp folder,
+  never the Library). CI runs it and uploads the shots.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
   log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.
@@ -85,16 +84,21 @@ The harness spec and the runtime that drives it.
 - `src/sim.js`: `npm run sim` drives 12 synthetic items (every tier, a failed run, failed checks, a block,
   a person's revise) through a scratch store at WIP 3 and at WIP 12 with a scripted host. It checks the
   WIP limit, the queue, the outbox, doctor, the page size and an apply at 500 events, and saves the
-  busiest mission control to `--out`.
+  busiest mission control to `--out` (default a temp folder).
 - `src/audit.js`: `harness audit` picks up to 3 decisions the stand-in made alone (untested classes, low
   confidence and old ones first) for one daily card; `--answer N` logs the tap as the person's decisions
   (0 confirms all, N reverses pick N), so calibration and the ladder get tested decisions. Doctor warns
   when a class goes over 20 stand-in decisions unchecked.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
-  failed check `CHECKS_FAILED`, a merged PR `MERGED`, each from actor github and source github-wake. The
-  ref is the wake's delivery or event id when it carries one, else the PR (and head sha for CI) it names.
-  It finds the item from the `pr` URLs on its events.
+  failed check `CHECKS_FAILED`, a merged PR `MERGED`, each from actor github and source github-wake. It finds
+  the item from the `pr` URLs on its events, then reads the PR from GitHub's REST API (`src/github-read.js`:
+  `gh api`, or fetch with `GH_TOKEN` when gh is absent; the fetcher is injectable and tests serve recorded
+  responses) and applies the event only if GitHub agrees: the head's combined check-run conclusion for CI,
+  `merged: true` and an existing merge commit for MERGED. The ref is that fact
+  (`owner/repo#N@<head sha>:checks=success`, `owner/repo#N:merged@<merge sha>`). If GitHub disagrees or
+  cannot be read, it refuses with the reason and writes nothing. `harness send` refuses `--actor github`
+  and `--source github-wake`. `HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness` also reads the real PR #21.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` sent with
@@ -104,6 +108,12 @@ The harness spec and the runtime that drives it.
   `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate`, `refused` (`refused: <EVENT> in
   <state>`) or `standin` `{class: autonomy}`.
   `npm run scenarios` (`harness scenarios [FILE...]`) plays each on a scratch store; CI runs it.
+
+## Trust model
+
+- The machine checks who an event says it is from: actor and source kinds, that a ref is there, and that a worker is not the orchestrator.
+- The GitHub read checks CI and merges: `from-github` applies them only when GitHub's REST API says the same, and `send` cannot claim GitHub.
+- Checked only afterwards: that session ids are who they say (a worker's run result), and that a tap happened (`--source tap:` through `send`, until M4).
 
 ## Use
 
@@ -115,7 +125,7 @@ harness send '{"type":"RUN_SUCCEEDED"}' --to item:a --actor session:<worker id> 
 harness status                      # summary JSON; decisions carry their address
 harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1 \
   --actor person:<id> --source tap:<card message id>
-harness from-github wake.txt        # CI and merges, from the wake's text
+harness from-github wake.txt        # CI and merges: the wake's text, applied once GitHub agrees
 harness effects                     # what the host still has to do
 harness ack e3.0 --note "posted"
 harness page --standalone           # .harness/mission-control.html

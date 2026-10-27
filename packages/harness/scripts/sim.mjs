@@ -2,11 +2,12 @@
 // npm run sim [-- --out FILE]: 12 synthetic items at WIP 3 and at WIP 12. Prints what happened, saves the
 // busy page from the WIP 12 run, and exits 1 if an assertion fails.
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { simulate, timeApplyAt, tablesInCards } from '../src/sim.js';
 
-const { values: o } = parseArgs({ options: { out: { type: 'string', default: '/mnt/project-files/harness/state/sim/busy-day.html' }, items: { type: 'string', default: '12' } } });
+const { values: o } = parseArgs({ options: { out: { type: 'string', default: join(tmpdir(), 'harness-sim', 'busy-day.html') }, items: { type: 'string', default: '12' } } });
 const failures = [];
 const check = (ok, what) => ok || failures.push(what);
 let busy;

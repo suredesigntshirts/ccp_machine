@@ -1,7 +1,7 @@
 {
   "id": "workItem",
   "version": "0.1.0",
-  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); CI and merge results come only from GitHub wakes. The machine checks actor and source kinds, that a ref is there, and that ids differ; whether they are true is checked afterwards against the platform and GitHub.",
+  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.",
   "initial": "active",
   "context": {
     "id": "",
@@ -269,7 +269,7 @@
                     "source": "github-wake"
                   }
                 },
-                "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub."
+                "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
                 "target": "acceptGate"
@@ -284,7 +284,7 @@
                     "source": "github-wake"
                   }
                 },
-                "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub."
+                "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
                 "guard": {
@@ -484,7 +484,7 @@
                     "source": "github-wake"
                   }
                 },
-                "description": "Refused unless a merge comes from GitHub: actor github, source github-wake with the delivery or event id as ref. The machine checks the kinds and that a ref is there; whether GitHub sent it is checked afterwards against GitHub."
+                "description": "Refused unless a merge comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
                 "target": "#workItem.done"

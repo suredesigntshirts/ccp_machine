@@ -2,25 +2,23 @@
 // finished, a check failed, a PR merged); this maps each one to the item event it means, so the host stops
 // translating them by hand. Items are found through the PR links on their own events.
 import { apply, ack } from './runtime.js';
+import { readFact, FAILED } from './github-read.js';
 
 /**
- * {kind, data, at?, delivery?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
+ * {kind, data, at?} from a wake's `<event source="github" kind="...">{json}</event>` text, or from JSON.
  * `at` is the wake's current-time: when GitHub reported, which can be well before the host feeds it.
- * `delivery` is the delivery or event id when the wake carries one (an id or delivery attribute, or the JSON's).
  */
 export function parseGithubEvent(text) {
   const s = String(text).trim();
   const tag = /<event\b([^>]*)>([\s\S]*?)<\/event>/.exec(s);
-  const attr = (name, where = tag?.[1] ?? '') => new RegExp(`\\b${name}="([^"]+)"`).exec(where)?.[1];
+  const attr = (name, where = tag?.[1] ?? '') => new RegExp(`(?:^|\\s)${name}="([^"]+)"`).exec(where)?.[1];
   if (tag && attr('kind')) {
     const data = JSON.parse(tag[2].replace(/<!--[\s\S]*?-->/g, '').trim());
     const at = attr('current-time', /<wake\b[^>]*>/.exec(s)?.[0]);
-    const delivery = attr('delivery') ?? attr('id') ?? data.delivery_id ?? data.event_id;
-    return { kind: attr('kind'), data, ...(at && { at }), ...(delivery && { delivery: String(delivery) }) };
+    return { kind: attr('kind'), data, ...(at && { at }) };
   }
   const o = JSON.parse(s);
-  const delivery = o.delivery ?? o.delivery_id ?? o.event_id ?? o.data?.delivery_id ?? o.data?.event_id;
-  return { kind: o.kind, data: o.data ?? o, ...(o.at && { at: o.at }), ...(delivery && { delivery: String(delivery) }) };
+  return { kind: o.kind, data: o.data ?? o, ...(o.at && { at: o.at }) };
 }
 
 /** "owner/repo#12" or ".../owner/repo/pull/12" as "owner/repo#12". */
@@ -39,8 +37,6 @@ export function prMap(events) {
   }
   return map;
 }
-
-const FAILED = ['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure'];
 
 /** The harness event a GitHub event means, or {ignore: why}. */
 export function mapGithubEvent({ kind, data }) {
@@ -61,35 +57,40 @@ export function mapGithubEvent({ kind, data }) {
 }
 
 /**
- * Apply one GitHub event to the store, sent by github from a github-wake. Its ref is the wake's delivery
- * or event id; a wake without one is named by the GitHub object it reports (the PR, @ the head sha for CI),
- * which a verifier can look up. Returns what happened: sent (with the effects), duplicate,
- * refused (the item's machine would not take it), unknown PR, or ignored.
+ * Apply one GitHub event to the store, sent by github from a github-wake, once GitHub agrees: before a CI
+ * result or a merge, the PR is read from GitHub's REST API (fetcher, see github-read.js) and the ref is the
+ * fact read, such as o/r#7@<head sha>:checks=success or o/r#7:merged@<merge sha>. Returns what happened: sent
+ * (with the effects), duplicate, refused (GitHub disagrees or cannot be read, or the item's machine would
+ * not take it; nothing written), unknown PR, or ignored.
  */
-export function fromGithub(store, raw) {
+export async function fromGithub(store, raw, { fetcher } = {}) {
   const ev = typeof raw === 'string' ? parseGithubEvent(raw) : raw;
   const m = mapGithubEvent(ev);
   if (m.ignore) return { result: 'ignored', why: m.ignore };
   const item = prMap(store.events())[m.pr];
   if (!item) return { result: 'unknown', why: `no item names ${m.pr}`, pr: m.pr };
+  const fact = m.event.type === 'CANCEL' ? { ref: m.pr } : await readFact({ type: m.event.type, pr: m.pr, sha: m.event.sha }, fetcher);
+  if (fact.why) return { result: 'refused', item, id: m.id, why: fact.why };
+  if (fact.sha) m.event.sha = fact.sha.slice(0, 7);
+  const id = fact.sha ? m.id.replace(/^ci-[^-]*-/, `ci-${m.event.sha}-`) : m.id;
   // observedAt lets the retro tell CI's time from the host's delay in feeding the result.
   const at = Date.parse(ev.at);
-  const ref = ev.delivery ?? (ev.data?.head_sha ? `${m.pr}@${ev.data.head_sha}` : m.pr);
-  const event = { ...m.event, ...(!Number.isNaN(at) && { observedAt: new Date(at).toISOString() }), actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
-  const r = apply(store, event, { to: `item:${item}`, id: m.id });
-  if (r.refused) return { result: 'refused', item, id: m.id, why: r.why };
+  const event = { ...m.event, ...(!Number.isNaN(at) && { observedAt: new Date(at).toISOString() }), actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: fact.ref } };
+  const r = apply(store, event, { to: `item:${item}`, id });
+  if (r.refused) return { result: 'refused', item, id, why: r.why };
   if (m.event.type === 'MERGED') {
     const merge = store.pending().filter((e) => e.name === 'mergePullRequest' && (e.subject === item || e.actor === item)).map((e) => e.id);
     if (merge.length) ack(store, merge, { note: `merged: ${m.event.pr}` });
   }
-  return { result: r.duplicate ? 'duplicate' : 'sent', item, id: m.id, event: m.event.type, effects: r.effects.map((e) => e.name) };
+  return { result: r.duplicate ? 'duplicate' : 'sent', item, id, event: m.event.type, effects: r.effects.map((e) => e.name) };
 }
 
 /** Every `<wake>...</wake>` in the text, in order (a notification read can hold several). */
 export const splitWakes = (text) => String(text).match(/<wake\b[\s\S]*?<\/wake>/g) ?? [String(text)];
 
 /** Apply each wake in the text: one result for one wake, else one per wake in order. */
-export function fromGithubText(store, text) {
-  const wakes = splitWakes(text);
-  return wakes.length === 1 ? fromGithub(store, wakes[0]) : wakes.map((w) => fromGithub(store, w));
+export async function fromGithubText(store, text, opts) {
+  const results = [];
+  for (const w of splitWakes(text)) results.push(await fromGithub(store, w, opts));
+  return results.length === 1 ? results[0] : results;
 }
