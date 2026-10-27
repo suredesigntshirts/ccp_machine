@@ -4,8 +4,10 @@ Setup for the claude.ai cloud environment that this project's threads run in.
 
 ## setup.sh
 
-The environment's setup script. This file is the source of truth: after changing it, paste the
-whole file into Project settings > Cloud environment menu > gear > Setup script, and save.
+The environment's setup script. Do not paste this file. Paste `paste-me.sh` (a 5-line stub) once into
+Project settings > Cloud environment menu > gear > Setup script, and save. The stub runs this file
+from the fresh clone at each container build, so changes here need no re-paste; if the file is
+missing it logs one line to `/tmp/ccp-machine-setup.log`. It always exits 0.
 
 It runs when the container is built, after the repo clone and before Claude Code starts. The
 environment then caches the container, so a change reaches threads only after the next cache build.

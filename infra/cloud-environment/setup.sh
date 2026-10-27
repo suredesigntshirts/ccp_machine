@@ -1,7 +1,9 @@
 #!/bin/bash
-# ccp_machine cloud setup script. Paste into Project settings > Cloud environment > gear > Setup
-# script. It runs when the container is built, after the repo clone and before Claude Code starts;
-# the environment then caches the container, so edits here take effect only on the next cache build.
+# ccp_machine cloud setup script. Do not paste this file: paste the stub paste-me.sh once into
+# Project settings > Cloud environment > gear > Setup script, and it runs this file from the fresh
+# clone at each container build, so edits here need no re-paste.
+# It runs when the container is built, after the repo clone and before Claude Code starts; the
+# environment then caches the container, so edits take effect only on the next cache build.
 # 1. Merges the repo's .claude/settings.json into the user-level ~/.claude/settings.json.
 # 2. Links the repo's .claude/skills into ~/.claude/skills, because a cloud thread does not load
 #    the repo's own .claude/ (untrusted workspace).
