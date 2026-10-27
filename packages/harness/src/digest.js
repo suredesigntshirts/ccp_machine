@@ -3,7 +3,7 @@
 // note into the store and acknowledges the publishDigest effect; the host posts the note's text.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply, ack, status } from './runtime.js';
+import { apply, ack, status, waitingOnPerson } from './runtime.js';
 import { readDecisionLog } from './decision-log.js';
 import { canaryReport } from './canary.js';
 import { touchesTrend } from './attention.js';
@@ -21,7 +21,7 @@ export function renderDigest(st, { events = [], outbox = [], decisions = [], day
   const mergedToday = new Set(events.filter((e) => e.event.type === 'MERGED' && onDay(e.at)).map((e) => e.to.replace(/^item:/, '').split('/')[0]));
   const finished = st.items.filter((i) => i.done && mergedToday.has(i.id));
   const live = st.items.filter((i) => !i.done);
-  const waiting = live.flatMap((i) => i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => `${i.id}: ${d.decisionClass} gate`));
+  const waiting = waitingOnPerson(st.items).map((w) => `${w.item}: ${w.why}`);
   const today = decisions.filter((d) => onDay(d.at));
   const byPerson = today.filter((d) => d.decidedBy === 'person').length;
   const list = (rows, empty) => (rows.length ? rows.map((r) => `- ${r}`).join('\n') : `- ${empty}`);

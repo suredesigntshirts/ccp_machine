@@ -168,6 +168,7 @@ export function status(store) {
     });
   const budget = children.find(([, c]) => c.src === 'budget')?.[1]?.snapshot;
   return {
+    waitingOnPerson: waitingOnPerson(items),
     version: state.version,
     updatedAt: state.updatedAt,
     state: s.value,
@@ -176,6 +177,20 @@ export function status(store) {
     budget: budget ? { mode: valueText(budget.value), ...pick(budget.context, ['sevenDay', 'fiveHour', 'dayStartSevenDay', 'dailyShare', 'softAt', 'sampledAt', 'estimated']) } : null,
     items
   };
+}
+
+/**
+ * What waits on the person, in item order: an item triage gave no criteria (needsCriteria), and every
+ * decision whose card is in front of the person (awaitingPerson). Mission control, the digest and
+ * `harness status` count and list the same rows.
+ */
+export function waitingOnPerson(items) {
+  return items
+    .filter((i) => !i.done)
+    .flatMap((i) => [
+      ...(i.state.split('.').pop() === 'needsCriteria' ? [{ item: i.id, address: i.address, why: 'no criteria' }] : []),
+      ...i.decisions.filter((d) => d.state === 'awaitingPerson').map((d) => ({ item: i.id, address: d.address, why: `${d.decisionClass} gate` }))
+    ]);
 }
 
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o?.[k] !== undefined).map((k) => [k, o[k]]));

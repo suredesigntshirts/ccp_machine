@@ -19,9 +19,9 @@ export function issueBody({ id, why = '', expect = [] }) {
   return `Item id: \`${id}\`.\n\n${why.trim()}${why.trim() ? '\n\n' : ''}## Expect\n\n${lines.map((l) => `- ${l}`).join('\n')}\n`;
 }
 
-/** The Expect section's bullets, in order; [] when the issue has none. */
+/** The Expect section's bullets, in order; [] when the issue has none. \r\n and \r line ends read as \n. */
 export function expectFrom(body) {
-  const text = String(body ?? '');
+  const text = String(body ?? '').replace(/\r\n?/g, '\n');
   const head = EXPECT.exec(text);
   if (!head) return [];
   const rest = text.slice(head.index + head[0].length + 1);
