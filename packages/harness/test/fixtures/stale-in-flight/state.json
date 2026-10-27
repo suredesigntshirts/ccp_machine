@@ -1,0 +1,159 @@
+{
+ "version": 10,
+ "snapshot": {
+  "status": "active",
+  "value": {
+   "intake": "listening",
+   "scheduler": "accepting",
+   "attention": "quiet"
+  },
+  "historyValue": {},
+  "context": {
+   "wipLimit": 2,
+   "queued": [],
+   "inFlight": [
+    "spawn-merge-gates",
+    "rules-in-spec"
+   ],
+   "inbox": [],
+   "budgetMode": "normal",
+   "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+   "audited": [],
+   "wipLimitAtInit": 1
+  },
+  "children": {
+   "budget": {
+    "snapshot": {
+     "status": "active",
+     "value": "normal",
+     "historyValue": {},
+     "context": {
+      "dailyShare": 0.1,
+      "softAt": 0.8,
+      "fiveHourStopAt": 0.95,
+      "dayStartSevenDay": 0,
+      "sevenDay": 0,
+      "fiveHour": 0,
+      "spentToday": 0,
+      "sevenDayResetsAt": null,
+      "staleAfterMs": 7200000,
+      "backstopMs": 86400000,
+      "costRate": 0.002,
+      "sampledAt": null
+     },
+     "children": {}
+    },
+    "src": "budget",
+    "systemId": "budget",
+    "syncSnapshot": false
+   },
+   "spawn-merge-gates": {
+    "snapshot": {
+     "status": "active",
+     "value": {
+      "active": "building"
+     },
+     "historyValue": {},
+     "context": {
+      "id": "spawn-merge-gates",
+      "project": "ccp_machine",
+      "tier": 2,
+      "criteria": [
+       "Machine first: the first commit changes `spec/*.machine.json` (plus failing tests) so the workItem machine records each worker spawn (role builder, verifier or triager; the agent actor from #33; sha256 of the brief; agent type; model; harness version) and refuses a builder spawn until a verifier brief hash is fixed for the item, and refuses a verifier spawn whose brief hash differs from the fixed one. SPEC.md is re-rendered and shows these guards; no new refusal lives only in host code.",
+       "Standing, versioned agent definitions `plugins/harness/agents/builder.md` and `verifier.md` carry the rules that must not drift per brief: machines first (a rule is a guard in the JSON, not a host check), concepts added, merged or removed instead of growth, build only what the item needs, keep SPEC.md and the README true, and for the verifier the distrust, blind and hard-limit rules of the Verifier section below.",
+       "Builder and verifier spawns use these agent types, and the spawn record names the definition's version.",
+       "An agent actor is believed only when the plugin's own PreToolUse record says that agent ran the command: the hook records (session, agent_id, tool_use_id or command hash, time) for every Bash call that runs `harness`, and the CLI refuses an event whose claimed agent does not match the record for the call it is running in, so an obfuscated `HARNESS_AGENT` (for example `env \"HARNESS_\"\"AGENT=<other>:builder\" harness …`, found by #33's verifier) records nothing.",
+       "A `harness` call the hook did not see records nothing under `HARNESS_ENFORCE=1`.",
+       "Spawn gate: a plugin PreToolUse hook on the Agent tool, on when `HARNESS_ENFORCE=1`, denies (with a reason naming the rule) a spawn that names an item role unless the item is triaged in the store and the machine would take the spawn; on an allowed spawn it records the spawn event in the store, and SubagentStart binds the new agent_id to it.",
+       "A spawn with no item role is allowed but its agent can send no item event (run result, criterion check, triage) for any item.",
+       "Merge gate: a plugin PreToolUse hook, on when `HARNESS_ENFORCE=1`, on `mcp__github__merge_pull_request`, `gh pr merge`, and `gh api` calls to a pull's merge endpoint, denies the merge unless the PR is bound to an item whose machine would take `MERGED` now the store holds the item's verifier verdict PASS for the exact head sha being merged, and the PR carries that verdict as a review on that sha (`commit_id`).",
+       "The merge call must pin the head sha (`expectedHeadSha`, `--match-head-commit` or `sha`).",
+       "The verifier's verbatim verdict is on the PR as a review with event COMMENT on the head sha it checked, ending with the brief's sha256, and the same verdict is an event in the store from the verifier's agent actor.",
+       "The CLI gives the verifier one command that does both from a verdict file. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with 403, measured 2026-10-27.)",
+       "With `HARNESS_ENFORCE` unset, both hooks only record and never deny. Like the other hooks they are silent no-ops in a project without the install marker, and exit 0 on their own failure; under `HARNESS_ENFORCE=1` a gate that cannot reach the store denies instead of allowing.",
+       "`harness doctor` lists, as a problem, every merged PR bound to an item that has no verifier PASS in the store for its merge head, or no PASS review on GitHub on that sha.",
+       "End to end, in a headless `claude -p --plugin-dir <worktree>/plugins/harness` run with `HARNESS_ENFORCE=1` and a scratch store: a builder spawn before the verifier brief is fixed is denied; after fixing it, the builder spawn is allowed and recorded with its agent_id; a merge call without the status is denied. Commands and outputs are in the PR body.",
+       "No refusal lives only in host code: a CI check fails when a `refused:` path in `packages/harness/src` or a deny in the plugin hooks has no guard or named host invariant in the spec. The PR body lists the concepts (CLI commands, events, files, hooks) it adds, merges and removes.",
+       "`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green; the plugin bundle check passes."
+      ],
+      "checks": {},
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 1,
+      "choice": "approve",
+      "decisions": 1,
+      "decisionId": null,
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a9d8047973463a82e"
+      ],
+      "checkers": [],
+      "answerers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/abc7f340ed0451fe2"
+      ],
+      "title": "Gate worker spawns and merges on the harness store",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/36",
+      "expect": "Machine first: the first commit changes `spec/*.machine.json` (plus failing tests) so the workItem machine records each worker spawn (role builder, verifier or triager; the agent actor from #33; sha256 of the brief; agent type; model; harness version) and refuses a builder spawn until a verifier brief hash is fixed for the item, and refuses a verifier spawn whose brief hash differs from the fixed one. SPEC.md is re-rendered and shows these guards; no new refusal lives only in host code.\nStanding, versioned agent definitions `plugins/harness/agents/builder.md` and `verifier.md` carry the rules that must not drift per brief: machines first (a rule is a guard in the JSON, not a host check), concepts added, merged or removed instead of growth, build only what the item needs, keep SPEC.md and the README true, and for the verifier the distrust, blind and hard-limit rules of the Verifier section below. Builder and verifier spawns use these agent types, and the spawn record names the definition's version.\nAn agent actor is believed only when the plugin's own PreToolUse record says that agent ran the command: the hook records (session, agent_id, tool_use_id or command hash, time) for every Bash call that runs `harness`, and the CLI refuses an event whose claimed agent does not match the record for the call it is running in, so an obfuscated `HARNESS_AGENT` (for example `env \"HARNESS_\"\"AGENT=<other>:builder\" harness …`, found by #33's verifier) records nothing. A `harness` call the hook did not see records nothing under `HARNESS_ENFORCE=1`.\nSpawn gate: a plugin PreToolUse hook on the Agent tool, on when `HARNESS_ENFORCE=1`, denies (with a reason naming the rule) a spawn that names an item role unless the item is triaged in the store and the machine would take the spawn; on an allowed spawn it records the spawn event in the store, and SubagentStart binds the new agent_id to it. A spawn with no item role is allowed but its agent can send no item event (run result, criterion check, triage) for any item.\nMerge gate: a plugin PreToolUse hook, on when `HARNESS_ENFORCE=1`, on `mcp__github__merge_pull_request`, `gh pr merge`, and `gh api` calls to a pull's merge endpoint, denies the merge unless the PR is bound to an item whose machine would take `MERGED` now the store holds the item's verifier verdict PASS for the exact head sha being merged, and the PR carries that verdict as a review on that sha (`commit_id`). The merge call must pin the head sha (`expectedHeadSha`, `--match-head-commit` or `sha`).\nThe verifier's verbatim verdict is on the PR as a review with event COMMENT on the head sha it checked, ending with the brief's sha256, and the same verdict is an event in the store from the verifier's agent actor. The CLI gives the verifier one command that does both from a verdict file. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with 403, measured 2026-10-27.)\nWith `HARNESS_ENFORCE` unset, both hooks only record and never deny. Like the other hooks they are silent no-ops in a project without the install marker, and exit 0 on their own failure; under `HARNESS_ENFORCE=1` a gate that cannot reach the store denies instead of allowing.\n`harness doctor` lists, as a problem, every merged PR bound to an item that has no verifier PASS in the store for its merge head, or no PASS review on GitHub on that sha.\nEnd to end, in a headless `claude -p --plugin-dir <worktree>/plugins/harness` run with `HARNESS_ENFORCE=1` and a scratch store: a builder spawn before the verifier brief is fixed is denied; after fixing it, the builder spawn is allowed and recorded with its agent_id; a merge call without the status is denied. Commands and outputs are in the PR body.\nNo refusal lives only in host code: a CI check fails when a `refused:` path in `packages/harness/src` or a deny in the plugin hooks has no guard or named host invariant in the spec. The PR body lists the concepts (CLI commands, events, files, hooks) it adds, merges and removes.\n`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green; the plugin bundle check passes."
+     },
+     "children": {}
+    },
+    "src": "workItem",
+    "systemId": "item:spawn-merge-gates",
+    "syncSnapshot": false
+   },
+   "rules-in-spec": {
+    "snapshot": {
+     "status": "done",
+     "value": "cancelled",
+     "historyValue": {
+      "workItem.active.hist": [
+       {
+        "id": "workItem.active.queued"
+       }
+      ]
+     },
+     "context": {
+      "id": "rules-in-spec",
+      "project": "ccp_machine",
+      "tier": null,
+      "criteria": [],
+      "checks": {},
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 0,
+      "choice": null,
+      "decisions": 0,
+      "decisionId": null,
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [],
+      "checkers": [],
+      "answerers": [],
+      "title": "Put every harness refusal in the spec, enforced by one runtime path",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/37",
+      "expect": "Every event refusal the harness makes is a guard in `spec/*.machine.json` (the harness machine holds the PR-to-item map as an event with a guard, for example `PR_BOUND` / `prNotBound`), or, where XState cannot express it, a named host invariant listed in SPEC.md under \"Host invariants\"; SPEC.md is re-rendered and a reader learns every refusal from it.\nThe runtime enforces them through one generic path; the rule-specific host functions this replaces are removed.\nBehaviour is unchanged: the existing binding, branch and refusal tests pass unmodified in what they assert (a test may move, not weaken).\nThe PR body lists concepts (CLI commands, events, guards, files, functions) added, merged and removed, and host lines in `packages/harness/src`, `bin` and `plugins/harness/scripts` go down.\n`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green."
+     },
+     "children": {}
+    },
+    "src": "workItem",
+    "systemId": "item:rules-in-spec",
+    "syncSnapshot": false
+   }
+  }
+ },
+ "appliedIds": [
+  "orchestrator-2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+  "req-issue36",
+  "triage-spawn-merge-gates-1",
+  "standin-decision:spawn-merge-gates:plan:1",
+  "card-standin-decision:spawn-merge-gates:plan:1.0",
+  "req-issue37",
+  "cancel-rules-in-spec-1",
+  "tap-plan-spawn-merge-gates-1",
+  "wip-2"
+ ],
+ "updatedAt": "2026-10-27T19:00:52.579Z"
+}
