@@ -63,6 +63,7 @@ const dayStartOf = (iso, offsetMin) => {
  */
 export function budgetStatus(samples, config = {}) {
   const c = { ...DEFAULT_BUDGET, ...config };
+  samples = liveSamples(samples);
   if (!samples.length) return { mode: 'unknown', reason: 'no usage samples yet', config: c };
   const last = samples.at(-1);
   const dayStart = dayStartOf(last.at, c.utcOffsetMinutes);
@@ -101,3 +102,71 @@ export function budgetStatus(samples, config = {}) {
     config: c
   };
 }
+
+/** Drops each estimate that a real reading newer than its base has superseded. */
+export function liveSamples(samples) {
+  const newestReal = samples.filter((s) => !s.estimated && s.at).reduce((m, s) => (s.at > m ? s.at : m), '');
+  return samples.filter((s) => !s.estimated || s.estimatedFrom >= newestReal);
+}
+
+/**
+ * A usage sample estimated from the ledger, for when no real reading has arrived (they are rare, and
+ * round to whole percent). For each window it takes the widest span of real readings inside one reset
+ * window that shows a rise, and the filed cost over that span: utilization per dollar. A window too
+ * coarse to have risen keeps its last reading (the two caps' ratio is not documented, so one window's
+ * rate is never lent to the other). Null when there is no real sample, nothing
+ * was spent since, or neither window can be measured. Estimates are marked `estimated: true`, say their
+ * `basis`, and never feed the next estimate. The ledger holds only filed sessions, while the windows
+ * count every session, so an estimate errs high until every thread files its turns.
+ */
+export function estimateSample(samples, ledger, now = new Date().toISOString()) {
+  const real = samples.filter((s) => !s.estimated && s.at).sort((a, b) => a.at.localeCompare(b.at));
+  const last = real.at(-1);
+  if (!last) return null;
+  const sessions = ledger?.sessions ?? [];
+  const turns = sessions.flatMap((s) => s.turns ?? []);
+  const spent = (from, to) => turns.filter((t) => t.start > from && t.start <= to).reduce((a, t) => a + (t.all?.cost ?? 0), 0);
+  const since = spent(last.at, now);
+  if (!(since > 0)) return null;
+  // The widest span ending at `to` within one reset window over which `k` rose: {rise, cost, from}.
+  const span = (k, resets, to = last) => {
+    const from = real.find((s) => s.at < to.at && s[resets] === to[resets] && s[k] != null && to[k] != null && s[k] < to[k]);
+    const cost = from ? spent(from.at, to.at) : 0;
+    return from && cost > 0 ? { rise: to[k] - from[k], cost, from: from.at } : null;
+  };
+  const five = span('fiveHour', 'fiveHourResetsAt');
+  const seven = span('sevenDay', 'sevenDayResetsAt');
+  const r5 = five ? five.rise / five.cost : null;
+  const r7 = seven ? seven.rise / seven.cost : null;
+  if (r5 == null && r7 == null) return null;
+  const round = (x) => Math.round(x * 1e4) / 1e4;
+  return {
+    ...last,
+    at: now,
+    sevenDay: r7 == null ? last.sevenDay : round(Math.min(1, last.sevenDay + since * r7)),
+    fiveHour: last.fiveHour == null || r5 == null ? last.fiveHour : round(Math.min(1, last.fiveHour + since * r5)),
+    estimated: true,
+    estimatedFrom: last.at,
+    costSince: round(since),
+    basis: {
+      sevenDay: seven ? `measured since ${seven.from}` : 'last reading (too coarse to measure)',
+      fiveHour: five ? `measured since ${five.from}` : 'last reading (too coarse to measure)',
+      sessions: sessions.length
+    }
+  };
+}
+
+/**
+ * The cloud sessions to read usage from, newest filed first, as list_events takes them (`session_…`).
+ * The usage windows are the account's, so a reading from any session in the project counts for all.
+ * @param {{filedAt?: string, remoteSessionId?: string|null}[]} records filed session files
+ * @param {string|null} own this session's CLAUDE_CODE_REMOTE_SESSION_ID, always first
+ */
+export function usageSources(records, own = null, peers = []) {
+  const id = (r) => (r ? `session_${String(r).replace(/^(cse|session)_/, '')}` : null);
+  const filed = [...records].sort((a, b) => String(b.filedAt ?? '').localeCompare(String(a.filedAt ?? ''))).map((r) => id(r.remoteSessionId));
+  return [...new Set([id(own), ...filed, ...peers.map(id)].filter(Boolean))];
+}
+
+/** Session ids a thread named once in a notes file, on lines like `- usage source: session_01ab…`. */
+export const peerSources = (text) => [...String(text ?? '').matchAll(/usage source:\s*((?:cse|session)_[A-Za-z0-9]+)/gi)].map((m) => m[1]);
