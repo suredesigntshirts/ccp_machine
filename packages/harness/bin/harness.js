@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithub, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
+import { specs, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, dayAudit, answerAudit, auditCard, openAudits, fromGithubText, readCheck, initCheck, checkVerdict, acceptBlocked, requestOf, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -19,7 +19,8 @@ const HELP = `harness <command> [options]
                                  An event whose guard checks who sent it needs --actor and --source:
                                  a worker's run (RUN_SUCCEEDED, RUN_FAILED) --actor session:<worker id>,
                                  a tap (PERSON_DECIDED) --actor person:<id> --source tap:<card message id>,
-                                 CI and merges come from from-github. Any other event is sent as this
+                                 CI and merges come only from from-github (send refuses --actor github
+                                 and --source github-wake). Any other event is sent as this
                                  session ($CLAUDE_CODE_SESSION_ID) from the cli.
   usage [--samples FILE]         feed saved usage samples (ledger usage, default .ledger/usage.json)
                                  to the budget actor, then tick
@@ -62,7 +63,10 @@ const HELP = `harness <command> [options]
   from-github FILE               turn each PR activity event in FILE, in order (wakes' <event source="github"> text, or
                                  {kind, data} JSON) into its item event: a finished check suite is
                                  CHECKS_PASSED, a failed check CHECKS_FAILED, a merged PR MERGED (acking
-                                 the merge effect); ids ci-<sha7>-passed|failed and merge-pr<N> dedupe replays
+                                 the merge effect); ids ci-<sha7>-passed|failed and merge-pr<N> dedupe replays.
+                                 Each CI result or merge is applied only if GitHub agrees, read with
+                                 \`gh api\` (REST; GH_TOKEN and fetch without gh); the ref is the fact read.
+                                 Otherwise it is refused with the reason, nothing written, exit 1
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -91,7 +95,8 @@ const HELP = `harness <command> [options]
 
   --actor KIND:ID, --source KIND:REF
                                  who sent the event (person, session, github, timer) and where it came
-                                 from (tap, github-wake, cli, timer); the event log keeps both
+                                 from (tap, cli, timer; github and github-wake only via from-github);
+                                 the event log keeps both
   --dir DIR                      store folder (default $HARNESS_DIR, else .harness); an orchestrator
                                  thread keeps it in the Library so the next thread can pick it up`;
 
@@ -201,6 +206,9 @@ const walk = (node) => {
 Object.values(specs).forEach(walk);
 
 try {
+  // GitHub's word comes only through from-github, which reads it from GitHub; no flag can claim it.
+  if (flagged.actor?.kind === 'github' || flagged.source?.kind === 'github-wake')
+    throw new Error(`${cmd} refuses --actor github and --source github-wake: only harness from-github sends as GitHub, after reading the result from GitHub`);
   switch (cmd) {
     case 'init': {
       const sender = by('init');
@@ -307,7 +315,9 @@ try {
     }
     case 'from-github': {
       if (!args[0]) throw new Error('from-github needs a file holding one PR activity event');
-      print(fromGithubText(store, readFileSync(args[0], 'utf8')));
+      const results = [await fromGithubText(store, readFileSync(args[0], 'utf8'))].flat();
+      print(results.length === 1 ? results[0] : results);
+      if (results.some((r) => r.result === 'refused')) process.exitCode = 1;
       break;
     }
     case 'issue-request': {

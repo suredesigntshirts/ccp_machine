@@ -3,7 +3,7 @@
 // here is refused with nothing written: no version, event row or effect.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -155,4 +155,49 @@ test('harness send needs --actor and --source for a guarded event, and never mak
   // An unguarded event takes the session it runs in, from the CLI.
   run('send', '{"type":"BLOCK","reason":"waiting"}', '--to', 'item:a');
   assert.deepEqual([store.events().at(-1).actor, store.events().at(-1).source.kind], [{ kind: 'session', id: 'orch-1' }, 'cli']);
+});
+
+test('harness send refuses to speak for GitHub: --source github-wake and --actor github are from-github\'s alone', () => {
+  const store = itemAt('verifying');
+  const bin = new URL('../bin/harness.js', import.meta.url).pathname;
+  const run = (...args) => spawnSync(process.execPath, [bin, ...args, '--dir', store.dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orch-1' } });
+  const before = counts(store);
+  for (const flags of [
+    ['--actor', 'github:github', '--source', 'github-wake:delivery-1'],
+    ['--actor', 'session:worker-1', '--source', 'github-wake:o/r#7@abc'],
+    ['--actor', 'github:github', '--source', 'cli:x']
+  ]) {
+    const r = run('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', ...flags);
+    assert.equal(r.status, 1, flags.join(' '));
+    assert.match(r.stderr, /^harness: .*only harness from-github .*GitHub/m, flags.join(' '));
+    assert.equal(r.stdout, '');
+  }
+  assert.deepEqual(counts(store), before, 'nothing written');
+  assert.match(state(store, 'a'), /verifying/);
+});
+
+test('mission control\'s Answer hint is a command harness send takes', async () => {
+  const { renderPage } = await import('../src/index.js');
+  const store = itemAt('plan');
+  const html = renderPage(status(store), { events: store.events(), pending: store.pending() });
+  const code = /Answer[^<]*<code>(harness send [^<]+)<\/code>/.exec(html)?.[1];
+  assert.ok(code, 'the hint is on the page');
+  const unescaped = code.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  // Fill the placeholders the person fills, then run it as written.
+  const filled = unescaped.replace(/<[^>]+>/g, (p) => (/card|message/.test(p) ? 'cmsg_card1' : 'person'));
+  const [, json, rest] = /^harness send '([^']+)' (.+)$/.exec(filled);
+  const bin = new URL('../bin/harness.js', import.meta.url).pathname;
+  const r = spawnSync(process.execPath, [bin, 'send', json, ...rest.split(/\s+/), '--dir', store.dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orch-1' } });
+  assert.equal(r.status, 0, `${filled}\n${r.stderr}`);
+  const row = store.events().at(-1);
+  assert.deepEqual([row.event.type, row.actor.kind, row.source], ['PERSON_DECIDED', 'person', { kind: 'tap', ref: 'cmsg_card1' }]);
+});
+
+test('pages:check and sim write to a temp folder by default, never the Library', () => {
+  for (const f of ['pages-check.mjs', 'sim.mjs'])
+    assert.doesNotMatch(readFileSync(new URL(`../scripts/${f}`, import.meta.url), 'utf8'), /\/mnt\/project-files/, f);
+  const r = spawnSync(process.execPath, [new URL('../scripts/sim.mjs', import.meta.url).pathname, '--items', '3'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const page = /busy page: (.+)/.exec(r.stdout)?.[1];
+  assert.ok(page?.startsWith(tmpdir()), page);
 });

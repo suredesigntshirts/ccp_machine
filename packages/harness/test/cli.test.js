@@ -40,7 +40,7 @@ test('send reports a refused event and exits 1; tick and usage report it and go 
   const at = (...args) => run(...args, '--dir', dir);
   at('init');
   at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}}');
-  const r = at('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', '--actor', 'github:github', '--source', 'github-wake:delivery-1');
+  const r = at('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', '--actor', 'session:worker-1', '--source', 'cli:handback-1');
   assert.equal(r.status, 1);
   assert.equal(r.stderr, 'harness: refused: CHECKS_PASSED in active.triaging\n');
   assert.equal(JSON.parse(r.stdout).refused, true);

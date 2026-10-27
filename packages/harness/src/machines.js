@@ -59,7 +59,8 @@ const spentShare = (c, u) => u.spentToday / c.dailyShare;
 
 // Who sent an event. runtime.apply() takes only events with an actor and a source; the machines send each
 // other events without them. These guards are the refusing first transition of an event (true refuses).
-// They check kinds, that a ref is there and that ids differ; whether the ref is real is checked afterwards.
+// They check kinds, that a ref is there and that ids differ. from-github reads a GitHub ref's fact from GitHub
+// before it sends; whether a tap or a session id is real is checked afterwards.
 const provenance = {
   unattested: ({ event }, p) => (p.actor != null && event.actor?.kind !== p.actor) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
   fromOutside: ({ event }) => event.actor != null

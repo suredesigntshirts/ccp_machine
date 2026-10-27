@@ -12,9 +12,9 @@ import { openStore, init, apply, logPrecedents } from '../src/index.js';
 import { scripted } from '../src/sim.js';
 
 const { values: o } = parseArgs({ options: { out: { type: 'string' }, shots: { type: 'string' } } });
-const SIM = '/mnt/project-files/harness/state/sim';
+// Everything goes to a temp folder unless --out or --shots names another.
 const out = o.out ?? mkdtempSync(join(tmpdir(), 'harness-pages-'));
-const shots = o.shots ?? (existsSync(dirname(SIM)) ? join(SIM, 'shots') : join(out, 'shots'));
+const shots = o.shots ?? join(out, 'shots');
 mkdirSync(shots, { recursive: true });
 
 // A fixture with every kind of row: merged, cancelled, in flight, queued and one waiting on the person.
