@@ -6,7 +6,9 @@ import { openStore, init, ack, status, readDecisionLog, logPrecedents } from '..
 import { apply, start, earn } from './send.js';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
-const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
+// Each call runs as the session it names (--actor session:<id>), else the orchestrator's: the CLI takes the id from the platform.
+const sessionOf = (args) => /^session:(.+)$/.exec(args[args.indexOf('--actor') + 1] ?? '')?.[1] ?? 'orchestrator-session';
+const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: sessionOf(args) } });
 const pendingNames = (store) => store.pending().map((e) => e.name);
 
 test('one command answers a pending plan or accept decision and acks its ask', () => {

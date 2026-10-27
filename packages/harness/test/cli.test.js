@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
 const run = (...args) => spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: 'orchestrator-session' } });
+const runAs = (session, ...args) => spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_SESSION_ID: session } });
 
 test('help, --help and -h print the usage and exit 0', () => {
   for (const flag of ['help', '--help', '-h']) {
@@ -43,7 +44,7 @@ test('send reports a refused event and exits 1; tick and usage report it and go 
   assert.equal(filerTier.status, 1, 'the filer cannot set the tier');
   assert.match(filerTier.stderr, /^harness: refused: REQUEST_RECEIVED in /);
   at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a"}}');
-  const r = at('send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', '--actor', 'session:worker-1', '--source', 'cli:handback-1');
+  const r = runAs('worker-1', 'send', '{"type":"CHECKS_PASSED"}', '--to', 'item:a', '--actor', 'session:worker-1', '--source', 'cli:handback-1', '--dir', dir);
   assert.equal(r.status, 1);
   assert.equal(r.stderr, 'harness: refused: CHECKS_PASSED in active.triaging\n');
   assert.equal(JSON.parse(r.stdout).refused, true);
