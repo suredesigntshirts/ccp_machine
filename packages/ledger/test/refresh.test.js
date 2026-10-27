@@ -58,7 +58,7 @@ test('refresh: a clean detached clone fast-forwards to origin/main, and says fro
   assert.equal(host.behindCount(c.root), 0, 'as of the last fetch (none yet): not behind');
   assert.deepEqual(plain(host.refresh(c.root, { stateDir: c.state })), { from: c.old, to: c.main });
   assert.equal(head(c.root), c.main);
-  assert.equal(git(c.root, 'symbolic-ref', '-q', 'HEAD').length, 0, 'still detached');
+  assert.throws(() => git(c.root, 'symbolic-ref', '-q', 'HEAD'), 'still detached');
   assert.equal(host.behindCount(c.root), 0);
   assert.deepEqual(plain(host.refresh(c.root, { stateDir: c.state, interval: 0 })), { from: c.main, to: c.main }, 'up to date');
 });

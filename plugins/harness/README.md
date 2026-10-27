@@ -4,6 +4,10 @@ This folder is the installable plugin. The setup script links it as it is
 (`infra/cloud-environment/setup.sh`): nothing is copied by hand. It is not in the marketplace
 (`.claude-plugin/marketplace.json`) yet: marketplace plugins on this account sync into every project.
 
+**Mid-session updates.** Updates on its own: the code hooks run, because the Stop hook fast-forwards the clone they run from to origin/main (at most every 10 minutes, only when safe).
+Needs a new session: the hook list and the skills list, which load at session start (a session started before a hook shipped never runs it).
+To see which you are on, read the ledger stamp `harness`: `commit`/`version` (code that ran), `behind` and `refreshed` (the clone), and `hooks` (`["settings"]` alone means no plugin hooks: restart).
+
 - **Per-project gate** (`scripts/host.js`): a marketplace plugin loads into every project of the
   account, so every hook does nothing (exit 0, no output, no writes) unless the project has installed
   the harness: the marker `$HARNESS_LIBRARY_DIR/install.json` exists (default
@@ -27,10 +31,18 @@ This folder is the installable plugin. The setup script links it as it is
   Stop hook as `harness.updates`.
 - **Stop hook** (`scripts/file-turns.js`): after every turn, re-reads the session transcript and writes
   its ledger to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>.json`. Each record carries
-  `harness: { name, version, commit, root, hook, hooks, updates? }`: `hook` is the registration that wrote it
+  `harness: { name, version, commit, root, hook, hooks, behind, refreshed, updates? }`: `hook` is the registration that wrote it
   (`plugin` from `hooks/hooks.json`, `settings` from the repo's `.claude/settings.json`, passed as the
   first argument) and `hooks` every registration seen for the session, so a session where both fire
-  shows both. Filing is idempotent (one file per session, replaced atomically). It never fails the
+  shows both. With no argument, `hook` is `settings` when `~/.claude/settings.json` registers
+  file-turns.js as a Stop hook (the old setup.sh did, without the argument), else `unknown`; a
+  session whose `hooks` lacks `plugin` started before the plugin hooks shipped. Before filing, the hook
+  refreshes the clone it runs from (`refresh()` in `host.js`): at most once per 10 minutes per clone
+  (state in `$TMPDIR/harness-refresh/`), and only when it is not a linked worktree, HEAD is detached or
+  on main, tracked files are clean, `git fetch` succeeds within 5 s and the update is a fast-forward
+  (`git merge --ff-only`); it never resets or discards. The stamp gains `refreshed` (`{ at, from, to }`,
+  or `{ at, skipped }` with the reason) and `behind` (commits behind origin/main as of the last fetch,
+  `null` when unknown). Filing is idempotent (one file per session, replaced atomically). It never fails the
   session. `ledger collect` merges the filed sessions into one ledger for the report.
 - **Status line and `/harness` pane** (`hooks/status.tsx`, the harness-status mod, named under `modules`
   in `hooks/hooks.json`; its `$.state` contract is `types/index.d.ts`). A hooks module, so it loads with
