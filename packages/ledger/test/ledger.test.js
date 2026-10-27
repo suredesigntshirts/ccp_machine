@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { buildLedger, requestCost, samplesFromText, mergeSamples, budgetStatus, estimateSample, liveSamples, usageSources, peerSources, renderReport } from '../src/index.js';
@@ -24,7 +24,7 @@ const assistant = (requestId, at, content, model = 'claude-opus-5-5') => ({
 });
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'ledger-'));
+  const dir = tempDir('ledger-');
   const session = 'sess-1';
   const lines = [
     { type: 'user', isMeta: true, timestamp: '2026-10-26T10:00:00.000Z', message: { content: 'context' } },
@@ -229,7 +229,7 @@ test('usage-sources lists ids named in handoff-notes after the filed ones', () =
   const notes = '- audit card cmsg_9\n- usage source: session_01Rxhjs6ExuyzZoJnr6E5BpT (design thread)\n- Usage source: cse_me\n';
   assert.deepEqual(peerSources(notes), ['session_01Rxhjs6ExuyzZoJnr6E5BpT', 'cse_me']);
   assert.deepEqual(usageSources([{ filedAt: '2026-10-26T20:00:00Z', remoteSessionId: 'cse_old' }], 'cse_me', peerSources(notes)), ['session_me', 'session_old', 'session_01Rxhjs6ExuyzZoJnr6E5BpT']);
-  const dir = mkdtempSync(join(tmpdir(), 'ledger-'));
+  const dir = tempDir('ledger-');
   const f = join(dir, 'notes.md');
   writeFileSync(f, notes);
   const r = spawnSync(process.execPath, [bin, 'usage-sources', join(dir, 'none'), '--notes', f], { encoding: 'utf8', env: { ...process.env, CLAUDE_CODE_REMOTE_SESSION_ID: '' } });

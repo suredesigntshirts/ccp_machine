@@ -2,6 +2,7 @@
   "url": "https://api.github.com/repos/suredesigntshirts/ccp_machine/pulls/21",
   "number": 21,
   "state": "closed",
+  "created_at": "2026-10-27T12:12:34Z",
   "merged": true,
   "merged_at": "2026-10-27T12:17:08Z",
   "merge_commit_sha": "354ac3030801672f56b9b9f1b578c37c76837fb7",

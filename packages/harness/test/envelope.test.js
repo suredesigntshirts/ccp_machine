@@ -3,8 +3,8 @@
 // here is refused with nothing written: no version, event row or effect.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, apply, status, replay } from '../src/index.js';
@@ -16,7 +16,7 @@ const tap = { actor: { kind: 'person', id: 'person' }, source: { kind: 'tap', re
 const fromCli = (actor) => ({ actor, source: { kind: 'cli', ref: 'harness send' } });
 
 function fresh() {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-envelope-')));
+  const store = openStore(tempDir('harness-envelope-'));
   init(store, {}, '2026-10-27T09:00:00Z');
   return store;
 }
@@ -196,8 +196,10 @@ test('mission control\'s Answer hint is a command harness send takes', async () 
 test('pages:check and sim write to a temp folder by default, never the Library', () => {
   for (const f of ['pages-check.mjs', 'sim.mjs'])
     assert.doesNotMatch(readFileSync(new URL(`../scripts/${f}`, import.meta.url), 'utf8'), /\/mnt\/project-files/, f);
-  const r = spawnSync(process.execPath, [new URL('../scripts/sim.mjs', import.meta.url).pathname, '--items', '3'], { encoding: 'utf8' });
+  // The child's temp folder is one of ours, so its scratch stores go when this test file ends.
+  const tmp = tempDir('harness-sim-');
+  const r = spawnSync(process.execPath, [new URL('../scripts/sim.mjs', import.meta.url).pathname, '--items', '3'], { encoding: 'utf8', env: { ...process.env, TMPDIR: tmp } });
   assert.equal(r.status, 0, r.stderr);
   const page = /busy page: (.+)/.exec(r.stdout)?.[1];
-  assert.ok(page?.startsWith(tmpdir()), page);
+  assert.ok(page?.startsWith(tmp), page);
 });

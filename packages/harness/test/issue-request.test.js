@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, requestFromIssue, requestOf } from '../src/index.js';
@@ -17,7 +17,7 @@ const issue = {
 
 test("an issue's JSON becomes a request with its id, tier, url and expect", () => {
   assert.deepEqual(requestFromIssue(issue), { id: 'issue-request', title: issue.title, project: 'r', tier: 1, url: issue.html_url, expect: 'a works\nb is refused' });
-  const dir = mkdtempSync(join(tmpdir(), 'harness-'));
+  const dir = tempDir('harness-');
   init(openStore(dir));
   const f = join(dir, 'issue.json');
   writeFileSync(f, JSON.stringify(issue));

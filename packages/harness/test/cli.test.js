@@ -1,8 +1,8 @@
 // The CLI is the host's whole interface, and a new orchestrator reaches for --help first.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -36,7 +36,7 @@ test('a bad option or command is one error line plus the usage, exit 2, no stack
 });
 
 test('send reports a refused event and exits 1; tick and usage report it and go on', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'harness-cli-'));
+  const dir = tempDir('harness-cli-');
   const at = (...args) => run(...args, '--dir', dir);
   at('init');
   at('send', '{"type":"REQUEST_RECEIVED","request":{"id":"a","tier":0}}');
@@ -61,16 +61,16 @@ test('send reports a refused event and exits 1; tick and usage report it and go 
 });
 
 test('init names this session as the orchestrator, and outside a session needs --actor', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'harness-cli-'));
+  const dir = tempDir('harness-cli-');
   assert.equal(JSON.parse(run('init', '--dir', dir).stdout).orchestrator, 'orchestrator-session');
   const [row] = readFileSync(join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual([row.event.type, row.actor, row.source.kind], ['ORCHESTRATOR_STARTED', { kind: 'session', id: 'orchestrator-session' }, 'cli']);
   const env = { ...process.env };
   delete env.CLAUDE_CODE_SESSION_ID;
-  const outside = spawnSync(process.execPath, [bin, 'init', '--dir', mkdtempSync(join(tmpdir(), 'harness-cli-'))], { encoding: 'utf8', env });
+  const outside = spawnSync(process.execPath, [bin, 'init', '--dir', tempDir('harness-cli-')], { encoding: 'utf8', env });
   assert.equal(outside.status, 1);
   assert.match(outside.stderr, /init needs --actor session:<id>/);
-  const person = spawnSync(process.execPath, [bin, 'init', '--actor', 'person:sd', '--dir', mkdtempSync(join(tmpdir(), 'harness-cli-'))], { encoding: 'utf8', env });
+  const person = spawnSync(process.execPath, [bin, 'init', '--actor', 'person:sd', '--dir', tempDir('harness-cli-')], { encoding: 'utf8', env });
   assert.deepEqual([person.status, JSON.parse(person.stdout).orchestrator], [1, null], 'only a session orchestrates');
   assert.match(person.stderr, /refused: ORCHESTRATOR_STARTED/);
 });

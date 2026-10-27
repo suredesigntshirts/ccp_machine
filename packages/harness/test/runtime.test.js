@@ -1,13 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
 import { join } from 'node:path';
 import { itemTurns } from '../src/item-page.js';
 import { openStore, init, ack, status, renderPage, renderItemPage, itemRecords, budgetEvents, logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay } from '../src/index.js';
 import { apply, start } from './send.js';
 const fresh = (input) => {
-  const store = openStore(mkdtempSync(join(tmpdir(), 'harness-')));
+  const store = openStore(tempDir('harness-'));
   init(store, input, '2026-10-26T18:00:00Z');
   start(store, '2026-10-26T18:00:00Z');
   return store;

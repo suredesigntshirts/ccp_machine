@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, ack, status, readDecisionLog } from '../src/index.js';
@@ -12,7 +12,7 @@ const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--
 const pendingNames = (store) => store.pending().map((e) => e.name);
 
 test('one command answers a pending plan or accept decision and acks its ask', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'harness-'));
+  const dir = tempDir('harness-');
   const store = openStore(dir);
   init(store);
   start(store);

@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
 import { createMachines } from './machines.js';
+import { bindingError } from './pr-binding.js';
 
 const SEEN_IDS_KEPT = 500;
 
@@ -77,7 +78,8 @@ export function init(store, input = {}, now = new Date().toISOString()) {
  * `id` makes it idempotent: an id already applied is skipped, so a retried wake or
  * a duplicated delivery cannot double-apply.
  * An event the target actor would not take (`snapshot.can`, which reads the actor and source too) is
- * refused: nothing is written, and the result says `refused: <EVENT> in <state>`.
+ * refused: nothing is written, and the result says `refused: <EVENT> in <state>`. So is an event naming a
+ * PR (`pr`) that is bound to another item, or to an item already bound to another PR.
  * @returns {{version: number, duplicate?: boolean, refused?: boolean, why?: string, effects: object[]}}
  */
 export function apply(store, event, { to, id, now = new Date().toISOString() } = {}) {
@@ -89,6 +91,10 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
     if (!state) throw new Error(`no harness in ${store.dir}; run init first`);
     const eventId = id ?? `e${state.version}`;
     if (state.appliedIds.includes(eventId)) return { version: state.version, duplicate: true, effects: [] };
+
+    // A PR is bound to one item, once; the log holds every binding (see pr-binding.js).
+    const bound = event.pr != null && bindingError(store.events(), to, event.pr);
+    if (bound) return { version: state.version, refused: true, why: `refused: ${event.type} ${bound}`, effects: [] };
 
     const effects = [];
     let collecting = false;

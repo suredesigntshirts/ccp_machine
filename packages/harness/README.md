@@ -10,7 +10,9 @@ The harness spec and the runtime that drives it.
 - `src/runtime.js`: the backend-workflow loop. Every wake restores the root actor from the store,
   applies one event, persists, and queues the effects that event asked for. Event ids make it idempotent.
   An event the addressed actor would not take (`snapshot.can`) is refused: nothing is written and the
-  result says `refused: <EVENT> in <state>`.
+  result says `refused: <EVENT> in <state>`. An item's PR is bound once, by the first event that names it
+  (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a
+  bound item, or a PR bound to another item, is refused the same way with the binding in the reason.
 - The envelope: every event carries `actor` {kind: person|session|github|timer, id} and `source`
   {kind: tap|github-wake|cli|timer, ref}; one without them is refused. Each `events.jsonl` row is
   `{id, version, at, to, actor, source, harness: {version, commit}, event}`, the last two naming the
@@ -47,6 +49,7 @@ The harness spec and the runtime that drives it.
 - `src/replay.js`: `harness replay` rebuilds the harness from `events.jsonl` on a scratch copy and compares
   state values, children and shared context keys with `state.json`, and regenerated effects with the outbox;
   it names the first divergent event and exits 1. Context keys only one side has are notes (a spec change).
+  It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
@@ -59,6 +62,7 @@ The harness spec and the runtime that drives it.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
   log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.
+  It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
   `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, duplicates,
   torn lines and a slow mount.
 - `src/canary.js`: `harness canary` files the day's tier-0 canary item (bump `canary/last.txt`, PR, CI,
@@ -92,13 +96,23 @@ The harness spec and the runtime that drives it.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
   failed check `CHECKS_FAILED`, a merged PR `MERGED`, each from actor github and source github-wake. It finds
-  the item from the `pr` URLs on its events, then reads the PR from GitHub's REST API (`src/github-read.js`:
-  `gh api`, or fetch with `GH_TOKEN` when gh is absent; the fetcher is injectable and tests serve recorded
-  responses) and applies the event only if GitHub agrees: the head's combined check-run conclusion for CI,
-  `merged: true` and an existing merge commit for MERGED. The ref is that fact
-  (`owner/repo#N@<head sha>:checks=success`, `owner/repo#N:merged@<merge sha>`). If GitHub disagrees or
-  cannot be read, it refuses with the reason and writes nothing. `harness send` refuses `--actor github`
-  and `--source github-wake`. `HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness` also reads the real PR #21.
+  the item the PR is bound to (the first item whose events named it), then reads the PR from GitHub's REST API
+  (`src/github-read.js`: `gh api` run by absolute path, `/usr/local/bin/gh` else what `command -v gh` finds,
+  resolved once per process; or fetch with `GH_TOKEN` when there is no gh; the fetcher is injectable and tests
+  serve recorded responses). It refuses a malformed answer (`number`, `head.sha` of 40 hex, `merged` boolean,
+  `created_at`), and a PR that is not the item's own: created before the item's `REQUEST_RECEIVED`, or on a
+  branch whose name does not contain the item id. A CI result must name the PR's head by its full
+  40-character sha (no sha or a short one is refused) and the head's combined check-run conclusion must agree
+  (more runs than one page, `total_count` over the runs returned, is pending); MERGED needs `merged: true`
+  and an existing merge commit. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
+  `owner/repo#N:merged@<merge sha>`). If GitHub disagrees or cannot be read, it refuses with the reason and
+  writes nothing. `harness send` refuses `--actor github` and `--source github-wake`.
+  `HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness` also reads the real PR #21.
+- `src/verify-facts.js`: `harness verify-facts [--store DIR]` re-reads GitHub for every github-wake event in
+  the log and prints one line per fact: `ok`, `mismatch` (GitHub does not back the ref now: other checks, not
+  merged at that commit, a commit not on the PR, or a PR that is not the item's own) or `unreachable`. It
+  exits 1 on any mismatch (else 3 if any could not be read), never writes to the store, and takes the same
+  injectable fetcher, so its tests run offline. Run it from outside the session that wrote the log.
 - `src/card.js`: `harness card <effect-id>` turns a `postDecisionCard` effect into `request_decision`
   arguments (approve, revise or drop, with the stand-in's lean recommended) plus the decision's `address`
   and `choices`; a tap on option i is `PERSON_DECIDED {choice: choices[i]}` sent with
@@ -112,7 +126,8 @@ The harness spec and the runtime that drives it.
 ## Trust model
 
 - The machine checks who an event says it is from: actor and source kinds, that a ref is there, and that a worker is not the orchestrator.
-- The GitHub read checks CI and merges: `from-github` applies them only when GitHub's REST API says the same, and `send` cannot claim GitHub.
+- The GitHub read checks CI and merges: `from-github` applies them only when GitHub's REST API says the same, for the item's own PR, and `send` cannot claim GitHub.
+- Local checks stop mistakes, not a hostile session. Code that runs inside a session can be forged by that session: a fake `gh` first on its PATH, an edited `github-read.js`, or a direct `apply()` with any ref. Nothing more is done locally against that. The check is `harness verify-facts`, which re-reads every GitHub fact in the log from GitHub, run afterwards from outside the session.
 - Checked only afterwards: that session ids are who they say (a worker's run result), and that a tap happened (`--source tap:` through `send`, until M4).
 
 ## Use
@@ -126,10 +141,15 @@ harness status                      # summary JSON; decisions carry their addres
 harness send '{"type":"PERSON_DECIDED","choice":"approve"}' --to item:a/decision:a:plan:1 \
   --actor person:<id> --source tap:<card message id>
 harness from-github wake.txt        # CI and merges: the wake's text, applied once GitHub agrees
+harness verify-facts --store .harness  # later, from outside: re-read every GitHub fact in the log
 harness effects                     # what the host still has to do
 harness ack e3.0 --note "posted"
 harness page --standalone           # .harness/mission-control.html
 ```
+
+Workers put the item id in the branch name of their PR (such as `feat/42-login-fix` for item
+`login-fix`), and open the PR after the item's request: from-github refuses CI and merges for a PR that
+is not the item's own, and the first event naming a PR binds it to that item for good.
 
 The host (an orchestrator thread) is the only writer. It runs each effect (dispatch a run, post a
 decision card, merge a PR), acknowledges it, and turns what comes back (CI result, a person's tap)

@@ -24,4 +24,6 @@ export { requestFromIssue } from './issue-request.js';
 export { acceptance, acceptanceText, peakInFlight, touchesByTier } from './acceptance.js';
 export { handoffNote, writeHandoff, NOTES as HANDOFF_NOTES } from './handoff.js';
 export { parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, splitWakes, prMap, prKey } from './github.js';
-export { readFact, restFetcher, combined } from './github-read.js';
+export { readFact, restFetcher, combined, resolveGh, ghPath } from './github-read.js';
+export { bindingError, requestedAt, itemOf } from './pr-binding.js';
+export { verifyFacts, verifyFactsText } from './verify-facts.js';
