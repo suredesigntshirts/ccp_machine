@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { openStore, init, apply, cardAddress, logPrecedents } from '../src/index.js';
-import { scripted, postAndTap } from '../src/sim.js';
+import { scripted, postAndTap, verifyHead, SIM_HEAD } from '../src/sim.js';
 
 const { values: o } = parseArgs({ options: { out: { type: 'string' }, shots: { type: 'string' } } });
 // Everything goes to a temp folder unless --out or --shots names another.
@@ -43,7 +43,8 @@ send({ type: 'CRITERION_CHECKED', criterion: 'It merges', verdict: 'met', eviden
 send({ type: 'CHECKS_PASSED', pr }, 'item:merged-item', 10);
 send({ type: 'STAND_IN_ANSWERED', answer: sure }, 'item:merged-item/decision:merged-item:accept:2', 10);
 tap('approve', 'item:merged-item/decision:merged-item:accept:2', 10);
-send({ type: 'MERGED', pr }, 'item:merged-item', 10);
+verifyHead(store, 'item:merged-item', { now: at(10) });
+send({ type: 'MERGED', pr, sha: SIM_HEAD }, 'item:merged-item', 10);
 send({ type: 'REQUEST_RECEIVED', request: { id: 'needs-you', title: 'A tier-2 change', project: 'packages/harness' } }, undefined, 11);
 send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:needs-you', 11);
 send({ type: 'STAND_IN_ANSWERED', answer: { ...sure, choice: 'revise', reason: 'too big for one PR' } }, 'item:needs-you/decision:needs-you:plan:1', 11);

@@ -59,13 +59,25 @@ test('the envelope takes an agent actor and refuses one that does not name both 
   refused(store, { type: 'ORCHESTRATOR_STARTED', ...agent('lead') }, undefined, 'an agent cannot be the orchestrator');
 });
 
+// A worker subagent sends item events once its spawn is recorded and bound (#36): the session spawns it, SubagentStart binds it.
+const BRIEF = 'b'.repeat(64);
+const spawn = (store, role, aid, sid = LEAD) => {
+  const type = role === 'triager' ? 'general-purpose' : `harness:${role}`;
+  taken(store, { type: 'WORKER_SPAWNED', role, briefSha256: BRIEF, agentType: type, ...session(sid) }, 'item:a', `${sid} spawns a ${role}`);
+  taken(store, { type: 'WORKER_STARTED', agent: `${sid}/${aid}`, agentType: type, ...session(sid) }, 'item:a', `${sid}/${aid} starts`);
+};
+
 // The lead (the orchestrator session) with its triager, builder, checker and stand-in subagents: one session, five actors.
 function lead(store) {
   taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...session(LEAD) }, undefined, 'the lead files');
+  spawn(store, 'triager', 'triager');
   taken(store, { type: 'TRIAGED', tier: 1, criteria: ['a works'], ...agent('triager') }, 'item:a', "the lead's triager subagent triages");
   taken(store, { type: 'STAND_IN_ANSWERED', answer: sure, ...agent('stand-in') }, decisionOf(store), "the lead's stand-in subagent answers");
   assert.ok(!decide(store, decisionOf(store), 'approve').refused);
+  taken(store, { type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF, ...session(LEAD) }, 'item:a', 'the lead fixes the verifier brief');
+  spawn(store, 'builder', 'builder');
   taken(store, { type: 'RUN_SUCCEEDED', ...agent('builder') }, 'item:a', "the lead's builder subagent reports a run: it is not the orchestrator");
+  spawn(store, 'verifier', 'checker');
   return store;
 }
 
@@ -86,6 +98,7 @@ test('the role guards hold for agents: each agent keeps its one part, and the pa
   refused(store, { type: 'RUN_SUCCEEDED', ...agent('triager') }, 'item:a', 'the triager subagent builds');
   refused(store, { type: 'RUN_SUCCEEDED', ...session(LEAD) }, 'item:a', 'the parent reports a run');
   // The same agent id under another session is another actor; the same agent kind under the same session is the same one.
+  spawn(store, 'verifier', 'builder', 'other-session');
   taken(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a', ...agent('builder', 'other-session') }, 'item:a', "another session's agent with the builder's agent_id is not the builder");
   assert.deepEqual(ctx(store).checkers, ['other-session/builder']);
 });
@@ -93,37 +106,85 @@ test('the role guards hold for agents: each agent keeps its one part, and the pa
 test('an agent stand-in cannot answer for the item it built, checked or triaged', () => {
   const store = fresh();
   taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...session(LEAD) });
+  spawn(store, 'triager', 'triager');
   taken(store, { type: 'TRIAGED', tier: 1, criteria: ['a works'], ...agent('triager') }, 'item:a');
   refused(store, { type: 'STAND_IN_ANSWERED', answer: sure, ...agent('triager') }, decisionOf(store), 'the triager subagent answers the plan');
   taken(store, { type: 'STAND_IN_ANSWERED', answer: sure, ...agent('stand-in') }, decisionOf(store), 'another subagent answers the plan');
 });
 
-// The CLI, as a subagent's Bash call runs it once the plugin's PreToolUse hook has set HARNESS_AGENT.
+// The CLI, as a subagent's Bash call runs it once the plugin's PreToolUse hook has recorded the call and set
+// HARNESS_CALL and HARNESS_AGENT (#36: the CLI believes the agent only when the hook's record names it).
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
+const LIB = tempDir('harness-lib-');
+let calls = 0;
+// The hook's record of one call, as plugins/harness/scripts/host.js writeCall files it; returns its id.
+const recordCall = (sid, aid, lib = LIB) => {
+  const id = `toolu_${++calls}`;
+  const dir = join(lib, 'ledger', 'sessions', sid, 'calls');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${id}.json`), JSON.stringify({ sessionId: sid, toolUseId: id, at: new Date().toISOString(), kind: 'bash', agentId: aid ?? null }));
+  return id;
+};
 const run = (env, ...args) => {
-  const e = { ...process.env, HARNESS_LIBRARY_DIR: tempDir('harness-lib-'), HARNESS_AGENT: undefined, ...env };
+  const e = { ...process.env, HARNESS_LIBRARY_DIR: LIB, HARNESS_AGENT: undefined, HARNESS_CALL: undefined, HARNESS_ENFORCE: undefined, ...env };
   for (const k of Object.keys(e)) if (e[k] === undefined) delete e[k];
   return spawnSync(process.execPath, [bin, ...args], { encoding: 'utf8', env: e });
 };
 const rows = (dir) => readFileSync(join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
 const parent = { CLAUDE_CODE_SESSION_ID: 'lead' };
-const sub = (aid, type = 'general-purpose') => ({ CLAUDE_CODE_SESSION_ID: 'lead', HARNESS_AGENT: `${aid}:${type}` });
+const sub = (aid, type = 'general-purpose') => ({ CLAUDE_CODE_SESSION_ID: 'lead', HARNESS_AGENT: `${aid}:${type}`, HARNESS_CALL: recordCall('lead', aid.split('/')[0]) });
 function cliItem() {
   const dir = tempDir('harness-agents-cli-');
   assert.equal(run(parent, 'init', '--dir', dir).status, 0);
   assert.equal(run(parent, 'send', '{"type":"REQUEST_RECEIVED","request":{"id":"a"}}', '--dir', dir).status, 0);
   return dir;
 }
+// The lead spawns and binds a worker through the CLI, as the spawn gate and the SubagentStart hook do.
+const cliSpawn = (dir, role, aid, type) => {
+  for (const e of [{ type: 'WORKER_SPAWNED', role, briefSha256: BRIEF, agentType: type }, { type: 'WORKER_STARTED', agent: `lead/${aid}`, agentType: type }]) {
+    const r = run(parent, 'send', JSON.stringify(e), '--to', 'item:a', '--dir', dir);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  }
+};
 
-test('CLI: the default actor is the agent when HARNESS_AGENT is set, else the session as before', () => {
+test('CLI: the default actor is the agent when HARNESS_AGENT is set and the hook recorded the call, else the session as before', () => {
   const dir = cliItem();
   assert.deepEqual(rows(dir).at(-1).actor, { kind: 'session', id: 'lead' });
+  cliSpawn(dir, 'triager', 'a1b2', 'my-plugin:reviewer');
   const r = run(sub('a1b2', 'my-plugin:reviewer'), 'send', '{"type":"TRIAGED","tier":0,"criteria":["a works"]}', '--to', 'item:a', '--dir', dir);
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/a1b2', type: 'my-plugin:reviewer' });
-  const w = run(sub('c3d4'), 'send', '{"type":"RUN_SUCCEEDED"}', '--to', 'item:a', '--actor', 'agent:lead/c3d4', '--source', 'cli:handback', '--dir', dir);
+  assert.equal(run(parent, 'send', JSON.stringify({ type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF }), '--to', 'item:a', '--dir', dir).status, 0);
+  cliSpawn(dir, 'builder', 'c3d4', 'harness:builder');
+  const w = run(sub('c3d4', 'harness:builder'), 'send', '{"type":"RUN_SUCCEEDED"}', '--to', 'item:a', '--actor', 'agent:lead/c3d4', '--source', 'cli:handback', '--dir', dir);
   assert.equal(w.status, 0, w.stderr);
-  assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/c3d4', type: 'general-purpose' });
+  assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/c3d4', type: 'harness:builder' });
+});
+
+test('CLI: an agent the hook did not record is refused, and under HARNESS_ENFORCE=1 so is any call it did not record', () => {
+  const dir = cliItem();
+  cliSpawn(dir, 'triager', 'a1', 'general-purpose');
+  const before = readFileSync(join(dir, 'events.jsonl'), 'utf8');
+  const triage = ['send', '{"type":"TRIAGED","tier":0,"criteria":["a works"]}', '--to', 'item:a', '--dir', dir];
+  for (const [env, why] of [
+    // An obfuscated HARNESS_AGENT reaches the CLI with no call record, or with the record of the real caller.
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose' }, /comes with no HARNESS_CALL/],
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('lead', null) }, /names session lead, not agent lead\/a1/],
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('lead', 'a9') }, /names agent lead\/a9, not agent lead\/a1/],
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: 'toolu_nowhere' }, /names no record/],
+    [{ ...parent, HARNESS_AGENT: 'a1:general-purpose', HARNESS_CALL: recordCall('other', 'a1') }, /names no record/],
+    // A harness call the hook did not see (no literal "harness" in the command): nothing under enforcement.
+    [{ ...parent, HARNESS_ENFORCE: '1' }, /under HARNESS_ENFORCE=1 a call the plugin's PreToolUse hook did not record sends nothing/]
+  ]) {
+    const r = run(env, ...triage);
+    assert.equal(r.status, 1, `${JSON.stringify(env)}: ${r.stderr}`);
+    assert.match(r.stderr, why);
+    assert.match(r.stderr, /nothing was written/);
+  }
+  assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'nothing was written');
+  const ok = run({ ...sub('a1'), HARNESS_ENFORCE: '1' }, ...triage);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.deepEqual(rows(dir).at(-1).actor, { kind: 'agent', id: 'lead/a1', type: 'general-purpose' });
 });
 
 test('CLI: a subagent cannot record as its parent or another subagent, and the parent cannot record as a subagent', () => {

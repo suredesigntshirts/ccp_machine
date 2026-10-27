@@ -8,6 +8,7 @@ import { tempDir } from './tmp.js';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, cpSync, chmodSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
@@ -23,6 +24,9 @@ function scratch() {
   const bin = join(tmp, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'harness'), '#!/bin/sh\necho "agent=${HARNESS_AGENT:-none}"\n');
+  // A fake that prints the call record it was handed (#36).
+  writeFileSync(join(bin, 'harness-call'), '#!/bin/sh\necho "call=${HARNESS_CALL:-none} agent=${HARNESS_AGENT:-none}"\n');
+  chmodSync(join(bin, 'harness-call'), 0o755);
   chmodSync(join(bin, 'harness'), 0o755);
   return { tmp, lib, root, bin, install: () => writeFileSync(join(lib, 'install.json'), '{"installedAt":"2026-10-27"}') };
 }
@@ -49,7 +53,7 @@ test('hooks.json lists the agent hooks: PreToolUse on Bash and SubagentStart, bo
   assert.deepEqual([pre.command, pre.args], ['node', ['${CLAUDE_PLUGIN_ROOT}/scripts/agent-actor.js']]);
   const start = hooks.SubagentStart[0].hooks[0];
   assert.deepEqual([start.command, start.args], ['node', ['${CLAUDE_PLUGIN_ROOT}/scripts/agent-actor.js']]);
-  assert.ok(pre.timeout <= 5 && start.timeout <= 5);
+  assert.ok(pre.timeout <= 10 && start.timeout <= 30);
 });
 
 test('without the install marker, or disabled, both hooks print nothing and write nothing', () => {
@@ -84,12 +88,27 @@ test('PreToolUse: every harness call in a subagent command carries its agent, ne
   }
 });
 
-test('PreToolUse: other commands, and every command of the parent session, are left unchanged', () => {
-  const { lib, root, install } = scratch();
+test('PreToolUse: other commands are left unchanged; the parent session\'s harness calls carry only the call record', () => {
+  const { lib, root, bin, install } = scratch();
   install();
   for (const command of ['ls -la', 'echo hi && git status', 'npm test']) assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, bash(command)), '', command);
-  for (const command of ['harness send x', 'bash -c "harness send x"', 'ls']) assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, parentBash(command)), '', command);
+  assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, parentBash('ls')), '', 'ls');
+  for (const command of ['harness-call send x', 'bash -c "harness-call send x"']) {
+    const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib }, parentBash(command)));
+    assert.equal(runCommand(o.updatedInput.command, bin).trim(), 'call=toolu_1 agent=none', command);
+  }
   assert.equal(hook(root, { HARNESS_LIBRARY_DIR: lib }, { ...bash('harness send x'), tool_name: 'Read' }), '', 'only Bash');
+});
+
+test('PreToolUse: every harness call is recorded first (session, agent_id, tool_use_id, command hash, time) and named by HARNESS_CALL', () => {
+  const { lib, root, bin, install } = scratch();
+  install();
+  const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib }, bash('harness-call send x')));
+  assert.equal(runCommand(o.updatedInput.command, bin).trim(), 'call=toolu_1 agent=a076db74e73211f3e:general-purpose');
+  const record = JSON.parse(readFileSync(join(lib, 'ledger/sessions', SID, 'calls', 'toolu_1.json'), 'utf8'));
+  assert.deepEqual({ ...record, at: null }, { sessionId: SID, toolUseId: 'toolu_1', at: null, kind: 'bash', agentId: 'a076db74e73211f3e', agentType: 'general-purpose', commandSha256: createHash('sha256').update('harness-call send x').digest('hex') });
+  out(hook(root, { HARNESS_LIBRARY_DIR: lib }, { ...parentBash('harness send y'), tool_use_id: 'toolu_2' }));
+  assert.equal(JSON.parse(readFileSync(join(lib, 'ledger/sessions', SID, 'calls', 'toolu_2.json'), 'utf8')).agentId, null, "the parent's call names no agent");
 });
 
 test('PreToolUse: a command that sets HARNESS_AGENT itself is denied with a reason, from a subagent or the parent', () => {
@@ -105,12 +124,14 @@ test('PreToolUse: a command that sets HARNESS_AGENT itself is denied with a reas
     'declare -x HARNESS_AGENT=other:x; harness send x',
     'bash -c "HARNESS_AGENT=other:x harness send x"',
     'true && HARNESS_AGENT=x:y harness send x',
-    'HARNESS_AGENT+=x harness send x'
+    'HARNESS_AGENT+=x harness send x',
+    'HARNESS_CALL=toolu_9 harness send x',
+    'env HARNESS_CALL=toolu_9 harness send x'
   ])
     for (const input of [bash(command), parentBash(command)]) {
       const o = out(hook(root, { HARNESS_LIBRARY_DIR: lib }, input));
       assert.equal(o.permissionDecision, 'deny', command);
-      assert.match(o.permissionDecisionReason, /HARNESS_AGENT/);
+      assert.match(o.permissionDecisionReason, /^harness \(setsHarnessAgent\): .*HARNESS_AGENT/);
       assert.equal(o.updatedInput, undefined);
     }
 });

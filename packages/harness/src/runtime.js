@@ -87,13 +87,14 @@ export function init(store, input = {}, now = new Date().toISOString()) {
  * a duplicated delivery cannot double-apply.
  * An event the target actor would not take (`snapshot.can`, which reads the actor and source too) is
  * refused: nothing is written, and the result says `refused: <EVENT> in <state>`. So is an event naming a
- * PR (`pr`) that is bound to another item, or to an item already bound to another PR.
+ * PR (`pr`) that is bound to another item, or to an item already bound to another PR. With dryRun it writes
+ * nothing and says whether it would take the event (wouldTake): the gates ask the machine this way.
  * @returns {{version: number, duplicate?: boolean, refused?: boolean, why?: string, effects: object[]}}
  */
-export function apply(store, event, { to, id, now = new Date().toISOString() } = {}) {
+export function apply(store, event, { to, id, now = new Date().toISOString(), dryRun = false } = {}) {
   if (!event?.type) throw new Error('an event needs a type');
   const bad = envelopeError(event);
-  if (bad) return { version: store.read()?.version ?? 0, refused: true, why: `refused: ${event.type} ${bad}`, effects: [] };
+  if (bad) return { version: store.read()?.version ?? 0, refused: true, why: `refused: ${event.type} ${bad}`, effects: [] }; // rule: envelope
   event = { ...event, receivedAt: now }; // the machine reads the event's own time (AUDIT_PICKED's day), never the sender's
   return store.withLock(() => {
     const state = store.read();
@@ -103,7 +104,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
 
     // A PR is bound to one item, once; the log holds every binding (see pr-binding.js).
     const bound = event.pr != null && bindingError(store.events(), to, event.pr);
-    if (bound) return { version: state.version, refused: true, why: `refused: ${event.type} ${bound}`, effects: [] };
+    if (bound) return { version: state.version, refused: true, why: `refused: ${event.type} ${bound}`, effects: [] }; // rule: prBinding
 
     const effects = [];
     let collecting = false;
@@ -111,16 +112,24 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
     actor.start();
     const target = resolve(actor, to);
     const snap = target.getSnapshot();
-    // The machine is the only judge of what an event may do: one it would not take changes nothing.
+    // The machine is the only judge of what an event may do: one it would not take changes nothing. The reason
+    // names the guard of the refusing transition, when one refused it.
     if (snap.status !== 'active' || !snap.can(event)) {
       actor.stop();
-      return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}`, effects: [] };
+      const guard = snap.status === 'active' && refusingGuard(snap, event);
+      // rule: machine
+      return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}${guard ? ` (${guard})` : ''}`, effects: [] };
     }
     // A person acts only by a tap on a card the machine asked for, and a tap is only ever the person's: an event
     // whose machine binds the tap to its card (tapEvents). Any other event from a person or a tap is refused.
     if ((event.actor.kind === 'person' || event.source.kind === 'tap') && !tapEvents.has(event.type)) {
       actor.stop();
+      // rule: tapOnly
       return { version: state.version, refused: true, why: `refused: ${event.type} from ${event.actor.kind}:${event.actor.id} by ${event.source.kind}: a person acts only by a tap on a card the machine asked for (${[...tapEvents].join(', ')})`, effects: [] };
+    }
+    if (dryRun) {
+      actor.stop();
+      return { version: state.version, wouldTake: true, effects: [] };
     }
     collecting = true;
     target.send(event);
@@ -162,6 +171,12 @@ export function ack(store, effectIds, { outcome = 'done', note, card, by, now = 
   store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now })));
   return { acked: effectIds.length };
 }
+
+// The guard of the transition that refuses an event (one with no target and no actions), if one does.
+const refusingGuard = (snap, event) => {
+  const t = snap.machine.getTransitionData(snap, event)?.find((x) => x.target === undefined && !x.actions.length);
+  return typeof t?.guard === 'string' ? t.guard : t?.guard?.type ?? null;
+};
 
 const valueText = (v) => (typeof v === 'string' ? v : Object.entries(v).map(([k, c]) => `${k}.${valueText(c)}`).join(', '));
 

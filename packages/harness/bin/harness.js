@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
+import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -26,7 +26,10 @@ const HELP = `harness <command> [options]
                                  session ($CLAUDE_CODE_SESSION_ID) from the cli; an --actor session:<id>
                                  that is not this session is refused. In a subagent's Bash call the plugin's
                                  hook sets HARNESS_AGENT and the actor is agent:<session_id>/<agent_id>; any
-                                 --actor session or other agent is refused there, and --actor agent elsewhere. Triage answers with
+                                 --actor session or other agent is refused there, and --actor agent elsewhere.
+                                 The hook also sets HARNESS_CALL, its record of the call; an agent that
+                                 record does not name is refused, and under HARNESS_ENFORCE=1 so is a call
+                                 the hook did not record. Triage answers with
                                  {"type":"TRIAGED","tier":N,"criteria":[...]} --to item:<id>, from a session
                                  that is not the requester, the orchestrator or a worker; a reviewer who is
                                  neither sends {"type":"CRITERION_CHECKED","criterion":"...","verdict":
@@ -81,6 +84,14 @@ const HELP = `harness <command> [options]
                                  one PR to one item), created at or after the item's request, on a branch
                                  <type>/[<issue>-]<item id>[--<agent>]; a CI result must name the full 40-character
                                  head sha. Otherwise it is refused with the reason, nothing written, exit 1
+  verdict FILE --to item:<id> --pr PR --sha SHA
+                                 the verifier's verdict (first line PASS or FAIL) posted verbatim as a COMMENT
+                                 review on the PR at head SHA, ending with the item's verifier brief sha256, and
+                                 the same verdict sent as VERDICT_GIVEN from this subagent; nothing is posted when
+                                 the machine would refuse it (spec workItem, Workers)
+  merge-gate --pr PR --sha SHA   may PR be merged at head SHA now: exits 0 when the PR is bound to an item whose
+                                 machine would take MERGED of SHA and the PR carries the item's PASS verdict as a
+                                 review on SHA, else 1 naming the rule; never writes (the plugin's merge gate asks it)
   verify-facts [--store DIR]     re-read GitHub for every github-wake event in the log, one line per fact:
                                  ok, mismatch (GitHub does not back it, or it is not the item's PR) or
                                  unreachable. Never writes to the store. Exits 1 on any mismatch, else 3
@@ -111,8 +122,9 @@ const HELP = `harness <command> [options]
                                  and effects with the store; exits 1 on a difference. It re-applies github
                                  refs as logged without reading GitHub: verify-facts re-checks them
   doctor                         check the store (version gaps, unknown acks, effects pending over a day,
-                                 a stale lock, a snapshot that will not restore), verify-actors and
-                                 verify-facts; exits 1 on a problem. GitHub unreachable or a ledger not filed
+                                 a stale lock, a snapshot that will not restore), verify-actors,
+                                 verify-facts, and every merged PR of an item: the store's verifier PASS on
+                                 its merge head and a PASS review on GitHub on that sha; exits 1 on a problem. GitHub unreachable or a ledger not filed
                                  for a session's event under 10 minutes old is listed as unverifiable, exit 0
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also
                                  rebuilds a state.json that is ahead of events.jsonl; exits 1 if any is left.
@@ -180,7 +192,9 @@ try {
       reason: { type: 'string' },
       confidence: { type: 'string' },
       actor: { type: 'string' },
-      source: { type: 'string' }
+      source: { type: 'string' },
+      pr: { type: 'string' },
+      sha: { type: 'string' }
     }
   });
 } catch (e) {
@@ -237,7 +251,25 @@ const platform = process.env.CLAUDE_CODE_SESSION_ID || null;
 const handed = process.env.HARNESS_AGENT || null;
 const [, agentId, agentType] = /^([A-Za-z0-9_-]+):(.+)$/.exec(handed ?? '') ?? [];
 const self = handed ? { kind: 'agent', id: `${platform}/${agentId}`, type: agentType } : platform ? { kind: 'session', id: platform } : null;
+// The call this runs in, as the plugin's PreToolUse hook recorded it (HARNESS_CALL names the record): the agent the
+// CLI records is believed only when that record names it (harness meta.invariants hookSawCall).
+const call = process.env.HARNESS_CALL || null;
+const enforce = process.env.HARNESS_ENFORCE === '1';
+const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+const hookSawCall = () => {
+  if (handed && !call) return `HARNESS_AGENT (${handed}) comes with no HARNESS_CALL: only the plugin's PreToolUse hook sets it, with its record of the call`;
+  if (!call) return enforce ? "this harness call has no HARNESS_CALL: under HARNESS_ENFORCE=1 a call the plugin's PreToolUse hook did not record sends nothing" : null;
+  const file = SAFE_ID.test(String(platform)) && SAFE_ID.test(call) ? join(ledgerDir(), platform, 'calls', `${call}.json`) : null;
+  let record = null;
+  try { record = file && JSON.parse(readFileSync(file, 'utf8')); } catch {}
+  if (!record) return `HARNESS_CALL ${call} names no record of the plugin's PreToolUse hook for session ${platform}${file ? ` (${file})` : ''}`;
+  if (record.sessionId !== platform || (record.agentId ?? null) !== (agentId ?? null))
+    return `the plugin's record of call ${call} names ${record.agentId ? `agent ${record.sessionId}/${record.agentId}` : `session ${record.sessionId}`}, not ${agentId ? `agent ${platform}/${agentId}` : `session ${platform}`}`;
+  return null;
+};
 const by = (what) => {
+  const unseen = hookSawCall();
+  if (unseen) throw new Error(`${unseen}; nothing was written`);
   const actor = flagged.actor ? { ...flagged.actor, ...(flagged.actor.kind === 'agent' && self?.kind === 'agent' && { type: self.type }) } : self;
   if (!actor) throw new Error(`${what} needs --actor session:<id> outside a Claude Code session`);
   const source = flagged.source ?? { kind: 'cli', ref: `harness ${cmd}` };
@@ -349,6 +381,19 @@ try {
       const results = [await fromGithubText(store, readFileSync(args[0], 'utf8'))].flat();
       print(results.length === 1 ? results[0] : results);
       if (results.some((r) => r.result === 'refused')) process.exitCode = 1;
+      break;
+    }
+    case 'verdict': {
+      if (!args[0] || !o.to || !o.pr || !o.sha) throw new Error('verdict needs a file, --to item:<id>, --pr <the PR> and --sha <the head sha checked>');
+      const r = await giveVerdict(store, { text: readFileSync(args[0], 'utf8'), to: o.to, pr: o.pr, sha: o.sha, by: by('verdict') });
+      print(r);
+      if (r.refused) process.exitCode = 1;
+      break;
+    }
+    case 'merge-gate': {
+      const r = await mergeGate(store, { pr: o.pr, sha: o.sha });
+      print(r);
+      if (!r.allow) process.exitCode = 1;
       break;
     }
     case 'verify-facts': {

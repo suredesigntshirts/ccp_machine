@@ -28,3 +28,5 @@ export { bindingError, requestedAt, itemOf } from './pr-binding.js';
 export { verifyFacts, verifyFactsText } from './verify-facts.js';
 export { verifyActors, verifyActorsText, ledgerDir, WINDOW_TOLERANCE_MS } from './verify-actors.js';
 export { verifyTaps, verifyTapsText } from './verify-taps.js';
+export { giveVerdict, mergeGate, verifyMerges, verifyMergesText, verdictOf, restPost } from './gates.js';
+export { verifyHead, SIM_HEAD, SIM_BRIEF } from './sim.js';

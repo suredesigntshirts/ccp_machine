@@ -1,13 +1,18 @@
 // Tests drive the harness the way the scripted host does: each event from the party that sends it for
 // real (src/sim.js scripted), unless the test names one. test/envelope.test.js checks the wrong parties.
 import { apply as applyEvent, ack, cardAddress } from '../src/runtime.js';
-import { scripted } from '../src/sim.js';
+import { scripted, verifyHead, SIM_HEAD } from '../src/sim.js';
 
 // A PERSON_DECIDED with no sender named is the person's tap on the decision's card, posted first if it is not yet.
-export const apply = (store, event, opts) =>
-  event?.type === 'PERSON_DECIDED' && !event.actor && !event.source
-    ? decide(store, opts?.to, event.choice, undefined, opts)
-    : applyEvent(store, event?.actor || event?.source ? event : { ...event, ...scripted(event?.type) }, opts);
+// A MERGED with no sender named and no head is GitHub's merge of a head the item's verifier passed (verifyHead first).
+export const apply = (store, event, opts) => {
+  if (event?.type === 'PERSON_DECIDED' && !event.actor && !event.source) return decide(store, opts?.to, event.choice, undefined, opts);
+  if (event?.type === 'MERGED' && !event.actor && !event.source && !event.sha && opts?.to) {
+    verifyHead(store, opts.to, { now: opts.now });
+    event = { ...event, sha: SIM_HEAD };
+  }
+  return applyEvent(store, event?.actor || event?.source ? event : { ...event, ...scripted(event?.type) }, opts);
+};
 
 /** The orchestrator starts, as every host does after init. */
 export const start = (store, now) => apply(store, { type: 'ORCHESTRATOR_STARTED' }, { id: 'orchestrator-started', ...(now && { now }) });

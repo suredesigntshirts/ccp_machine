@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, apply, ack, status, replay } from '../src/index.js';
+import { verifyHead, SIM_HEAD } from '../src/sim.js';
 
 const orchestrator = { actor: { kind: 'session', id: 'orch-1' }, source: { kind: 'cli', ref: 'harness send' } };
 const worker = { actor: { kind: 'session', id: 'worker-1' }, source: { kind: 'cli', ref: 'harness send' } };
@@ -163,7 +164,9 @@ test('CI and merge results are taken only from a GitHub wake with a delivery id'
   const store = itemAt('merging');
   refused(store, { type: 'MERGED', ...orchestrator }, { to: 'item:a' }, /refused: MERGED in active.merging/);
   refused(store, { type: 'MERGED', actor: github.actor, source: { kind: 'github-wake', ref: '' } }, { to: 'item:a' });
-  assert.equal(apply(store, { type: 'MERGED', ...github }, { to: 'item:a' }).refused, undefined);
+  refused(store, { type: 'MERGED', sha: SIM_HEAD, ...github }, { to: 'item:a' }, /refused: MERGED in active.merging \(unverifiedHead\)/);
+  verifyHead(store, 'item:a');
+  assert.equal(apply(store, { type: 'MERGED', sha: SIM_HEAD, ...github }, { to: 'item:a' }).refused, undefined);
   assert.equal(state(store, 'a'), 'done');
 });
 

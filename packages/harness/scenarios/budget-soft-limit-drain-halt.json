@@ -15,6 +15,10 @@
     {"event":{"type":"TRIAGED","tier":0,"criteria":["a works"],"actor":{"kind":"session","id":"triager"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":["dispatchRun:build"]}},
     {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":["dispatchRun:verify"]}},
     {"event":{"type":"CHECKS_PASSED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-1"}},"to":"item:a","expect":{"effects":["mergePullRequest"]}},
-    {"event":{"type":"MERGED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-2"}},"to":"item:a","expect":{"items":{"a":"done","c":"active.queued"},"inFlight":["b"],"queued":["c"],"scheduler":"halted"}}
+    {"event":{"type":"VERIFIER_BRIEF_FIXED","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":[]}},
+    {"event":{"type":"WORKER_SPAWNED","role":"verifier","briefSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","agentType":"harness:verifier","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":[]}},
+    {"event":{"type":"WORKER_STARTED","agent":"orchestrator/verifier-a","agentType":"harness:verifier","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:a","expect":{"effects":[]}},
+    {"event":{"type":"VERDICT_GIVEN","verdict":"PASS","sha":"ffffffffffffffffffffffffffffffffffffffff","review":1,"text":"PASS\n\nBrief-Sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","actor":{"kind":"agent","id":"orchestrator/verifier-a"},"source":{"kind":"cli","ref":"harness verdict"}},"to":"item:a","expect":{"effects":[]}},
+    {"event":{"type":"MERGED","actor":{"kind":"github","id":"github"},"source":{"kind":"github-wake","ref":"delivery-2"},"sha":"ffffffffffffffffffffffffffffffffffffffff"},"to":"item:a","expect":{"items":{"a":"done","c":"active.queued"},"inFlight":["b"],"queued":["c"],"scheduler":"halted"}}
   ]
 }

@@ -47,7 +47,7 @@ function building(tier = 0) {
   const store = openStore(tempDir('harness-gates-'));
   init(store);
   start(store);
-  taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...lead }, undefined);
+  taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...lead }, 'harness');
   taken(store, { type: 'TRIAGED', tier, criteria: ['a works'], ...as('session', 'triager') });
   return store;
 }
@@ -101,7 +101,7 @@ test('an agent sends item events only for the role it was spawned for: a roleles
   const t = openStore(tempDir('harness-gates-'));
   init(t);
   start(t);
-  taken(t, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...lead }, undefined);
+  taken(t, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...lead }, 'harness');
   refused(t, { type: 'TRIAGED', tier: 0, criteria: ['a works'], ...agent('roleless') }, 'item:a', 'a roleless agent triages');
   refused(t, spawned('builder'), 'item:a', 'a builder while triaging');
   const triager = worker(t, 'triager', 't1', { agentType: 'general-purpose' });

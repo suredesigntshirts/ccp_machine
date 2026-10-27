@@ -18,7 +18,7 @@ test('every refused: in packages/harness/src cites a guard or a named host invar
   let sites = 0;
   for (const [file, lines] of files(src))
     lines.forEach((line, i) => {
-      if (!/[`'"]refused: /.test(line)) return;
+      if (!/[`'"]refused: /.test(line) || /^\s*(\*|\/\/)/.test(line)) return; // code, not comments
       sites++;
       const cited = /\/\/ rule: (\w+)/.exec(line)?.[1] ?? /\/\/ rule: (\w+)/.exec(lines[i - 1] ?? '')?.[1];
       assert.ok(cited, `${file}:${i + 1} refuses without citing its rule (// rule: <guard or invariant>)`);
@@ -31,6 +31,7 @@ test("every deny in the plugin's hooks goes through deny(<rule>, why) with a gua
   let calls = 0;
   for (const [file, lines] of files(hooks))
     lines.forEach((line, i) => {
+      if (/^\s*(\*|\/\/)/.test(line)) return; // code, not comments
       if (/['"]deny['"]/.test(line)) assert.match(line, /export const deny = /, `${file}:${i + 1} denies outside deny(): cite a rule through deny(<rule>, why)`);
       for (const m of line.matchAll(/\bdeny\(([^,)]*)/g)) {
         if (/export const deny = /.test(line)) continue;

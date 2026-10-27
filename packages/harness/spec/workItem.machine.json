@@ -124,7 +124,10 @@
           {
             "actions": [
               {
-                "type": "bindSpawn"
+                "type": "bindSpawn",
+                "params": {
+                  "withinMs": 300000
+                }
               }
             ]
           }

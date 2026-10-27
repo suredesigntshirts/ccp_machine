@@ -169,3 +169,49 @@ export function refresh(root = pluginRoot(), { stateDir = join(tmpdir(), 'harnes
     return skip('error');
   }
 }
+
+/** Whether the gates deny (HARNESS_ENFORCE=1) or only record. */
+export const enforced = () => process.env.HARNESS_ENFORCE === '1';
+
+/**
+ * A PreToolUse deny that names its rule: a guard of the spec or a host invariant (harness meta.invariants). Every
+ * deny in this plugin goes through here, and packages/harness/test/rules.test.js checks each call names one.
+ */
+export const deny = (rule, reason) => ({ permissionDecision: 'deny', permissionDecisionReason: `harness (${rule}): ${reason}` });
+
+/** A hook id reduced to what a file name may hold. */
+export const safeId = (s) => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '');
+
+/** Where the plugin keeps its records of a session's tool calls. */
+export const callsDir = (session) => join(libraryDir(), 'ledger', 'sessions', safeId(session), 'calls');
+
+/**
+ * The plugin's record of one tool call, written before the call runs: <callsDir(session)>/<call>.json. The harness
+ * CLI believes an agent actor only when the record of the call it runs in (HARNESS_CALL) names it; the gates add
+ * what they decided.
+ */
+export function writeCall(session, call, record) {
+  const dir = callsDir(session);
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, `.${safeId(call)}.${process.pid}.tmp`);
+  writeFileSync(tmp, JSON.stringify({ sessionId: safeId(session), toolUseId: safeId(call), at: new Date().toISOString(), ...record }));
+  renameSync(tmp, join(dir, `${safeId(call)}.json`));
+}
+
+/** The harness CLI: HARNESS_BIN, else packages/harness/bin/harness.js of the checkout the plugin sits in. */
+export const harnessBin = () => process.env.HARNESS_BIN ?? join(pluginRoot(), '..', '..', 'packages', 'harness', 'bin', 'harness.js');
+
+/**
+ * Run the harness CLI as `session` (or its subagent `agent`), in the call the hook recorded (`call`), from `cwd`
+ * (HARNESS_DIR as the session has it, else the CLI's default). Returns { status, out (stdout as JSON, or null), err }.
+ */
+export function runHarness(args, { session, call, cwd, agent = null, ms = 20000 }) {
+  const env = { ...process.env, CLAUDE_CODE_SESSION_ID: safeId(session), HARNESS_CALL: safeId(call) };
+  // The CLI acts as whoever made the call: the session, or the subagent (agent: <agent_id>:<agent_type>).
+  if (agent) env.HARNESS_AGENT = agent;
+  else delete env.HARNESS_AGENT;
+  const r = spawnSync(process.execPath, [harnessBin(), ...args], { cwd: cwd && existsSync(cwd) ? cwd : undefined, env, encoding: 'utf8', timeout: ms });
+  let out = null;
+  try { out = JSON.parse(r.stdout); } catch {}
+  return { status: r.status, out, err: String(r.stderr || r.error?.message || '').trim() };
+}

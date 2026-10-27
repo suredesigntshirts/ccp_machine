@@ -1,5 +1,5 @@
 {
-  "description": "Print the harness version at session start; before each prompt, at most every 30 minutes, tell the session when a newer harness exists (and fast-forward a clean skills-dir checkout); after each turn, fast-forward the clone the hooks run from (at most every 10 minutes, only when safe) and file this session's turn ledger in the Library; tell subagents apart in the harness store (before a subagent's Bash call, hand its agent to the harness CLI, and file each subagent's start in the Library); keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
+  "description": "Print the harness version at session start; before each prompt, at most every 30 minutes, tell the session when a newer harness exists (and fast-forward a clean skills-dir checkout); after each turn, fast-forward the clone the hooks run from (at most every 10 minutes, only when safe) and file this session's turn ledger in the Library; tell subagents apart in the harness store (before a Bash call that runs harness, record the call and hand its session or subagent to the harness CLI; file each subagent's start in the Library and bind it to its recorded spawn); gate worker spawns and merges on the harness spec (before an Agent call that names an item role, record the spawn in the store or, under HARNESS_ENFORCE=1, deny it; before a merge call, deny it under HARNESS_ENFORCE=1 unless the item's verifier passed the pinned head); keep the version and install state in the status line (hooks module status.tsx). All do nothing unless the project has installed the harness.",
   "hooks": {
     "SessionStart": [
       {
@@ -39,7 +39,41 @@
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/scripts/agent-actor.js"
             ],
-            "timeout": 5
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/gates.js"
+            ],
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/gates.js"
+            ],
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__merge_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/gates.js"
+            ],
+            "timeout": 30
           }
         ]
       }
@@ -53,7 +87,7 @@
             "args": [
               "${CLAUDE_PLUGIN_ROOT}/scripts/agent-actor.js"
             ],
-            "timeout": 5
+            "timeout": 30
           }
         ]
       }
