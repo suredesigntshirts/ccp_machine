@@ -2,18 +2,16 @@
 // never gets tested and its ladder never moves. Once a day the person checks up to 3 of those decisions
 // on one card: one tap confirms all of them, or reverses one. Each answer goes into the decision log as
 // the person's decision against the stand-in's lean, which is what calibration and the ladder learn from.
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { readDecisionLog } from './decision-log.js';
+import { readDecisionLog, reverseOf } from './decision-log.js';
 
 export const AUDIT_MAX = 3;
 // Past this many untested stand-in decisions in a row, doctor says the class needs an audit.
 export const UNTESTED_WARN = 20;
 
 const tested = (r) => r.decidedBy === 'person' && r.standIn?.choice && r.choice;
-const auditId = (r) => `audit-${r.effectId}`;
-/** The choice that goes against a lean: revise an approval, approve anything else. */
-export const reverseOf = (choice) => (choice === 'approve' ? 'revise' : 'approve');
+export { reverseOf };
 
 /**
  * Up to `max` stand-in decisions the person has not checked: classes with the fewest tested decisions
@@ -57,31 +55,6 @@ export function auditCard(picks) {
   };
 }
 
-/** Append the person's answer to the decision log: one row per pick. Answering twice adds nothing. */
-export function recordAudit(store, picks, option, { at = new Date().toISOString() } = {}) {
-  if (!Number.isInteger(option) || option < 0 || option > picks.length) throw new Error(`answer is 0 (all right) to ${picks.length} (reverse that pick)`);
-  const file = join(store.dir, 'decisions.jsonl');
-  const have = new Set(readDecisionLog(store).map((r) => r.effectId));
-  const rows = picks
-    .map((r, i) => ({
-      effectId: auditId(r),
-      at,
-      item: r.item,
-      decision: r.decision,
-      decisionClass: r.decisionClass,
-      tier: r.tier,
-      question: r.question,
-      choice: option === i + 1 ? reverseOf(r.choice) : r.choice,
-      decidedBy: 'person',
-      standIn: r.standIn,
-      audit: true,
-      audited: r.effectId
-    }))
-    .filter((r) => !have.has(r.effectId));
-  if (rows.length) appendFileSync(file, rows.map((r) => JSON.stringify(r) + '\n').join(''));
-  return { added: rows.length, reversed: option ? picks[option - 1].effectId : null };
-}
-
 const auditFile = (store, day) => join(store.dir, 'audits', `${day}.json`);
 
 /** The day's audit: picked once and kept, so the card and the answer name the same decisions. */
@@ -96,13 +69,16 @@ export function dayAudit(store, day, { max } = {}) {
   return audit;
 }
 
-export function answerAudit(store, day, option, opts) {
+/** Record the person's answer in the day's audit, which the decision log reads: one row per pick. Answering twice adds nothing. */
+export function answerAudit(store, day, option, { at = new Date().toISOString() } = {}) {
   const audit = dayAudit(store, day);
-  if (!audit.picks.length) throw new Error(`no audit for ${day}`);
-  const r = recordAudit(store, audit.picks, option, opts);
-  audit.answered = { option, at: opts?.at ?? new Date().toISOString() };
+  const { picks } = audit;
+  if (!picks.length) throw new Error(`no audit for ${day}`);
+  if (!Number.isInteger(option) || option < 0 || option > picks.length) throw new Error(`answer is 0 (all right) to ${picks.length} (reverse that pick)`);
+  const added = audit.answered ? 0 : picks.length;
+  audit.answered ??= { option, at };
   writeFileSync(auditFile(store, day), JSON.stringify(audit, null, 1));
-  return r;
+  return { added, reversed: audit.answered.option ? picks[audit.answered.option - 1].effectId : null };
 }
 
 /** Classes with more than UNTESTED_WARN stand-in decisions since their last tested one. */

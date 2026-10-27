@@ -29,9 +29,9 @@ const HELP = `harness <command> [options]
   status                         print the summary as JSON
   effects                        print effects the host has not acknowledged
   ack <effect-id>... [--outcome done|failed] [--note TEXT]
-  decisions                      append logPrecedent effects to decisions.jsonl in the store and ack them
+  decisions                      ack the pending logPrecedent effects (they are the decision log already)
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
-                                 worked out from decisions.jsonl; a decision takes it when it opens
+                                 worked out from the store's decided decisions; a decision takes it when it opens
   intake PATH                    file each new request-box row in PATH (an ArtifactData read of the mission
                                  control \`requests\` collection: its out_dir folder of <doc_id>.json files,
                                  its inline list text, or JSON) as REQUEST_RECEIVED req-<row id>,

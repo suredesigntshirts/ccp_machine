@@ -220,23 +220,24 @@ test('a decision takes its autonomy from the ladder when it opens; no log, an un
   assert.deepEqual([r.refused, none.read().version], [true, before]);
 });
 
-// The person decides one plan decision on item id, agreeing with the stand-in's lean or reversing it.
+const planRung = (store, id) => store.read().snapshot.children[id].snapshot.children[`decision:${id}:plan:1`].snapshot.context.autonomy;
+// The person decides one plan decision on item id, agreeing with the stand-in's lean or reversing it; returns the rung it opened with.
 const decidePlan = (store, id, choice, now) => {
   apply(store, { type: 'REQUEST_RECEIVED', request: { id, tier: 1 } }, { now });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}`, now });
   const to = `item:${id}/decision:${id}:plan:1`;
+  const rung = planRung(store, id);
   apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.5 } }, { to, now });
-  return apply(store, { type: 'PERSON_DECIDED', choice }, { to, now });
+  assert.ok(!apply(store, { type: 'PERSON_DECIDED', choice }, { to, now }).refused);
+  return rung;
 };
-const planRung = (store, id) => store.read().snapshot.children[id].snapshot.children[`decision:${id}:plan:1`].snapshot.context.autonomy;
 
 test('a reversal lowers the rung of the very next decision with no extra command, and replay agrees', () => {
   const store = fresh({ wipLimit: 100 });
   for (let i = 0; i < 20; i++) decidePlan(store, `a${i}`, 'approve', `2026-10-27T10:${String(i).padStart(2, '0')}:00Z`);
   // Nobody runs harness decisions: the store's own records are the log.
   assert.ok(store.pending().some((e) => e.name === 'logPrecedent'));
-  decidePlan(store, 'r', 'revise', '2026-10-27T11:00:00Z');
-  assert.equal(planRung(store, 'r'), 'act', 'earned before the reversal');
+  assert.equal(decidePlan(store, 'r', 'revise', '2026-10-27T11:00:00Z'), 'act', 'earned before the reversal');
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'next', tier: 1 } }, { now: '2026-10-27T11:00:01Z' });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:next', now: '2026-10-27T11:00:01Z' });
   assert.equal(planRung(store, 'next'), 'recommend', 'the reversal dropped plan a rung at once');

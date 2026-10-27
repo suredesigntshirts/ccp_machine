@@ -154,7 +154,8 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     },
     actions: {
       recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
-      recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0, workers: ({ context, event }) => [...new Set([...(context.workers ?? []), event.actor?.id].filter(Boolean))] }),
+      recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
+      recordWorker: assign({ workers: ({ context, event }) => [...new Set([...(context.workers ?? []), event.actor?.id].filter(Boolean))] }),
       countRetry: assign({ retries: ({ context }) => context.retries + 1 }),
       recordChoice: assign({ choice: ({ event }) => event.choice }),
       // Each decision gets a fresh id; leaving its gate state (decided, blocked, cancelled) withdraws it,

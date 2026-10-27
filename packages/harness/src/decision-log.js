@@ -1,7 +1,9 @@
-// The decision log: every logPrecedent effect becomes one row of decisions.jsonl in the store, so the
-// stand-in can learn from past choices and the person can see how often it agreed with them. Each class
-// sits on a ladder (shadow, recommend, act) worked out from its log: see ladder().
-import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+// The decision log: the store's own records of decided decisions, so the stand-in can learn from past
+// choices and the person can see how often it agreed with them. Each logPrecedent effect in the outbox is
+// one row as soon as it is queued, and each answered audit (audits/<day>.json) adds the person's verdict on
+// its picks. Nothing is copied into a second file. Each class sits on a ladder (shadow, recommend, act)
+// worked out from the log: see ladder().
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ack } from './runtime.js';
 import { esc, time, pct, wrapPage, CSS } from './page.js';
@@ -9,17 +11,28 @@ import { calibration } from './calibration.js';
 
 export const EARN_ACT = { decisions: 20, agreement: 0.9 };
 
-const logFile = (store) => join(store.dir, 'decisions.jsonl');
+/** The choice that goes against a lean: revise an approval, approve anything else. */
+export const reverseOf = (choice) => (choice === 'approve' ? 'revise' : 'approve');
 
-const readRaw = (store) => {
-  const f = logFile(store);
-  return existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+// An answered audit: each pick becomes the person's decision on it, dated when the person answered.
+const auditRows = (store) => {
+  const dir = join(store.dir, 'audits');
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : [];
+  return files.flatMap((f) => {
+    const { picks = [], answered } = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    return answered
+      ? picks.map((r, i) => ({ ...r, effectId: `audit-${r.effectId}`, at: answered.at, choice: answered.option === i + 1 ? reverseOf(r.choice) : r.choice, decidedBy: 'person', audit: true, audited: r.effectId }))
+      : [];
+  });
 };
 
-/** The log's decisions. The earliest rows (before effects carried detail) record no choice and no
- * decider, so they say nothing about the stand-in and are left out. */
+/** The log's decisions, oldest first. The earliest effects (before effects carried detail) record no
+ * choice and no decider, so they say nothing about the stand-in and are left out. */
 export function readDecisionLog(store) {
-  return readRaw(store).filter((r) => r.choice != null || r.decidedBy != null);
+  const seen = new Set();
+  return [...store.outbox().filter((e) => e.name === 'logPrecedent').map(row), ...auditRows(store)]
+    .filter((r) => (r.choice != null || r.decidedBy != null) && !seen.has(r.effectId) && seen.add(r.effectId))
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
 
 function row(e) {
@@ -41,18 +54,11 @@ function row(e) {
   };
 }
 
-/**
- * Append every logPrecedent effect not yet in the log (acknowledged ones too, so history backfills),
- * then acknowledge the pending ones. Running it twice adds nothing.
- * @returns {{added: number, acked: number}}
- */
+/** Acknowledge the pending logPrecedent effects: they are in the log already, as the outbox's own rows. */
 export function logPrecedents(store) {
-  const have = new Set(readRaw(store).map((r) => r.effectId));
-  const rows = store.outbox().filter((e) => e.name === 'logPrecedent' && !have.has(e.id)).map(row);
-  if (rows.length) appendFileSync(logFile(store), rows.map((r) => JSON.stringify(r) + '\n').join(''));
   const pending = store.pending().filter((e) => e.name === 'logPrecedent').map((e) => e.id);
-  if (pending.length) ack(store, pending, { note: 'appended to decisions.jsonl' });
-  return { added: rows.length, acked: pending.length };
+  if (pending.length) ack(store, pending, { note: 'in the decision log' });
+  return { acked: pending.length };
 }
 
 export const RUNGS = ['shadow', 'recommend', 'act'];
