@@ -16,6 +16,7 @@ import { getShortestPaths } from 'xstate/graph';
 import { machines } from '../src/machines.js';
 import { init, apply } from '../src/runtime.js';
 import { openStore } from '../src/store.js';
+import { earn } from './send.js';
 
 const fixtures = JSON.parse(readFileSync(new URL('./path-fixtures.json', import.meta.url), 'utf8'));
 const scratch = tempDir('harness-paths-');
@@ -69,6 +70,8 @@ function deliver(store, name, event) {
 function freshStore(name, input) {
   const store = openStore(join(scratch, `s${n++}`));
   init(store, { wipLimit: 0 }, '2026-10-26T00:00:00Z');
+  // The decision takes its autonomy from the ladder when it opens: an input at act needs a log that earned it.
+  if (name === 'decision' && input.autonomy === 'act') earn(store, input.decisionClass);
   for (const [event, to] of homes[name].setup(input)) assert.ok(!apply(store, event, { to }).refused, `${name} setup ${event.type}`);
   return store;
 }

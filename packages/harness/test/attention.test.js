@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { openStore, init, status, logPrecedents, readDecisionLog, attention, attentionText, touchesTrend, renderPage, renderDigest } from '../src/index.js';
 import { apply, start } from './send.js';
 
-const sure = { choice: 'approve', confidence: 0.95, threshold: 0.9, autonomy: 'act' };
+const sure = { choice: 'approve', confidence: 0.95 };
 
 test('attention counts the person\'s touches, the stand-in\'s decisions, turns and wall time per item', () => {
   const store = openStore(tempDir('harness-'));

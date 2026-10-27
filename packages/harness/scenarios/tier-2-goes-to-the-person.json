@@ -5,7 +5,7 @@
     {"event":{"type":"ORCHESTRATOR_STARTED","actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"id":"orchestrator-started"},
     {"event":{"type":"REQUEST_RECEIVED","request":{"id":"p","tier":2},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"expect":{"effects":["dispatchRun:triage"]}},
     {"event":{"type":"RUN_SUCCEEDED","actor":{"kind":"session","id":"worker"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:p","expect":{"effects":["askStandIn"],"items":{"p":"active.awaitingPlanDecision"},"needsPerson":false}},
-    {"event":{"type":"STAND_IN_ANSWERED","answer":{"choice":"approve","confidence":0.95,"threshold":0.9,"autonomy":"act"},"actor":{"kind":"session","id":"orchestrator"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:p/decision:p:plan:1","expect":{"effects":["postDecisionCard"],"inbox":["decision:p:plan:1"],"needsPerson":true}},
+    {"event":{"type":"STAND_IN_ANSWERED","answer":{"choice":"approve","confidence":0.95},"actor":{"kind":"session","id":"stand-in"},"source":{"kind":"cli","ref":"harness send"}},"to":"item:p/decision:p:plan:1","expect":{"effects":["postDecisionCard"],"inbox":["decision:p:plan:1"],"needsPerson":true}},
     {"event":{"type":"PERSON_DECIDED","choice":"approve","actor":{"kind":"person","id":"person"},"source":{"kind":"tap","ref":"cmsg_card"}},"to":"item:p/decision:p:plan:1","expect":{"effects":["logPrecedent","dispatchRun:build"],"items":{"p":"active.building"},"inbox":[],"needsPerson":false}}
   ]
 }

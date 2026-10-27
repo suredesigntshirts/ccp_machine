@@ -27,7 +27,7 @@ test('the hand-off names every in-flight item with its stage and PR, the waiting
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: 'item:b' });
   const ask = store.pending().find((e) => e.name === 'askStandIn');
   ack(store, [ask.id], { note: 'judged' });
-  apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.6, threshold: 0.9, autonomy: 'recommend', reason: 'unsure' } }, { to: `item:b/${ask.subject}` });
+  apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.6, reason: 'unsure' } }, { to: `item:b/${ask.subject}` });
   const card = store.pending().find((e) => e.name === 'postDecisionCard');
   ack(store, [card.id], { note: 'cmsg_123' });
   // c: queued behind the WIP limit, its triage not yet dispatched.
