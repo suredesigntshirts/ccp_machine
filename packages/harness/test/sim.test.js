@@ -7,6 +7,7 @@ for (const wip of [3, 12]) {
     const r = simulate({ items: 12, wip });
     assert.equal(r.peakInFlight, wip);
     assert.deepEqual([r.done, r.queued, r.inFlight, r.pending], [12, 0, 0, 0]);
+    assert.deepEqual(r.refused, [], 'the scripted host sends only what the machine takes');
     assert.ok(r.doctor.ok, r.doctor.problems.join('; '));
     // The script covers each kind of trouble at least once.
     assert.ok(r.counts.RUN_FAILED && r.counts.CHECKS_FAILED && r.counts.BLOCK && r.counts.PERSON_DECIDED, JSON.stringify(r.counts));
