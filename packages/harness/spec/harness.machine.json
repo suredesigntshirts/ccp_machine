@@ -27,7 +27,8 @@
     "roles": "Actors marked roles (session and agent) are recorded in an item's roles and compared there by the whole actor, kind and id: the id patterns are disjoint, so the recorded id names one actor. An event whose actor is not one of these kinds, or whose id does not match its kind's pattern, is refused before any machine sees it.",
     "store": {
       "schemaVersion": 1,
-      "description": "The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout 1. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads."
+      "absentMeans": 1,
+      "description": "The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads."
     },
     "pages": {
       "refreshSlowMs": 3000,

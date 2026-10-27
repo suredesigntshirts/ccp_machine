@@ -9,6 +9,8 @@ import { bindingError } from './pr-binding.js';
 import { ladder, readDecisionLog } from './decision-log.js';
 
 const SEEN_IDS_KEPT = 500;
+// The state.json layout every write records (spec harness meta.store); pages declare the range they read.
+const SCHEMA_VERSION = specs.harness.meta.store.schemaVersion;
 
 // The envelope every event carries: who sent it and where it came from. The machines' guards read both.
 // The actor kinds and their id forms are the spec's (harness meta.actors): an agent is <session_id>/<agent_id>.
@@ -74,7 +76,7 @@ export function init(store, input = {}, now = new Date().toISOString()) {
   return store.withLock(() => {
     if (store.read()) throw new Error(`a harness already exists in ${store.dir}`);
     const actor = restore(null, input, () => {}).start();
-    store.write({ version: 1, snapshot: actor.getPersistedSnapshot(), appliedIds: [], updatedAt: now }, 0);
+    store.write({ version: 1, schemaVersion: SCHEMA_VERSION, snapshot: actor.getPersistedSnapshot(), appliedIds: [], updatedAt: now }, 0);
     actor.stop();
     return { version: 1 };
   });
@@ -131,7 +133,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
 
     const version = state.version + 1;
     const queued = effects.map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
-    store.write({ version, snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
+    store.write({ version, schemaVersion: SCHEMA_VERSION, snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
     const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
     store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, ...(relayedBy && { relayedBy }), harness: harnessVersion(), event: rest }]);
     store.appendOutbox(queued);
@@ -198,6 +200,7 @@ export function status(store) {
   return {
     waitingOnPerson: waitingOnPerson(items),
     version: state.version,
+    schemaVersion: state.schemaVersion ?? specs.harness.meta.store.absentMeans,
     updatedAt: state.updatedAt,
     state: s.value,
     context: s.context,

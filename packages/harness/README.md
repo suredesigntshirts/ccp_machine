@@ -48,9 +48,25 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all five
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
-  compare-and-set on its version; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
+  compare-and-set on its version, and carries the spec's `schemaVersion` (harness `meta.store`); `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
+- `pages/<page>/needs.json`, `src/pages.js` and `src/live.js`: the page needs contract. A page declares in its needs
+  file the one store file it reads (`reads.file`, mission control's is `state.json`), the `schemaVersion` range it
+  understands, the fields it reads (paths into the store root, the harness snapshot and each child snapshot, the
+  children told apart by spec machine id), and the spec states and events it names. `project()` copies only those
+  fields; the renderer sees nothing else. `harness page --live --project chan_... --files-path <store path in the
+  Library>` renders live mission control: the store as it was at render, how old that is, and a Refresh button.
+  Nothing reads the store until a viewer presses it; it then reads the file through the Artifact `files`
+  capability, renders it, and adds one timing row (`{page, at, ms, storeVersion, schemaVersion, bytes, ok}`) to
+  the `db` collection the spec names (`meta.pages`), and the page lists the recent rows. Publish it with
+  capabilities `{files: {project}, db: {}}`. A store whose `schemaVersion` (spec `meta.store`, recorded by every
+  write; absent means `absentMeans`) is outside the page's range shows a red banner naming both and no data.
+  `harness doctor --refreshes PATH` (the collection's rows from ArtifactData) warns on a refresh slower than
+  `meta.pages.refreshSlowMs`. `test/pages.test.js` builds a store with the sim (`contractStore`, never a frozen
+  fixture) and fails naming the page and the missing piece: a spec state or event a page names, a field no row of
+  its kind has, a field the renderer reads that the needs file does not declare, or a view state missing from the
+  needs spec list.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":
   the request (`request.expect` if given, else its title), triage's criteria each with its latest check,
   how it ended (state, CI, acceptance, PR),
@@ -90,7 +106,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
   file, an empty title or a page over 1 MB, and saves screenshots to `--shots` (default a temp folder,
-  never the Library). CI runs it and uploads the shots.
+  never the Library). It also renders live mission control from a sim-built store and, with a stand-in for the
+  Artifact runtime, presses Refresh: the page must not read the store or record anything before the press, must
+  re-render and record one timing row with the store version after it, and must show the red banner and no table
+  for a store whose `schemaVersion` it does not read. CI runs it and uploads the shots.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
   log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.
@@ -232,6 +251,7 @@ harness verify-actors --store .harness # later: every session in the log has a l
 harness effects                     # what the host still has to do
 harness ack e3.0 --note "dispatched"   # any other effect: a note, no card
 harness page --standalone           # .harness/mission-control.html
+harness page --live --project chan_... --files-path harness/state/dogfood   # live mission control, refreshed on a press
 ```
 
 Workers put the item id in the branch name of their PR, as the whole slug, in exactly one of these forms:

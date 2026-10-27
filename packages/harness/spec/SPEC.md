@@ -230,7 +230,7 @@ Actors:
 
 Actors marked roles (session and agent) are recorded in an item's roles and compared there by the whole actor, kind and id: the id patterns are disjoint, so the recorded id names one actor. An event whose actor is not one of these kinds, or whose id does not match its kind's pattern, is refused before any machine sees it.
 
-Store: `schemaVersion` 1. The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout 1. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads.
+Store: `schemaVersion` 1. The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads.
 
 Pages: a refresh slower than 3000 ms is flagged; rows go to `refreshes`. A page refreshes only when a viewer presses its refresh button: nothing refreshes on a schedule or without a viewer. Each refresh is timed from the press to the rendered page and recorded as one row in the Artifact db collection refreshCollection ({page, at, ms, storeVersion, schemaVersion, bytes, ok}); the page shows the recent rows, and harness doctor --refreshes flags a row slower than refreshSlowMs.
 

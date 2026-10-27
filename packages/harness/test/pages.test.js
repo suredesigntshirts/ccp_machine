@@ -83,10 +83,12 @@ test('a store outside the page\'s schemaVersion range gets a red banner naming t
   const ok = renderLivePage(store.read(), { page: 'mission-control' });
   assert.match(ok, /id="data-age"/);
   assert.match(ok, /id="refresh"/);
-  assert.doesNotMatch(ok, /class="banner bad"/);
+  const before = (html) => html.slice(0, html.indexOf('<script'));
+  assert.doesNotMatch(before(ok), /class="banner bad"/);
+  assert.match(before(ok), /<table/);
   for (const schemaVersion of [0, 2]) {
     const html = renderLivePage({ ...store.read(), schemaVersion }, { page: 'mission-control' });
-    const shown = html.slice(html.indexOf('<body') >= 0 ? html.indexOf('<body') : 0, html.indexOf('<script'));
+    const shown = before(html);
     assert.match(shown, /class="banner bad"/);
     assert.match(shown, new RegExp(`schemaVersion ${schemaVersion}`));
     assert.match(shown, /reads 1 to 1/);
@@ -94,7 +96,7 @@ test('a store outside the page\'s schemaVersion range gets a red banner naming t
   }
   // A state.json written before the field has layout 1.
   const { schemaVersion, ...old } = store.read();
-  assert.doesNotMatch(renderLivePage(old, { page: 'mission-control' }), /class="banner bad"/);
+  assert.doesNotMatch(before(renderLivePage(old, { page: 'mission-control' })), /class="banner bad"/);
 });
 
 test('the live page embeds only the declared fields of the store', async () => {
