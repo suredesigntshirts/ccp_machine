@@ -34,7 +34,8 @@
     "inbox": [],
     "budgetMode": "normal",
     "orchestrator": null,
-    "audited": []
+    "audited": [],
+    "wipLimitAtInit": null
   },
   "invoke": {
     "src": "budget",
@@ -181,6 +182,32 @@
               }
             ]
           }
+        ],
+        "WIP_SET": [
+          {
+            "guard": {
+              "type": "notFromOrchestrator"
+            },
+            "description": "Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once."
+          },
+          {
+            "guard": {
+              "type": "wipOutOfRange",
+              "params": {
+                "min": 1,
+                "max": 4
+              }
+            },
+            "description": "Refused unless limit is an integer from min to max."
+          },
+          {
+            "actions": [
+              {
+                "type": "recordWipLimit"
+              }
+            ],
+            "description": "Records the new limit. Outside accepting it starts nothing; lowering it never stops an item in flight."
+          }
         ]
       },
       "states": {
@@ -233,6 +260,35 @@
                     "type": "startReadyItems"
                   }
                 ]
+              }
+            ],
+            "WIP_SET": [
+              {
+                "guard": {
+                  "type": "notFromOrchestrator"
+                },
+                "description": "Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once."
+              },
+              {
+                "guard": {
+                  "type": "wipOutOfRange",
+                  "params": {
+                    "min": 1,
+                    "max": 4
+                  }
+                },
+                "description": "Refused unless limit is an integer from min to max."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordWipLimit"
+                  },
+                  {
+                    "type": "startReadyItems"
+                  }
+                ],
+                "description": "Records the new limit and starts queued items into the free slots at once."
               }
             ]
           }
