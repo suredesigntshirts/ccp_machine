@@ -84,7 +84,11 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   GitHub write it cannot read is denied (`readableGitHubWrite`): a `gh` command, subcommand, method or path
   built from a variable, a `gh` alias or extension, a GraphQL mutation or a GraphQL document it cannot read, a
   merge or GraphQL write by `curl` or `wget`, or a command run by a variable name with `api`, `pr`, `-X` and
-  the like in it. Literal reads and other literal writes pass. A literal merge (`gh pr merge`, a `gh api`
+  the like in it. The path of every write that is not a GET is first reduced to one form (scheme, host, query
+  and fragment dropped, escapes decoded once, empty and dot segments resolved, case folded); a path it cannot
+  reduce, or `repositories/<id>/...`, is denied, and a reduced path that touches `pulls/<n>/merge` is a merge,
+  judged only as exactly `repos/<owner>/<repo>/pulls/<number>/merge` and denied in any other form. Literal
+  reads and other literal writes pass. A literal merge (`gh pr merge`, a `gh api`
   write to a pull's `/merge` endpoint), however wrapped, asks `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
   (`expectedHeadSha`, `--match-head-commit` or `sha`: `pinnedHead`), the item's machine taking `MERGED` of
   that head, which needs its verifier's PASS (`machine`), and that PASS on GitHub as a review on the sha

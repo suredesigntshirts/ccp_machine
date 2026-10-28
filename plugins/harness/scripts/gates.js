@@ -30,7 +30,6 @@ const ROLE = /^Harness-Role: (\S+) item:([A-Za-z0-9_.-]+)$/;
 const sha256 = (s) => createHash('sha256').update(String(s ?? '')).digest('hex');
 // gh's own commands; anything else is an alias or an extension, whose meaning the gate cannot read.
 const GH = new Set(['agent-task', 'alias', 'api', 'attestation', 'auth', 'browse', 'cache', 'codespace', 'completion', 'config', 'copilot', 'extension', 'gist', 'gpg-key', 'help', 'issue', 'label', 'org', 'pr', 'preview', 'project', 'release', 'repo', 'ruleset', 'run', 'search', 'secret', 'ssh-key', 'status', 'variable', 'workflow', '--version', '--help', '-h', 'version']);
-const MERGE_PATH = /(?:^|\/)repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge\/?$/;
 // Words that make a command run by a name the gate cannot read look like a GitHub write.
 const WRITE_WORDS = new Set(['api', 'pr', 'graphql', 'merge', '-X', '--method', '--request', 'PUT', 'POST', 'PATCH', 'DELETE']);
 
@@ -249,16 +248,50 @@ function ghWrite(args, cwd) {
   const [path] = f.pos;
   if (!path || verb === 'GET' || verb === 'HEAD') return null;
   if (path.dyn) return { unread: `a gh api ${verb} to a path built from a variable` };
-  if (path.text === 'graphql') {
+  const r = reducePath(path.text);
+  if (r.unread) return r;
+  if (r.low.join('/') === 'graphql') {
     const query = fields.find((x) => x.text.startsWith('query='));
     if (input || !query || query.dyn || query.text.startsWith('query=@')) return { unread: 'a GraphQL document the gate cannot read (from a file, --input or a variable)' };
     return /\bmutation\b/i.test(query.text) ? { unread: 'a GraphQL mutation' } : null;
   }
-  const m = MERGE_PATH.exec(path.text.replace(/^https?:\/\/[^/]+\//, ''));
-  if (!m) return null;
+  const m = mergePath(r, path.text);
+  if (!m || m.unread) return m;
   const sha = input ? null : fields.find((x) => x.text.startsWith('sha=') && !x.dyn)?.text.slice(4) ?? null;
-  const repo = m[1] === '{owner}' || m[2] === '{repo}' ? originOf(cwd) : `${m[1]}/${m[2]}`;
-  return { pr: repo ? `${repo}#${m[3]}` : '', sha };
+  const repo = m.owner === '{owner}' || m.repo === '{repo}' ? originOf(cwd) : `${m.owner}/${m.repo}`;
+  return { pr: repo ? `${repo}#${m.number}` : '', sha };
+}
+
+// A write's path in its one canonical form (spec harness meta.invariants readableGitHubWrite): the scheme and host,
+// the query and the fragment dropped, each segment's percent-escapes decoded once, empty and '.' segments dropped and
+// '..' resolved. { segs, low (case folded) }, or { unread: why } for a path the gate does not reduce: a bad escape, an
+// escape that leaves '%', '?', '#', '/', '\\' or a control character, a '..' above the root, or repositories/<id>.
+function reducePath(text) {
+  const path = String(text).replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, '').replace(/[?#][\s\S]*$/, '');
+  const segs = [];
+  for (const raw of path.split('/')) {
+    let seg;
+    try { seg = decodeURIComponent(raw); } catch { return { unread: `the path ${text} has a percent-escape the gate cannot decode` }; }
+    if (/[%?#/\\\x00-\x20\x7f]/.test(seg)) return { unread: `the path ${text} escapes a separator or another escape, which the gate does not reduce` };
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (!segs.length) return { unread: `the path ${text} climbs above its root` };
+      segs.pop();
+      continue;
+    }
+    segs.push(seg);
+  }
+  const low = segs.map((x) => x.toLowerCase());
+  if (low[0] === 'repositories') return { unread: `the path ${text} names a repository by id (repositories/), which the gate cannot bind to a PR` };
+  return { segs, low };
+}
+
+// A reduced path that touches pulls/<n>/merge: { owner, repo, number } when it is exactly
+// repos/<owner>/<repo>/pulls/<number>/merge, else { unread }; null when it touches no merge endpoint.
+function mergePath({ segs, low }, text) {
+  if (!low.some((x, i) => x === 'pulls' && low[i + 2] === 'merge')) return null;
+  if (low.length === 6 && low[0] === 'repos' && low[3] === 'pulls' && /^\d+$/.test(low[4]) && low[5] === 'merge') return { owner: segs[1], repo: segs[2], number: low[4] };
+  return { unread: `the path ${text} reaches a pull's merge endpoint but is not repos/<owner>/<repo>/pulls/<number>/merge` };
 }
 
 function prMerge(rest, cwd) {
@@ -286,8 +319,12 @@ function httpWrite(prog, args) {
   if (verb === 'GET' || verb === 'HEAD') return null;
   const urls = [...f.pos, ...f.has('--url').map((x) => x.value)];
   if (urls.some((u) => u.dyn)) return { unread: `a ${prog} ${verb} to a URL built from a variable` };
-  const gh = urls.find((u) => /github\.com/i.test(u.text) && (/\/pulls\/[^/]+\/merge\/?$/.test(u.text) || /\/graphql\/?$/.test(u.text)));
-  return gh ? { unread: `a ${prog} ${verb} to ${gh.text}: a merge or GraphQL write by ${prog}` } : null;
+  for (const u of urls) { // on any host: an address can name GitHub without saying github.com
+    const r = reducePath(u.text);
+    if (r.unread) return r;
+    if (mergePath(r, u.text) || r.low.join('/') === 'graphql') return { unread: `a ${prog} ${verb} to ${u.text}: a merge or GraphQL write by ${prog}` };
+  }
+  return null;
 }
 
 // owner/repo of the checkout's origin, for a `gh pr merge <n>` without --repo.
