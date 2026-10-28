@@ -22,7 +22,8 @@ const HELP = `harness <command> [options]
                                  session, --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<ref> (a
                                  subagent's, which the plugin's call record names, needs neither),
                                  a tap (PERSON_DECIDED, AUDIT_ANSWERED, PERSON_GRANTED, nothing else) --actor person:<id>
-                                 --source tap:<the message id the card's ack recorded>,
+                                 --source tap:<the message id the card's ack recorded>, a grant in the
+                                 person's words --actor person:<id> --source message:<their message id>,
                                  CI and merges come only from from-github (send refuses --actor github
                                  and --source github-wake). Any other event is sent as this
                                  session ($CLAUDE_CODE_SESSION_ID) from the cli; an --actor session:<id>
@@ -73,6 +74,12 @@ const HELP = `harness <command> [options]
                                  PERSON_GRANTED {picks} to grant:<n>; it replaces any earlier grant, and nothing
                                  else creates, widens or extends one (spec grant). The stand-in then decides
                                  alone the two-way doors the grant names, and one-way doors only with its box
+  send '{"type":"PERSON_GRANTED","picks":[...]}' --actor person:<id> --source message:<cmsg id>
+                                 the person's grant in their own words, from their chat message, sent to the
+                                 harness by the session relaying it: picks as on the checklist, read from the
+                                 words (kind:<class>..., one-way, at most one until:<ISO time>; none is no end
+                                 time). "Stop asking" is every kind:<class> and one-way. It replaces any earlier
+                                 grant; verify-taps lists it with its message id
   answer <item> --approve|--reject --reason TEXT --confidence N
                                  answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
                                  decision (id standin-<subject>), ack the ask and log the precedent. Autonomy
@@ -116,10 +123,10 @@ const HELP = `harness <command> [options]
                                  outside window. Never writes. Exits 1 on any failure;
                                  2, writing nothing, when DIR has no events.jsonl. Run it after the sessions'
                                  turns have ended, so their ledgers are filed
-  verify-taps [--store DIR]      one line per tap: event id, time, card message id, decision or audit, the
-                                 choice claimed, the person, the session that relayed it. Never writes; 2
-                                 without events.jsonl. Another
-                                 session checks each line against its card (read_messages_by_id)
+  verify-taps [--store DIR]      one line per tap or message grant: event id, time, card or message id,
+                                 where it went, the choice claimed, the person, the session that relayed it.
+                                 Never writes; 2 without events.jsonl. Another session checks each line
+                                 against its card or message (read_messages_by_id)
   calibration [class]            per decision class: agreement, reversals, confidence vs outcome (with the
                                  Brier score), time on each rung, and whether to trust the stand-in there
   retro [--day D] [--out DIR] [--due]
@@ -165,7 +172,7 @@ const HELP = `harness <command> [options]
 
   --actor KIND:ID, --source KIND:REF
                                  who sent the event (person, session, agent, github, timer) and where it came
-                                 from (tap, cli, timer; github and github-wake only via from-github);
+                                 from (tap, message, cli, timer; github and github-wake only via from-github);
                                  the event log keeps both
   --dir DIR, --store DIR         store folder (default $HARNESS_DIR, else .harness); an orchestrator
                                  thread keeps it in the Library so the next thread can pick it up`;
@@ -313,7 +320,7 @@ const by = (what) => {
   const actor = flagged.actor ? { ...flagged.actor, ...(flagged.actor.kind === 'agent' && self?.kind === 'agent' && { type: self.type }) } : self;
   if (!actor) throw new Error(`${what} needs --actor session:<id> outside a Claude Code session`);
   const source = flagged.source ?? { kind: 'cli', ref: `harness ${cmd}` };
-  return { actor, source, relayedBy: source.kind === 'tap' ? platform : undefined }; // a tap names the session relaying it
+  return { actor, source, relayedBy: ['tap', 'message'].includes(source.kind) ? platform : undefined }; // a tap or a message names the session relaying it
 };
 const timer = (ref) => ({ actor: { kind: 'timer', id: `harness ${cmd}` }, source: { kind: 'timer', ref } });
 // Events a guard takes only from a named party: the worker, a tap or a GitHub wake.
@@ -327,6 +334,8 @@ try {
     throw new Error(`HARNESS_AGENT=${handed} is not <agent_id>:<agent_type> under a CLAUDE_CODE_SESSION_ID: only the plugin's PreToolUse hook sets it, for a subagent; nothing was written`);
   if (flagged.actor?.kind === 'session' && handed)
     throw new Error(`--actor session:${flagged.actor.id} is refused for a subagent (agent ${self.id}): a subagent records only as itself, never as its parent or another session; nothing was written`);
+  if (flagged.actor?.kind === 'person' && handed) // harness meta.invariants personNotFromAgent
+    throw new Error(`--actor person:${flagged.actor.id} is refused for a subagent (agent ${self.id}): a subagent records only as itself, so it cannot relay the person's tap or message; nothing was written`);
   if (flagged.actor?.kind === 'agent' && handed && flagged.actor.id !== self.id)
     throw new Error(`--actor agent:${flagged.actor.id} is not this subagent (agent ${self.id}): a subagent cannot act as another; nothing was written`);
   if (flagged.actor?.kind === 'agent' && !handed && platform)
@@ -448,7 +457,7 @@ try {
     case 'verify-taps': {
       const rows = verifyTaps(store);
       if (rows.length) console.log(verifyTapsText(rows));
-      console.error(`harness: ${rows.length} taps; a session other than the one that sent them checks each against its card (read_messages_by_id)`);
+      console.error(`harness: ${rows.length} taps and message grants; a session other than the one that sent them checks each against its card or message (read_messages_by_id)`);
       break;
     }
     case 'verify-actors': {

@@ -80,9 +80,9 @@ function auditCardHtml(a) {
 // The person's grant and every decision the stand-in made under one, newest first, each with its reason and how to undo it.
 function grantSection(grant, granted, now) {
   if (!grant && !granted.length) return '';
-  const live = grant && Date.parse(now) < Date.parse(grant.until) && grant.kinds.length;
+  const live = grant && (grant.until == null || Date.parse(now) < Date.parse(grant.until)) && grant.kinds.length;
   const line = !grant ? 'No grant now: the ladder alone decides.'
-    : `${live ? 'Your grant' : 'Your last grant (ended)'}: ${grant.kinds.length ? esc(grant.kinds.join(', ')) : 'nothing'}${grant.oneWay ? ', one-way doors included' : ', two-way doors only'}, until ${esc(time(grant.until))} UTC (card ${esc(grant.card)}).`;
+    : `${live ? 'Your grant' : 'Your last grant (ended)'}: ${grant.kinds.length ? esc(grant.kinds.join(', ')) : 'nothing'}${grant.oneWay ? ', one-way doors included' : ', two-way doors only'}, ${grant.until == null ? 'no end time' : `until ${esc(time(grant.until))} UTC`} (${grant.message ? `message ${esc(grant.message)}` : `card ${esc(grant.card)}`}).`;
   const rows = [...granted].reverse().map((r) => `<tr><td class="m">${esc(time(r.at))}</td><td><b>${esc(r.item)}</b></td><td>${esc(r.decisionClass)} <span class="m">${esc(r.door ?? '')} door</span></td><td><b>${esc(r.choice)}</b> <span class="m">${esc(pct(r.confidence))}</span></td><td>${esc(r.reason ?? '')}</td><td class="m">To reverse, ask the lead to revise or cancel item:${esc(r.item)}${r.door === 'one-way' ? ' (a merge needs a revert)' : ''}.</td></tr>`).join('');
   return `<section><h2>Decided under your grant</h2><p class="m">${line}</p>${rows ? `<div class="tablewrap"><table><thead><tr><th>At</th><th>Item</th><th>Class</th><th>Choice</th><th>Reason</th><th>Reverse</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">The stand-in has decided nothing under a grant.</div>'}</section>`;
 }
