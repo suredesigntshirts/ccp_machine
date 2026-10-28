@@ -106,7 +106,7 @@ test('#83: FAIL in round 1 reopens building; the builder\'s round-2 run, fresh c
   // Round 2: the same builder agent reports the fixed head; no new brief is fixed.
   ok(dir, builder(), { type: 'RUN_SUCCEEDED', pr: PR });
   assert.equal(statusOf(dir).state, 'active.verifying', 'the round-2 run is recorded as a build');
-  assert.equal(ctx(dir).runs, 2);
+  assert.equal(ctx(dir).runs, after.runs + 1, 'one more run');
   assert.ok(!send(dir, lead, { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: OTHER_BRIEF, agentType: 'harness:verifier' }).ok, 'a verifier with another brief is refused');
   spawn(dir, 'verifier', 'v2');
   assert.equal(ctx(dir).verifierBrief, BRIEF, 'the brief fixed before round 1 is the one');
@@ -117,7 +117,7 @@ test('#83: FAIL in round 1 reopens building; the builder\'s round-2 run, fresh c
   assert.equal(ctx(dir).expectationsMet, true, 'round 2\'s check counts; round 1\'s unmet was cleared');
 
   approve(dir, 'accept');
-  assert.equal(statusOf(dir).state, 'active.awaitingMergeDecision', 'accepted');
+  assert.equal(statusOf(dir).state, 'active.merging', 'accepted: tier 1 goes on to merge');
   const r = run(lead, 'replay', '--dir', dir);
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });

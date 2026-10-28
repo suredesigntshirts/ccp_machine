@@ -95,7 +95,9 @@ test('merge-gate: bound, pinned, the machine takes MERGED of the head, and the P
   assert.deepEqual([none.allow, none.rule], [false, 'machine']);
   assert.match(none.why, /in active\.verifying/, 'no verdict yet: the item still waits in verifying (#71)');
   await give(store, gh, 'FAIL\nbroken');
-  assert.match((await gate(PR, HEAD)).why, /unverifiedHead/, 'a FAIL');
+  assert.match((await gate(PR, HEAD)).why, /in active\.building/, 'a FAIL sends the item back to building (#83)');
+  ok(apply(store, { type: 'RUN_SUCCEEDED', pr: PR }, { to: 'item:x' }), 'the round-2 run');
+  ok(apply(store, { type: 'CHECKS_PASSED', actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'ci' } }, { to: 'item:x' }), 'round-2 ci');
   await give(store, gh, 'PASS\nfixed', OLD);
   assert.match((await gate(PR, HEAD)).why, /unverifiedHead/, 'a PASS on an older head');
   await give(store, gh, 'PASS\nall good');
