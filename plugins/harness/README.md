@@ -92,7 +92,9 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   send nothing, since an agent sends only what its role on the item allows (harness `meta.agentEvents`). The
   **merge gate** sees the MCP merge tool and reads a Bash call into the simple commands it runs (harness
   `meta.invariants.readableGitHubWrite` has the details): `gh pr merge` (the subcommand), or a `gh api` path
-  naming a merge endpoint by any method, is a merge; `merge` elsewhere in `gh`'s arguments is not. A word the
+  naming a merge endpoint by any method, is a merge; `merge` elsewhere in `gh`'s arguments is not. The reader
+  models an allow-list of bash syntax (words, separators, comments, quoting, expansions, substitutions,
+  redirections, heredocs; the spec lists it), and a call with anything else in it is text the gate cannot read. A word the
   shell rewrites before the program sees it (an expansion, brace, glob, tilde or extglob) is unreadable, as a
   variable is: in `gh pr` up to its subcommand, or in `gh api`, `curl` or `wget` where it could become several
   words or a flag, it is denied. The words of the `gh` commands that never run an argument, now or later

@@ -140,8 +140,9 @@ function mergeCall(input) {
     const judged = cmds.map(merges);
     const merge = judged.includes('merge');
     const hidden = judged.find((j) => j?.unread);
-    const tool = !merge && !hidden && cmds.some((c) => !isData(c)) && namesMerge(t.command);
-    found = merge || tool ? [gatedMerge(t.command) ?? { unread: merge ? 'this command merges, and the only Bash merges the gate takes are the gated forms' : `this command runs ${cmds.find((c) => !isData(c)).prog ?? 'a program built from a variable'} (text the gate cannot read, or a file write) and names a merge with ${tool}` }]
+    const opaque = cmds.find((c) => !isData(c));
+    const tool = !merge && !hidden && opaque && namesMerge(t.command);
+    found = merge || tool ? [gatedMerge(t.command) ?? { unread: merge ? 'this command merges, and the only Bash merges the gate takes are the gated forms' : `this command runs ${opaque?.unread ?? `${opaque?.prog ?? 'a program built from a variable'} (text the gate cannot read, or a file write)`} and names a merge with ${tool}` }]
       : hidden ? [hidden] : cmds.map(githubWrite).filter(Boolean);
   } else return null;
   if (!found.length) return null;
@@ -251,7 +252,9 @@ function gatedMerge(text) {
 // words or none), lead (its first character is literal and not a dash, so it cannot become a flag) }. Lists, pipelines and subshells are split; the bodies of
 // $(...) and backticks, and sh -c and eval strings, are read as commands of their own; env, command, exec, nohup,
 // time, nice, timeout, sudo and xargs are looked through to the program they run (and listed as programs too); a
-// heredoc's body is input, not commands.
+// heredoc's body is input, not commands; a # at the start of a word comments to the end of the line. Only the syntax
+// in the spec's allow-list is modelled: anything else adds an { unread } entry, a program the gate cannot read, so the
+// word rule decides the call.
 function commands(text, depth = 0) {
   const out = [], nested = [];
   let words = [], w = null, q = null;
@@ -274,53 +277,105 @@ function commands(text, depth = 0) {
     const doc = { delim: '', quoted: false, strip: text[j] === '-' };
     if (doc.strip) j++;
     while (text[j] === ' ' || text[j] === '\t') j++;
-    for (; j < text.length && !/[\s;&|<>()]/.test(text[j]); j++) {
+    for (; j < text.length && !/[ \t\n;&|<>()]/.test(text[j]); j++) {
       if (text[j] === "'" || text[j] === '"') { const k = text.indexOf(text[j], j + 1); doc.quoted = true; doc.delim += text.slice(j + 1, k < 0 ? text.length : k); j = k < 0 ? text.length : k; }
       else if (text[j] === '\\') { doc.quoted = true; doc.delim += text[++j] ?? ''; }
       else doc.delim += text[j];
     }
+    if (!doc.delim) unread('a heredoc with no delimiter');
     docs.push(doc);
     return j;
   };
   const bodies = (p) => {
     for (const doc of docs.splice(0)) {
       const body = [];
-      while (p < text.length) {
+      let closed = false;
+      while (p < text.length && !closed) {
         const nl = text.indexOf('\n', p);
         const line = text.slice(p, nl < 0 ? text.length : nl);
         p = nl < 0 ? text.length : nl + 1;
-        if ((doc.strip ? line.replace(/^\t+/, '') : line) === doc.delim) break;
-        body.push(line);
+        if ((doc.strip ? line.replace(/^\t+/, '') : line) === doc.delim) closed = true;
+        else body.push(line);
       }
-      if (!doc.quoted && /[$`]/.test(body.join('\n'))) nested.push({ prog: null, word: null, dyn: true, args: [] });
+      if (!closed) unread('a heredoc with no closing line');
+      if (!doc.quoted && /[$`\\]/.test(body.join('\n'))) unread('a heredoc body the shell expands');
     }
     return p;
   };
+  const unread = (why) => nested.push({ prog: null, word: null, dyn: true, args: [], unread: why });
+  if (text.includes('\0')) unread('a NUL, where bash stops reading');
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q === "'") { if (c === "'") q = null; else add(c); continue; }
-    if (c === '\\' && i + 1 < text.length) { if (text[i + 1] !== '\n') add(text[i + 1]); i++; continue; }
+    if (c === '\\' && i + 1 < text.length) {
+      if (q === '"' && !/[$`"\\\n]/.test(text[i + 1])) { add(c); continue; } // in double quotes \ escapes only $ ` " \ newline
+      if (text[i + 1] !== '\n') add(text[i + 1]);
+      i++;
+      continue;
+    }
     if (q === '"' && c === '"') { q = null; continue; }
     if (!q && (c === "'" || c === '"')) { q = c; w ??= { text: '', dyn: false }; continue; }
+    if (!q && c === '$' && text[i + 1] === "'") { // ANSI-C quoting: \' and the other escapes do not close it
+      let j = i + 2;
+      add('$', 'one');
+      for (; j < text.length && text[j] !== "'"; j++) { add(text[j], 'one'); if (text[j] === '\\' && j + 1 < text.length) add(text[++j], 'one'); }
+      if (j >= text.length) unread("an unterminated $'...'");
+      i = j;
+      continue;
+    }
+    if (c === '$' && text[i + 1] === '{') { // ${...}: modelled only without quotes, expansions or braces inside
+      const k = text.indexOf('}', i + 2);
+      const body = k < 0 ? text.slice(i + 2) : text.slice(i + 2, k);
+      if (k < 0 || /[\s'"`$\\{]/.test(body)) unread('a ${...} the reader does not model');
+      const kind = q && !body.includes('@') ? 'one' : 'split';
+      for (const ch of `\${${body}}`) add(ch, kind);
+      i = k < 0 ? text.length : k;
+      continue;
+    }
     if (c === '`' || (c === '$' && text[i + 1] === '(')) {
-      let j = i + 1;
-      if (c === '`') { while (j < text.length && text[j] !== '`') j++; }
-      else for (let d = 0; j < text.length; j++) { if (text[j] === '(') d++; else if (text[j] === ')' && --d === 0) break; }
-      if (depth < 8) nested.push(...commands(text.slice(c === '`' ? i + 1 : i + 2, j), depth + 1));
+      let j = i + 1, odd = false;
+      if (c === '`') { while (j < text.length && text[j] !== '`') j++; odd = text.slice(i + 1, j).includes('\\'); }
+      else for (let d = 0, sq = false, dq = false; j < text.length; j++) { // quotes inside $(...) hide its parens
+        const ch = text[j];
+        if (sq) { if (ch === "'") sq = false; continue; }
+        if (ch === '\\') { j++; continue; }
+        if (dq) { if (ch === '"') dq = false; else if (ch === ')' || ch === '`' || (ch === '$' && text[j + 1] === '(')) odd = true; continue; }
+        if (ch === "'") sq = true; else if (ch === '"') dq = true;
+        else if (ch === '(') d++; else if (ch === ')' && --d === 0) break;
+      }
+      const body = text.slice(c === '`' ? i + 1 : i + 2, j);
+      if (j >= text.length) unread('an unterminated substitution');
+      if (odd || /#|\bcase\b|<<|`/.test(c === '`' ? '' : body)) unread('a substitution the reader does not model');
+      const arithmetic = c === '$' && body.startsWith('(') && body.endsWith(')');
+      if (!arithmetic && depth < 8) nested.push(...commands(body, depth + 1));
       add('$', q ? 'one' : 'split');
       i = j;
       continue;
     }
-    if (c === '$') { add(c, q && !/^(?:@|\{[^}]*@)/.test(text.slice(i + 1)) ? 'one' : 'split'); continue; } // "$@" and "${a[@]}" split in quotes too
+    if (c === '$' && /[$?!#*@0-9-]/.test(text[i + 1] ?? '')) { // a special parameter: $$, $?, $#, $1, "$@" (which splits in quotes too)
+      add(c, q && text[i + 1] !== '@' ? 'one' : 'split');
+      add(text[++i], 'one');
+      continue;
+    }
+    if (c === '$') { add(c, q ? 'one' : 'split'); continue; }
+    if (!q && c === '#') { // a comment from the start of a word to the end of the line; inside a word a literal
+      if (!w) { const nl = text.indexOf('\n', i); i = (nl < 0 ? text.length : nl) - 1; continue; }
+      if (/[<>]$/.test(w.text)) unread('a # after a redirect operator');
+      add(c);
+      continue;
+    }
     if (!q && /[{*?[~]/.test(c)) { add(c, 'split'); continue; } // brace, glob, tilde: bash rewrites the word
     if (!q && c === '(' && w) { add(c, 'split'); end(); continue; } // a word glued to ( is an extglob or a function
-    if (!q && c === '<' && text[i + 1] === '<' && text[i + 2] !== '<') { i = heredoc(i + 2) - 1; continue; }
+    if (!q && text.startsWith('<<<', i)) { add('<<<'); i += 2; continue; } // a here-string: its word is input
+    if (!q && c === '<' && text[i + 1] === '<') { i = heredoc(i + 2) - 1; continue; }
     if (!q && c === '\n' && docs.length) { end(); i = bodies(i + 1) - 1; continue; }
     if (!q && c === '&' && /[<>]/.test(text[i - 1] + text[i + 1])) { add(c); continue; } // 2>&1, &>file: a redirect, not a list
     if (!q && /[;&|\n()]/.test(c)) { end(); continue; }
-    if (!q && /\s/.test(c)) { push(); continue; }
+    if (!q && (c === ' ' || c === '\t')) { push(); continue; } // only space and tab separate words
     add(c);
   }
+  if (q) unread('an unterminated quote');
+  if (docs.length) unread('a heredoc with no body');
   end();
   return [...nested, ...out.flatMap((ws) => run(ws, depth))];
 }
