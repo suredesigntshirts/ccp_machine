@@ -100,6 +100,7 @@ export function renderSpec() {
     if (config.meta?.reviewFooter) out.push(`Review footer (\`reviewFooter\`): ${JSON.stringify(config.meta.reviewFooter.text)}. ${config.meta.reviewFooter.description}`, '');
     // The store layout pages read (meta.store) and how pages refresh (meta.pages).
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
+    if (config.meta?.store?.closes) out.push(`Closing effects (\`closes\`): ${config.meta.store.closes}`, '');
     if (config.meta?.pages)
       out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
     // The decision classes with their doors (meta.classes) and the grant checklist the machine generates (meta.checklist).
