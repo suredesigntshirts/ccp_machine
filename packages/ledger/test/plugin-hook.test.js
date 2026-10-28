@@ -146,6 +146,17 @@ test('status mod data: the gate and the status text, the load record only when i
   assert.equal(s.text, `harness ${version} commit ${head.slice(0, 7)} · installed`);
 });
 
+// What the status mod may not touch: the retired store, Library reads or listings, the network.
+// $.fs.write stays allowed: the owner's mod probe (621fb69) logs with it.
+const modForbidden = /state\/main|\$\.fs\.(?!write\b)|\$\.net/;
+
+test('the status mod rule: only $.fs.write passes; $.fs reads and listings, $.net and state/main fail', () => {
+  assert.doesNotMatch("await $.fs.write(log, 'x')", modForbidden);
+  for (const bad of ["await $.fs.read('a')", "await $.fs.list('d')", "await $.net.fetch('u')", "readFileSync('state/main/x')"]) {
+    assert.match(bad, modForbidden, bad);
+  }
+});
+
 test('the status mod ships in the plugin: hooks.json names its module and plugin.json its state contract', () => {
   const hooks = JSON.parse(readFileSync(join(plugin, 'hooks/hooks.json'), 'utf8'));
   assert.deepEqual(hooks.modules, ['./status.tsx']);
@@ -153,7 +164,7 @@ test('the status mod ships in the plugin: hooks.json names its module and plugin
   const manifest = JSON.parse(readFileSync(join(plugin, '.claude-plugin/plugin.json'), 'utf8'));
   assert.ok(existsSync(join(plugin, manifest.types)));
   const mod = readFileSync(join(plugin, 'hooks/status.tsx'), 'utf8');
-  assert.doesNotMatch(mod, /state\/main|\$\.fs\.|\$\.net/, 'no reads of the retired store, no direct Library reads, no network');
+  assert.doesNotMatch(mod, modForbidden, 'no reads of the retired store, no direct Library reads, no network');
   assert.match(mod, /scripts\/status\.js/);
 });
 

@@ -11,6 +11,17 @@ const PANE = 'harness'
 const MINUTE = 60_000
 const status = atom({ plugin: 'harness', key: 'status' } as const, null, { shape: 'status-1' })
 
+// Mod probe (temporary, notes/mods-probe-2026-10-28 in the Library): inert unless a session runs the Bash
+// command `echo harness-mod-probe`. Then, once per load, it tries read-only hearthbot calls through $.mcp.call
+// and one "PONG" subagent, and writes what happened to that session's own file. Remove after the test.
+const PROBE_MARK = 'harness-mod-probe'
+const PROBE_DIR = '/mnt/project-files/notes/mods-probe-2026-10-28/projects'
+const probeRows: string[] = []
+let probed = false
+let probeAgent: string | null = null
+const probeAdd = (kind: string, data: unknown) => { probeRows.push(JSON.stringify({ at: new Date().toISOString(), kind, data })); return probeRows.join('\n') + '\n' }
+const short = (r: unknown) => JSON.stringify(r ?? null).slice(0, 600)
+
 let last = 0 // when status.js last ran; a module variable, so a reload starts over
 
 async function refresh($: EngineInterface, record?: string): Promise<Status | null> {
@@ -40,6 +51,38 @@ export const register: Register = on => {
       if (s?.state === 'installed') {
         await $.command.register({ name: 'harness', description: 'Show the harness version and install state in a pane' })
         $.clock.every(MINUTE, () => refresh($).catch(() => undefined))
+      }
+    } catch {}
+    return next(e)
+  })
+
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    try {
+      const ev = e as any
+      if (!probed && String(ev.command ?? '').includes(PROBE_MARK)) {
+        probed = true
+        const log = `${PROBE_DIR}/${await $.session.id()}.jsonl`
+        await $.fs.write(log, probeAdd('marker', { agentId: ev.agentId ?? null, model: await $.env.get('ANTHROPIC_MODEL') ?? null }))
+        for (const [server, tool, args] of [['hearthbot', 'read_thread', { limit: 1 }], ['hearthbot', 'list_threads', { limit: 1 }], ['mcp__hearthbot', 'read_thread', { limit: 1 }]] as const) {
+          try { await $.fs.write(log, probeAdd(`mcp.call ${server} ${tool}`, short(await $.mcp.call(server, tool, { ...args })))) }
+          catch (err) { await $.fs.write(log, probeAdd(`mcp.call ${server} ${tool} threw`, String(err))) }
+        }
+        try {
+          const a: any = await $.agent.spawn({ prompt: 'Reply with exactly the word PONG and nothing else. Use no tools.', description: 'mod probe ping' })
+          probeAgent = a?.agentId ?? null
+          await $.fs.write(log, probeAdd('agent.spawn', short(a)))
+        } catch (err) { await $.fs.write(log, probeAdd('agent.spawn threw', String(err))) }
+      }
+    } catch {}
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    try {
+      const ev = e as any
+      if (probeAgent && ev.agentId === probeAgent) {
+        const log = `${PROBE_DIR}/${await $.session.id()}.jsonl`
+        await $.fs.write(log, probeAdd('turn.complete probe agent', { answer: String(ev.answer ?? '').slice(0, 200), reason: ev.reason ?? null }))
       }
     } catch {}
     return next(e)
