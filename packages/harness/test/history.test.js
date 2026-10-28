@@ -100,6 +100,18 @@ test('C4: two rows of one fact that disagree are reported, not merged silently',
   assert.notEqual(factKey(keyless), factKey(gh));
 });
 
+test('C4: two rows of one key in one source are two facts; the n-th of a source meets the n-th of another', () => {
+  // A stand-in's answer and its re-ask under a grant share a decision address (dogfood2, #65).
+  const answer = row('sia-ledger-plan');
+  const reask = { ...structuredClone(answer), id: 'sia-ledger-plan-reask-1', at: '2026-10-26T17:58:00.000Z', event: { ...answer.event, answer: { ...answer.event.answer, choice: 'reject' } } };
+  reask.provenance.from.line = 9;
+  const seen = (r, line) => ({ ...structuredClone(r), id: `session-${r.id}`, provenance: { origin: 'recovered', from: { source: 'session', ref: 'sessions/x/transcript.jsonl', line } } });
+  const { rows, dropped, conflicts } = dedupe([answer, reask, seen(answer, 3), seen(reask, 7)]);
+  assert.deepEqual(rows.map((r) => r.id), ['sia-ledger-plan', 'sia-ledger-plan-reask-1']);
+  assert.deepEqual(dropped.map((d) => [d.id, d.kept]), [['session-sia-ledger-plan', 'sia-ledger-plan'], ['session-sia-ledger-plan-reask-1', 'sia-ledger-plan-reask-1']]);
+  assert.deepEqual(conflicts, []);
+});
+
 test('C3: every log view declares what it reads, and the golden history has all of it', () => {
   assert.deepEqual(LOG_VIEWS.sort(), ['design-log', 'flow-replay', 'ledger']);
   for (const page of LOG_VIEWS) assert.deepEqual(checkPage(page, { history: golden() }), [], `${page}'s needs are not met`);

@@ -94,7 +94,8 @@ export async function mergeGate(store, { pr, sha }, { fetcher = restFetcher } = 
 
 /**
  * Doctor's audit: every PR bound to an item that GitHub says is merged needs the item's latest verdict on its merge
- * head to be PASS in the store, and GitHub to carry it as a review on that sha, compared as the merge gate does. [{result: ok|problem|unreachable, pr, item, why?}]
+ * head to be PASS in the store, and GitHub to carry it as a review on that sha, compared as the merge gate does, unless an
+ * OUT_OF_BAND row records that landing. [{result: ok|problem|outOfBand|unreachable, pr, item, why?, row?}]
  */
 export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   const events = store.events();
@@ -109,6 +110,12 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
       if (row?.event.verdict !== 'PASS') why.push(`the store holds no verifier PASS for its merge head ${head.slice(0, 7)}`);
       const reviews = [].concat(await fetcher(`${pullPath(key)}/reviews?per_page=100`));
       if (!reviews.some((r) => carries(r, row, head))) why.push(`GitHub has no PASS review on ${head.slice(0, 7)} carrying the verdict the store holds`);
+      // A landing an OUT_OF_BAND row of the history records is listed by doctor, not a problem (meta.invariants reviewOnHead).
+      const oob = why.length && events.find((e) => e.event?.type === 'OUT_OF_BAND' && prKey(e.event.pr ?? '') === key && (!e.event.sha || e.event.sha === head));
+      if (oob) {
+        out.push({ result: 'outOfBand', pr: key, item, row: oob.id });
+        continue;
+      }
       out.push({ result: why.length ? 'problem' : 'ok', pr: key, item, ...(why.length && { why: why.join('; ') }) });
     } catch (e) {
       out.push({ result: 'unreachable', pr: key, item, why: e.message });

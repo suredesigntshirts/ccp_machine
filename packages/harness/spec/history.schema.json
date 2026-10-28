@@ -134,22 +134,23 @@
       "OUT_OF_BAND": {
         "v": 1,
         "required": ["orderedBy", "message", "what", "skipped"],
-        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. harness doctor lists every one.",
+        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. A landing names its PR (pr) and the head that landed (sha). harness doctor lists every one, and does not count a landing one records as a problem (harness meta.invariants reviewOnHead). An order given by no chat message (a button pressed on GitHub) holds a legacy placeholder in message.",
         "schema": {
           "type": "object",
           "properties": {
             "orderedBy": { "$ref": "#/$defs/actor" },
-            "message": { "type": "string", "pattern": "^cmsg_" },
+            "message": { "anyOf": [{ "type": "string", "pattern": "^cmsg_" }, { "$ref": "#/$defs/legacy" }] },
             "what": { "type": "string", "minLength": 1 },
             "skipped": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
-            "pr": { "type": "string" }
+            "pr": { "type": "string" },
+            "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
           }
         }
       }
     }
   },
   "identity": {
-    "description": "How the merger knows two rows describe one fact (C4). The first rule whose types include the row's type gives its key: the values at the listed paths, joined. A row missing any key path keeps a key of its own and is never merged. Of rows with one key, the one whose provenance.from.source is the rule's owner is kept (else the earliest), and the others' from go to its provenance.also. Rows with one key that disagree on a payload field both have are a conflict the merger reports, never merges silently.",
+    "description": "How the merger knows two rows describe one fact (C4). The first rule whose types include the row's type gives its key: the values at the listed paths, joined. A row missing any key path keeps a key of its own and is never merged. Of rows with one key, the one whose provenance.from.source is the rule's owner is kept (else the earliest), and the others' from go to its provenance.also. Rows with one key that disagree on a payload field both have are a conflict the merger reports, never merges silently. Two rows of one source (provenance.from.ref) are never one fact: a source records a fact once, so the second row of a key in one source is that key's second fact (a stand-in's answer and its re-ask under a grant share a decision address), and the n-th of one source is one fact only with the n-th of another, in time order.",
     "rules": [
       { "fact": "merge", "types": ["MERGED"], "key": ["event.pr"], "owner": "github", "why": "A PR merges once; GitHub owns that fact." },
       { "fact": "checks", "types": ["CHECKS_PASSED", "CHECKS_FAILED"], "key": ["event.type", "event.pr", "event.sha"], "owner": "github", "why": "CI on one head of one PR; GitHub owns it." },
