@@ -14,8 +14,8 @@
 //   machine must take MERGED of that head (its verifier's PASS), and the PR must carry the PASS as a review on that
 //   sha (reviewOnHead): `harness merge-gate` answers. A Bash call is read into the simple commands it runs (commands):
 //   gh pr merge, or a gh api path naming a merge endpoint, merges (merges), and a word the shell rewrites where it
-//   decides that (or a curl or wget call) is unreadable (rewritten); the words of gh and of data-only programs are data
-//   (isData), so 'merge' in their arguments, strings or heredoc text is none. A call that runs anything else is text
+//   decides that (or a curl or wget call) is unreadable (rewritten); the words of gh's commands that never run an
+//   argument (GH_DATA) and of data-only programs are data (isData), so 'merge' in their arguments, strings or heredoc text is none. A call that runs anything else is text
 //   the gate cannot read, and its text naming the word merge with gh, curl, wget, api or graphql counts as a merge
 //   (namesMerge). A merge is denied unless it is exactly one of the gated forms (GATED_FORMS), which alone are
 //   judged. Any other Bash call is read for GitHub writes the gate cannot read (a gh command,
@@ -52,6 +52,10 @@ const GH_API_VALUED = new Set(['-X', '--method', '-H', '--header', '-f', '--raw-
 // tilde or extglob), or one word that may start with a dash, a flag (an expansion with no literal start).
 const rewritten = (a) => a.dyn && (a.split || !a.lead);
 const DATA = new Set(['gh', 'echo', 'printf', 'cat', 'jq', 'harness']);
+// The gh commands whose words are data: none runs an argument as a command, now or later (codespace ssh does; config
+// sets an editor, pager or browser gh runs; repo clone passes options to git; alias and extension run their own).
+// Any other gh command, one gh adds later included, is text the gate cannot read.
+const GH_DATA = new Set(['api', 'issue', 'label', 'pr', 'release', 'run', 'search', 'status', 'help', 'version', '--version', '--help', '-h']);
 // Percent-escapes decoded until none is left, so an escaped word reads as itself.
 const decodePct = (t) => { let prev; do { prev = t; t = t.replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))); } while (t !== prev); return t; };
 const answer = (out) => process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
@@ -184,7 +188,7 @@ function merges({ prog, args }) {
 function isData({ prog, word, args }) {
   const harness = prog === 'node' && /(^|\/)bin\/harness\.js$/.test(args[0]?.text ?? '') && !args[0].dyn;
   if (!harness && (!DATA.has(prog) || word !== prog)) return false;
-  if (prog === 'gh' && ['alias', 'extension'].includes(args[0]?.text)) return false; // its words are run later
+  if (prog === 'gh' && (args[0]?.dyn || !GH_DATA.has(args[0]?.text))) return false; // a gh command that may run its words
   return !args.some((a, i) => {
     const r = /^(?:\d*|&)>>?(.*)$/.exec(a.text);
     return r && !/^(?:&\d+|&-|\/dev\/(?:null|stdout|stderr))$/.test(r[1] || args[i + 1]?.text || '');

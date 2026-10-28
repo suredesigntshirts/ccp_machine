@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Agent harness for Claude Projects: prints its version at session start, tells a running session when a newer harness exists, keeps it in the status line, files every session's turn ledger in the Library, tells subagents apart in the harness store, gates worker spawns and merges on the harness spec, and ships the standing builder and verifier agents, in projects that installed it.",
   "author": {
     "name": "suredesigntshirts"
