@@ -3,10 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDir } from './tmp.js';
-import { readFileSync, writeFileSync, appendFileSync, utimesSync, closeSync, openSync, unlinkSync } from 'node:fs';
+import fs, { readFileSync, writeFileSync, appendFileSync, utimesSync, closeSync, openSync, unlinkSync, existsSync, statSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { openStore, init, status, doctor, repair } from '../src/index.js';
+import { openStore, init, status, doctor, repair, ack } from '../src/index.js';
 import { apply, start } from './send.js';
 
 const fresh = () => {
@@ -47,8 +48,9 @@ test('a stale lock: the next writer takes over, doctor names it, repair clears i
   assert.ok((await problems(store, Date.now())).some((p) => /lock is older than 60s \(fix with harness repair\)/.test(p)));
   assert.deepEqual(repair(store).fixed, ['cleared a stale lock']);
   assert.deepEqual((await problems(store, Date.now())), []);
+  // Another lock left behind, by a later writer: it has a time of its own.
   closeSync(openSync(lock, 'w'));
-  utimesSync(lock, old, old);
+  utimesSync(lock, old + 1, old + 1);
   apply(store, req('a'));
   assert.equal(status(store).items.length, 1, 'a writer clears a stale lock itself');
 });
@@ -57,6 +59,102 @@ test('a fresh lock refuses a second writer', () => {
   const store = fresh();
   assert.throws(() => store.withLock(() => apply(store, req('a'))), /another writer holds/);
   assert.equal(status(store).items.length, 0);
+});
+
+// Run fn with one fs function replaced, in every module that imports it: a test puts a step of its own at the
+// moment it names, so an interleaving of two writers happens in the order the test gives, every time.
+const withFs = (name, replace, fn) => {
+  const real = fs[name];
+  fs[name] = replace(real);
+  syncBuiltinESMExports();
+  try {
+    return fn();
+  } finally {
+    fs[name] = real;
+    syncBuiltinESMExports();
+  }
+};
+
+test('repair is refused while another writer holds the lock, and the holder\'s row is kept', () => {
+  const store = fresh();
+  apply(store, req('a'), { id: 'req-a' });
+  appendFileSync(join(store.dir, 'outbox.jsonl'), '{"id":"half');
+  store.withLock(() => {
+    assert.throws(() => repair(openStore(store.dir)), /another writer holds/);
+    store.appendOutbox([{ id: 'held', eventId: 'req-a', at: '2026-10-26T10:05:00Z', name: 'note' }]);
+  });
+  assert.ok(store.outbox().some((e) => e.id === 'held'), 'the holder\'s row is in the log');
+});
+
+// The other writer runs in the moment between repair reading a log and writing it back. Refused because repair
+// holds the lock, it writes once repair lets go, as the CLI's caller would send again.
+for (const [log, late, landed] of [
+  ['events.jsonl', (store) => apply(store, req('late'), { id: 'req-late' }), (store) => store.events().some((e) => e.id === 'req-late')],
+  ['acks.jsonl', (store) => ack(store, ['req-a.0']), (store) => store.acks().some((a) => a.effectId === 'req-a.0')]
+])
+  test(`a row another writer appends to ${log} while repair rewrites it is not lost`, async () => {
+    const store = fresh();
+    apply(store, req('a'), { id: 'req-a' });
+    appendFileSync(join(store.dir, log), '{"half');
+    const other = openStore(store.dir);
+    let heldOff = false;
+    const r = withFs(
+      'writeFileSync',
+      (real) => (path, ...rest) => {
+        if (path === join(store.dir, log) && !heldOff) {
+          heldOff = true;
+          try {
+            late(other);
+            heldOff = 'wrote';
+          } catch (e) {
+            if (!/another writer holds/.test(e.message)) throw e;
+          }
+        }
+        return real(path, ...rest);
+      },
+      () => repair(store)
+    );
+    if (heldOff === true) late(other);
+    assert.ok(landed(store), 'the other writer\'s row is in the log');
+    assert.equal(heldOff, true, 'the other writer was refused while repair held the lock');
+    assert.deepEqual(r.fixed, [`dropped torn line ${log === 'acks.jsonl' ? 1 : 3} of ${log}`]);
+    assert.deepEqual(await problems(store, Date.now()), []);
+  });
+
+test('two writers that find the same stale lock: only the first to break it takes the lock', () => {
+  const store = fresh();
+  const lock = join(store.dir, 'lock');
+  closeSync(openSync(lock, 'w'));
+  const old = (Date.now() - 120_000) / 1000;
+  utimesSync(lock, old, old);
+  // Both writers stat the lock and find it stale. A breaks it and takes the lock; B, whose stat is the one taken
+  // before A acted, comes next.
+  const found = statSync(lock);
+  const other = openStore(store.dir);
+  let both = false;
+  let aHolds;
+  const run = () =>
+    store.withLock(() => {
+      withFs('statSync', (real) => (path, ...rest) => (path === lock ? found : real(path, ...rest)), () => {
+        try {
+          other.withLock(() => (both = true));
+        } catch (e) {
+          if (!/another writer holds/.test(e.message)) throw e;
+        }
+      });
+      aHolds = existsSync(lock);
+    });
+  let error;
+  try {
+    run();
+  } catch (e) {
+    error = e;
+  }
+  assert.equal(both, false, 'B took the lock while A held it');
+  assert.equal(aHolds, true, 'A still holds its lock');
+  assert.equal(error, undefined);
+  apply(store, req('a'));
+  assert.equal(status(store).items.length, 1, 'the next writer takes the lock as usual');
 });
 
 // A writer process: it applies n events as session writer-<tag>, sending each one again for as long as the store
