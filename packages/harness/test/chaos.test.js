@@ -157,6 +157,93 @@ test('two writers that find the same stale lock: only the first to break it take
   assert.equal(status(store).items.length, 1, 'the next writer takes the lock as usual');
 });
 
+// A stale lock and its claim, both older than 60s: what a writer leaves when it crashes after the claim.
+const staleClaim = (store) => {
+  const lock = join(store.dir, 'lock');
+  closeSync(openSync(lock, 'w'));
+  const old = (Date.now() - 120_000) / 1000;
+  utimesSync(lock, old, old);
+  const found = statSync(lock);
+  const claim = `${lock}.${found.ino}-${found.mtimeMs}`;
+  closeSync(openSync(claim, 'w'));
+  utimesSync(claim, old, old);
+  return { lock, found, claim, claimed: statSync(claim) };
+};
+
+test('a writer that crashes between the claim and the removal: once the claim is stale, a later writer takes the lock', () => {
+  const store = fresh();
+  const lock = join(store.dir, 'lock');
+  closeSync(openSync(lock, 'w'));
+  const old = (Date.now() - 120_000) / 1000;
+  utimesSync(lock, old, old);
+  // The writer claims the stale lock and crashes before it removes it.
+  const crash = new Error('crashed');
+  assert.throws(
+    () => withFs('rmSync', (real) => (path, ...rest) => {
+      if (path === lock) throw crash;
+      return real(path, ...rest);
+    }, () => apply(store, req('a'))),
+    (e) => e === crash
+  );
+  assert.ok(existsSync(lock), 'the stale lock is still there');
+  const claims = fs.readdirSync(store.dir).filter((n) => n.startsWith('lock.'));
+  assert.equal(claims.length, 1, 'the crashed writer left its claim');
+  // While the claim is fresh, a writer is refused: the claimant may still be removing the lock.
+  assert.throws(() => apply(store, req('a')), /another writer holds/);
+  // Over 60s later, no one has cleaned up by hand.
+  utimesSync(join(store.dir, claims[0]), old, old);
+  apply(store, req('a'));
+  assert.equal(status(store).items.length, 1, 'a later writer took the lock');
+  apply(store, req('b'));
+  assert.equal(status(store).items.length, 2, 'and the next writer takes it as usual');
+});
+
+test('two writers that find the same stale claim: only the first to take it over takes the lock', () => {
+  const store = fresh();
+  const { lock, found, claim, claimed } = staleClaim(store);
+  // Both writers find the lock and its claim stale. A takes the claim over and takes the lock; B, whose stats are
+  // the ones taken before A acted, comes next.
+  const other = openStore(store.dir);
+  const before = new Map([[lock, found], [claim, claimed]]);
+  let both = false;
+  let aHolds;
+  store.withLock(() => {
+    withFs('statSync', (real) => (path, ...rest) => before.get(path) ?? real(path, ...rest), () => {
+      assert.throws(() => other.withLock(() => (both = true)), /another writer holds/);
+    });
+    aHolds = existsSync(lock);
+  });
+  assert.equal(both, false, 'B took the lock while A held it');
+  assert.equal(aHolds, true, 'A still holds its lock');
+  apply(store, req('a'));
+  assert.equal(status(store).items.length, 1, 'the next writer takes the lock as usual');
+});
+
+test('two writers that find the same stale claim, the second first: only one takes the lock', () => {
+  const store = fresh();
+  const { lock, claim } = staleClaim(store);
+  // A finds the claim stale; before A acts on it, B runs whole and takes the lock over.
+  const other = openStore(store.dir);
+  let aRan = false;
+  let bRan = false;
+  let interleaved = false;
+  assert.throws(
+    () => withFs('openSync', (real) => (path, ...rest) => {
+      if (!interleaved && path.startsWith(`${claim}.`)) {
+        interleaved = true;
+        other.withLock(() => (bRan = true));
+      }
+      return real(path, ...rest);
+    }, () => store.withLock(() => (aRan = true))),
+    /another writer holds/
+  );
+  assert.equal(interleaved, true, 'A reached the takeover');
+  assert.deepEqual({ aRan, bRan }, { aRan: false, bRan: true }, 'only B took the lock');
+  assert.ok(!existsSync(lock), 'B let go of its lock');
+  apply(store, req('a'));
+  assert.equal(status(store).items.length, 1, 'the next writer takes the lock as usual');
+});
+
 // A writer process: it applies n events as session writer-<tag>, sending each one again for as long as the store
 // refuses it because another writer holds the lock, and no longer: how long a holder keeps the lock depends on
 // the machine, so a writer that gives up after a fixed number of tries fails on a slow one. A lock left behind is
