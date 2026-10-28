@@ -203,3 +203,51 @@ test('a stand-in agent is spawned while a decision is open and answers only that
   refused(store, { type: 'BLOCK', ...standIn }, 'item:a', 'the stand-in blocks');
   taken(store, { ...answer, ...standIn }, d, 'the spawned stand-in answers');
 });
+
+// #57: SubagentStart's input names the agent and its type, not the Agent call, so the hook binds a new agent to the
+// one spawn of its type the session has waiting. Two waiting at once, on any items, could bind the wrong agent.
+test('a session has at most one unbound spawn of an agent type, across items (oneUnboundSpawn); the refusal names it', () => {
+  const store = openStore(tempDir('harness-gates-'));
+  init(store);
+  start(store);
+  for (const id of ['ledger', 'tour']) taken(store, { type: 'REQUEST_RECEIVED', request: { id }, ...lead }, 'harness');
+  const triager = (tool) => spawned('triager', { agentType: 'general-purpose', tool });
+  taken(store, triager('toolu_ledger'), 'item:ledger');
+  const r = refused(store, triager('toolu_tour'), 'item:tour', 'a second general-purpose spawn on another item');
+  assert.equal(r.rule, 'oneUnboundSpawn');
+  assert.match(r.why, /\(oneUnboundSpawn\)/);
+  assert.match(r.why, /toolu_ledger on item:ledger/, 'the refusal names the waiting spawn');
+  refused(store, triager('toolu_ledger2'), 'item:ledger', 'a second one on the same item');
+  taken(store, { type: 'WORKER_SPAWNED', role: 'triager', briefSha256: BRIEF, agentType: 'claude', toolUseId: 'toolu_c', ...lead }, 'item:tour', 'another agent type');
+  taken(store, { type: 'WORKER_SPAWNED', role: 'triager', briefSha256: BRIEF, agentType: 'general-purpose', toolUseId: 'toolu_o', ...as('session', 'other') }, 'item:tour', 'another session');
+  taken(store, started('t1', 'general-purpose'), 'item:ledger');
+  taken(store, triager('toolu_tour'), 'item:tour', 'once the first is bound');
+  taken(store, started('t2', 'general-purpose'), 'item:tour');
+  assert.deepEqual(['ledger', 'tour'].map((id) => ctx(store, id).spawns.find((s) => s.by === LEAD && s.agentType === 'general-purpose').agent), [`${LEAD}/t1`, `${LEAD}/t2`]);
+});
+
+test('a spawn whose agent never started is closed by its session (SPAWN_CLOSED), or lapses after the bind window, and binds no later agent', () => {
+  const store = openStore(tempDir('harness-gates-'));
+  init(store, {}, '2026-10-28T03:00:00Z');
+  start(store, '2026-10-28T03:00:00Z');
+  const at = (m) => ({ now: `2026-10-28T03:${String(m).padStart(2, '0')}:00Z` });
+  const send = (event, to, m) => apply(store, event, { to, ...at(m) });
+  for (const id of ['ledger', 'tour']) assert.ok(!send({ type: 'REQUEST_RECEIVED', request: { id }, ...lead }, 'harness', 0).refused);
+  const triager = (tool) => spawned('triager', { agentType: 'general-purpose', tool });
+  assert.ok(!send(triager('toolu_ledger'), 'item:ledger', 1).refused);
+  const close = (tool, by = lead) => ({ type: 'SPAWN_CLOSED', toolUseId: tool, ...by });
+  assert.match(send(close('toolu_ledger', agent('x')), 'item:ledger', 2).why, /unattested/, 'a subagent closes it');
+  assert.match(send(close('toolu_nope'), 'item:ledger', 2).why, /noSpawnToClose/, 'no such spawn');
+  assert.match(send(close('toolu_ledger', as('session', 'other')), 'item:ledger', 2).why, /noSpawnToClose/, 'another session closes it');
+  assert.ok(!send(close('toolu_ledger'), 'item:ledger', 2).refused, 'the spawning session closes it');
+  assert.ok(ctx(store, 'ledger').spawns[0].closed, 'closed, with its time');
+  assert.match(send(close('toolu_ledger'), 'item:ledger', 2).why, /noSpawnToClose/, 'closed once');
+  assert.match(send(started('t0', 'general-purpose'), 'item:ledger', 2).why, /noSpawnToBind/, 'a closed spawn binds no agent');
+  assert.ok(!send(triager('toolu_tour'), 'item:tour', 3).refused, 'the next spawn of the type is taken');
+  assert.ok(!send(started('t2', 'general-purpose'), 'item:tour', 3).refused);
+  // A spawn left waiting past the bind window lapses: it binds nothing, and no longer holds back the next.
+  assert.ok(!send(triager('toolu_ledger2'), 'item:ledger', 4).refused);
+  assert.equal(send(triager('toolu_tour2'), 'item:tour', 8).rule, 'oneUnboundSpawn', 'inside the window');
+  assert.match(send(started('t3', 'general-purpose'), 'item:ledger', 10).why, /noSpawnToBind/, 'past the window');
+  assert.ok(!send(triager('toolu_tour2'), 'item:tour', 10).refused, 'past the window');
+});
