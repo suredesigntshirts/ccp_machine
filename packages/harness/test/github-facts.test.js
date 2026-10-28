@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { openStore, init, status, fromGithub, prMap, verifyFacts, verifyFactsText, doctor } from '../src/index.js';
 import { readFact, resolveGh, ghPath, restFetcher } from '../src/github-read.js';
 import { apply, start } from './send.js';
+import { verifyHead } from '../src/sim.js';
 import { fakeGithub, recorded, HEAD, MERGE, CREATED } from './github-fake.js';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
@@ -185,6 +186,7 @@ async function doneThroughGithub() {
   assert.equal((await fromGithub(s.store, failed('o/r#7', early), { fetcher: fakeGithub({ ref: 'feat/x', head: early, checks: 'failure' }) })).result, 'sent');
   apply(s.store, { type: 'RUN_SUCCEEDED', pr: 'o/r#7' }, { to: 'item:x' });
   assert.equal((await fromGithub(s.store, suite('o/r#7'), { fetcher: fakeGithub({ ref: 'feat/x' }) })).result, 'sent');
+  verifyHead(s.store, 'item:x', { sha: HEAD });
   assert.equal((await fromGithub(s.store, merge('o/r#7'), { fetcher: fakeGithub({ ref: 'feat/x' }) })).result, 'sent');
   assert.equal(state(s.store, 'x'), 'done');
   return { ...s, early };
@@ -210,7 +212,8 @@ test('verify-facts catches a forged fact: a ref GitHub does not back, written st
   apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:y' });
   apply(store, { type: 'RUN_SUCCEEDED', pr: URL21 }, { to: 'item:y' });
   apply(store, { type: 'CHECKS_PASSED', pr: URL21, ...github, source: { kind: 'github-wake', ref: `${R21}@${HEAD}:checks=success` } }, { to: 'item:y', id: 'forged-ci' });
-  apply(store, { type: 'MERGED', pr: URL21, ...github, source: { kind: 'github-wake', ref: `${R21}:merged@${'f'.repeat(40)}` } }, { to: 'item:y', id: 'forged-merge' });
+  verifyHead(store, 'item:y', { sha: HEAD });
+  apply(store, { type: 'MERGED', pr: URL21, sha: HEAD, ...github, source: { kind: 'github-wake', ref: `${R21}:merged@${'f'.repeat(40)}` } }, { to: 'item:y', id: 'forged-merge' });
   const before = bytes(store.dir);
   const results = await verifyFacts(store, { fetcher: fakeGithub({ ref: 'feat/x' }) });
   const forged = results.filter((r) => r.id.startsWith('forged'));

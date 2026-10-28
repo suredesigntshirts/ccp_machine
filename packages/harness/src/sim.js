@@ -23,6 +23,32 @@ export function scripted(type, ref = 'sim') {
   return { actor: { kind: 'session', id: 'sim-orchestrator' }, source: { kind: 'cli', ref } };
 }
 
+/** The head and verifier brief the scripted host's items use (spec workItem, Workers). */
+export const SIM_HEAD = 'f'.repeat(40);
+export const SIM_BRIEF = 'b'.repeat(64);
+
+/**
+ * The scripted host verifies an item's head before it merges, as a real lead does: it fixes the verifier brief (if
+ * none is), spawns the verifier (harness:verifier) and binds its agent as the SubagentStart hook would, and the
+ * verifier gives PASS on `sha`. Steps the item would not take are skipped; returns the events it applied.
+ */
+export function verifyHead(store, to, { sha = SIM_HEAD, now, lead = 'sim-orchestrator' } = {}) {
+  const id = to.replace(/^item:/, '');
+  const ctx = () => store.read().snapshot.children[id]?.snapshot.context ?? {};
+  const by = (kind, who) => ({ actor: { kind, id: who }, source: { kind: 'cli', ref: 'sim verifier' } });
+  const agent = `${lead}/verifier-${id.replace(/[^A-Za-z0-9_-]/g, '')}`;
+  const brief = ctx().verifierBrief ?? SIM_BRIEF;
+  const steps = [
+    ...(ctx().verifierBrief ? [] : [{ type: 'VERIFIER_BRIEF_FIXED', sha256: brief, ...by('session', lead) }]),
+    ...((ctx().spawns ?? []).some((s) => s.agent === agent) ? [] : [
+      { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: brief, agentType: 'harness:verifier', ...by('session', lead) },
+      { type: 'WORKER_STARTED', agent, agentType: 'harness:verifier', ...by('session', lead) }
+    ]),
+    { type: 'VERDICT_GIVEN', verdict: 'PASS', sha, review: 1, text: `PASS\n\nBrief-Sha256: ${brief}`, ...by('agent', agent) }
+  ];
+  return steps.map((e) => apply(store, e, { to, ...(now && { now }) })).filter((r) => !r.refused).length;
+}
+
 /** The host posts the card a postDecisionCard effect asks for and acks it with the card's message id; the person taps `choice` on it. */
 export function postAndTap(store, effect, choice, { now, id } = {}) {
   const card = `cmsg_${effect.id.replace(/\W/g, '_')}`;
@@ -105,7 +131,10 @@ export async function simulate({ items = 12, wip = 3, dir = mkdtempSync(join(tmp
       const revise = (s.revise && /:plan:/.test(e.subject) && once(`revise-${id}`)) || (/:accept:/.test(e.subject) && e.detail?.expectationsMet !== true);
       check(postAndTap(store, e, revise ? 'revise' : 'approve', { now: now(), id: `sim-${n++}` }), cardAddress(e));
     }
-    else if (e.name === 'mergePullRequest') send({ type: 'MERGED' }, item);
+    else if (e.name === 'mergePullRequest') {
+      verifyHead(store, item, { now: now() });
+      send({ type: 'MERGED', sha: SIM_HEAD }, item);
+    }
     // reportBlocked, checkpoint and publishDigest need nothing back.
   }
   const st = status(store);

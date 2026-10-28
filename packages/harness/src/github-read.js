@@ -89,7 +89,7 @@ export function notItsPr(p, pr, { item, requestedAt }) {
  * ("owner/repo#N"; sha: the full head sha the wake named, needed for CI). With item, the PR must also be that
  * item's: created at or after requestedAt and on a branch that names the item (branchNamesItem). Returns {ref}
  * naming what GitHub said (and the head sha for CI), or {why} when the wake or GitHub's answer falls short,
- * GitHub disagrees, or it cannot be read.
+ * GitHub disagrees, or it cannot be read. A merge's answer also names the head that was merged (sha).
  */
 export async function readFact({ type, pr, sha = '', item, requestedAt }, fetcher = restFetcher) {
   const [repo, n] = pr.split('#');
@@ -111,7 +111,7 @@ export async function readFact({ type, pr, sha = '', item, requestedAt }, fetche
       if (p.merged !== true || !p.merge_commit_sha) return { why: `GitHub says ${pr} is not merged` };
       const c = await fetcher((step = `repos/${repo}/commits/${p.merge_commit_sha}`)).catch((e) => ({ error: e.message }));
       if (c.sha !== p.merge_commit_sha) return { why: `GitHub: merge commit ${p.merge_commit_sha.slice(0, 7)} of ${pr} not found (${c.error ?? c.sha})` };
-      return { ref: `${pr}:merged@${c.sha}` };
+      return { ref: `${pr}:merged@${c.sha}`, sha: p.head.sha };
     }
     const head = p.head.sha;
     if (head !== sha) return { why: `GitHub says ${pr}'s head is ${head.slice(0, 7)}, not ${sha.slice(0, 7)}` };

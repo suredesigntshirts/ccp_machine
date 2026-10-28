@@ -52,14 +52,54 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   session. `ledger collect` merges the filed sessions into one ledger for the report.
 - **Agent hooks** (`scripts/agent-actor.js`, PreToolUse on Bash and SubagentStart): a subagent shares its
   parent's `CLAUDE_CODE_SESSION_ID`, and only hook input carries its `agent_id` and `agent_type`. Before a
-  subagent's Bash command that names `harness`, PreToolUse returns `updatedInput` with
-  `export HARNESS_AGENT='<agent_id>:<agent_type>'; readonly HARNESS_AGENT` ahead of the command (no permission
-  decision: the permission rules still apply), so every harness call in it records as agent
-  `<session_id>/<agent_id>`. Other commands and every command of the parent session are left as they are; a
-  command that sets, exports, clears or passes `HARNESS_AGENT` itself is denied with the reason, from either.
-  SubagentStart writes `{ sessionId, agentId, agentType, at }` to
-  `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json`, which `harness verify-actors` checks.
-  The marker is read only for a command that would be changed or denied, so other Bash calls pay nothing.
+  Bash command that names `harness`, or before every Bash command when the hook's own environment has
+  `HARNESS_ENFORCE=1`, from a subagent or the parent, PreToolUse records the call at
+  `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/<tool_use_id>.json` (`{ sessionId, toolUseId, at, kind,
+  agentId, agentType, commandSha256, keySha256, enforced }`, `agentId` null for the parent) and returns
+  `updatedInput` with `export HARNESS_CALL='<tool_use_id>:<key>' HARNESS_AGENT='<agent_id>:<agent_type>';
+  readonly ...` ahead of the command (`HARNESS_AGENT` for a subagent only; no permission decision: the
+  permission rules still apply). The key is fresh per call and the record keeps only its sha256. The harness
+  CLI believes an actor only with that key and only when the record names it, so an id a command writes
+  itself (another call's, the SubagentStart record's) is refused. A call recorded under `HARNESS_ENFORCE=1`
+  marks its store enforced (`enforced.json` in the store, naming this Library), and from then on the store
+  takes a write only from a recorded call, whatever the command sets or unsets (spec harness
+  `meta.invariants` `hookSawCall`); to lift it, remove that file by hand. Other commands are left
+  as they are; a command that sets, exports, clears or passes `HARNESS_AGENT` or `HARNESS_CALL` itself is
+  denied with the reason (`setsHarnessAgent`), from either. SubagentStart writes `{ sessionId, agentId,
+  agentType, at }` to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json`, which
+  `harness verify-actors` checks, and binds the agent to the oldest spawn of its agent type the spawn gate
+  recorded for the session and the store took (`WORKER_STARTED`). Without `HARNESS_ENFORCE=1` the marker is
+  read only for a command that would be changed or denied, so other Bash calls pay nothing.
+- **Gates** (`scripts/gates.js`, PreToolUse on Agent, Bash and `mcp__github__merge_pull_request`): the spec
+  decides (spec workItem, Workers; harness `meta.invariants`), asked through the harness CLI
+  (`$HARNESS_BIN`, else `packages/harness/bin/harness.js` of the checkout the plugin sits in, with the
+  session's `HARNESS_DIR`). The **spawn gate** reads the brief's one line `Harness-Role: <role> item:<id>`;
+  a spawn naming one is sent to the store as `WORKER_SPAWNED` (role, sha256 of the prompt, agent type, model,
+  the agent definition by content hash and plugin version, the harness version), which the machine takes or
+  refuses (no verifier brief yet, an edited verifier brief, a role or agent type the item does not take now).
+  A malformed or repeated role line, an item not in the store, or a `harness:builder` or `harness:verifier`
+  spawn without one is `roleLine`. A spawn with no role line is allowed and recorded nowhere: its agent can
+  send nothing, since an agent sends only what its role on the item allows (harness `meta.agentEvents`). The
+  **merge gate** sees the MCP merge tool and does not parse shell to find a merge: a Bash call whose text names
+  `merge` with `gh`, `curl`, `wget`, `api` or `graphql` (quotes removed, escapes decoded, any case) is denied
+  (`readableGitHubWrite`, the reason naming the gated forms) unless the whole command is exactly one simple
+  command, `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT
+  repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`, with only the listed merge options beside it. Other
+  Bash calls are read for a GitHub write the gate cannot read, which is denied too: a `gh` command,
+  subcommand, method or path built from a variable, a `gh` alias or extension, a GraphQL mutation or document
+  it cannot read, a `curl` or `wget` write built from a variable or to GraphQL. Literal reads and other literal
+  writes pass. A gated form, and the MCP tool, ask `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
+  (`expectedHeadSha`, `--match-head-commit` or `sha`: `pinnedHead`), the item's machine taking `MERGED` of
+  that head, which needs its verifier's PASS (`machine`), and that PASS on GitHub as a review on the sha
+  (`reviewOnHead`). Under `HARNESS_ENFORCE=1` both deny, the reason starting `harness (<rule>): `, and a gate
+  that cannot reach the store or the CLI denies (`storeReachable`); without it they only record and never
+  deny. Each gated call's record says what the gate decided (`allowed`, `denied` or `would deny`, the rule
+  and why). A deny that names no guard or host invariant fails `packages/harness/test/rules.test.js`.
+- **Standing agents** (`agents/builder.md`, `agents/verifier.md`, agent types `harness:builder` and
+  `harness:verifier`): the rules that must not drift from brief to brief (machines first, concepts counted,
+  only what the item needs, SPEC.md and the README kept true; for the verifier, distrust, blind attacks and
+  hard limits, and `harness verdict`). The machine refuses a builder or verifier spawn of another agent type,
+  and the spawn record names the definition by its sha256 and the plugin version.
 - **Status line and `/harness` pane** (`hooks/status.tsx`, the harness-status mod, named under `modules`
   in `hooks/hooks.json`; its `$.state` contract is `types/index.d.ts`). A hooks module, so it loads with
   the plugin by the same route, `harness@skills-dir` included; there is no separate copy. Placeholder

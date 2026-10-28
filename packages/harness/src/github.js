@@ -66,7 +66,8 @@ export async function fromGithub(store, raw, { fetcher } = {}) {
   const { id } = m;
   // observedAt lets the retro tell CI's time from the host's delay in feeding the result.
   const at = Date.parse(ev.at);
-  const event = { ...m.event, ...(!Number.isNaN(at) && { observedAt: new Date(at).toISOString() }), actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: fact.ref } };
+  // A merge names the head GitHub merged: the item's machine takes it only for a head its verifier passed.
+  const event = { ...m.event, ...(m.event.type === 'MERGED' && { sha: fact.sha }), ...(!Number.isNaN(at) && { observedAt: new Date(at).toISOString() }), actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: fact.ref } };
   const r = apply(store, event, { to: `item:${item}`, id });
   if (r.refused) return { result: 'refused', item, id, why: r.why };
   if (m.event.type === 'MERGED') {

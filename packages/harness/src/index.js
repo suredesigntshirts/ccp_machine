@@ -28,6 +28,7 @@ export { bindingError, requestedAt, itemOf } from './pr-binding.js';
 export { verifyFacts, verifyFactsText } from './verify-facts.js';
 export { verifyActors, verifyActorsText, ledgerDir, WINDOW_TOLERANCE_MS } from './verify-actors.js';
 export { verifyTaps, verifyTapsText } from './verify-taps.js';
+export { giveVerdict, mergeGate, verifyMerges, verifyMergesText, verdictOf, restPost } from './gates.js';
+export { verifyHead, SIM_HEAD, SIM_BRIEF, contractStore } from './sim.js';
 export { PAGES, loadNeeds, checkPage, renderLivePage, slowRefreshes, slowRefreshText, STORE_LAYOUT, PAGE_RULES } from './pages.js';
 export { project, schemaProblem, renderView } from './live.js';
-export { contractStore } from './sim.js';

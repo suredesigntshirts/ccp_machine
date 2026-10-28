@@ -24,7 +24,7 @@ test('each wake restores, applies one event, persists, and queues its effects', 
   const st = status(store);
   assert.deepEqual(st.items.map((i) => [i.id, i.state, i.done]), [['a', 'done', true]]);
   assert.deepEqual(st.context.inFlight, []);
-  assert.equal(store.events().length, 6);
+  assert.equal(store.events().length, 10, 'with the verifier brief, its spawn and start, and its PASS before the merge');
 });
 
 test('an event id is applied once, however often it is delivered', () => {
