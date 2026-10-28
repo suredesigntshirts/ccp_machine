@@ -5,30 +5,39 @@
 
 let dir = null // the item's folder, once started
 let seen = 0 // journal entries the main session has been told about
+let last = Promise.resolve() // the step in progress: steps on one item run one at a time
 const sessions = new Map() // agentId -> { run, claim }, for each session in flight
-const begun = new Set() // runs whose session has started, and timers set
+const started = new Set() // runs whose session has started
+const timers = new Set() // timer ids set
 
 async function cli($, args, input) {
   const { stdout } = await $.process.run(['node', `${$.plugin.root}/cli.js`, ...args], { stdin: JSON.stringify(input ?? null), timeoutMs: 600_000 })
   return JSON.parse(stdout)
 }
 
-// One step of the item, then start the sessions and set the timers it now waits on.
-async function step($, input) {
+// One step of the item, after any step in progress.
+function step($, input) {
+  const next = last.then(() => stepNow($, input))
+  last = next.catch(() => undefined)
+  return next
+}
+
+// One step, then start the sessions and set the timers the item now waits on.
+async function stepNow($, input) {
   const out = await cli($, ['step', dir], input)
   for (const s of out.sessions ?? []) {
-    if (begun.has(s.run)) continue
-    begun.add(s.run)
+    if (started.has(s.run)) continue
+    started.add(s.run)
     // A spawn's cwd did not reach the subagent in Claude Code 2.1.312 (it ran in the session's folder), so the
     // prompt names the folder too.
     const prompt = `Work in the folder ${s.cwd}, with absolute paths under it.\n\n${s.prompt}\n\nWhen you are done, call mcp__orchestrator__return once with { "claim": <your claim> }, the claim matching this JSON schema:\n${JSON.stringify(s.schema)}`
     const { agentId, deny } = await $.agent.spawn({ subagentType: `orchestrator:${s.actor}`, prompt, description: `${s.actor} ${s.run}`, cwd: s.cwd })
     if (agentId) sessions.set(agentId, { run: s.run, claim: undefined })
-    else await step($, { run: s.run, failed: `the session could not start: ${deny}`, source: 'orchestrator' })
+    else return stepNow($, { run: s.run, failed: `the session could not start: ${deny}`, source: 'orchestrator' })
   }
   for (const t of out.timers ?? []) {
-    if (begun.has(t.id)) continue
-    begun.add(t.id)
+    if (timers.has(t.id)) continue
+    timers.add(t.id)
     $.clock.after(Math.max(0, Date.parse(t.due) - (await $.clock.now())), () => step($, { event: t.event, source: 'timer' }))
   }
   return out

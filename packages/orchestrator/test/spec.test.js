@@ -32,3 +32,8 @@ test('every event taken from outside has a schema, and every delay a value', () 
   assert.deepEqual(states.flatMap(([, s]) => Object.keys(s.on ?? {})).filter((e) => !itemSpec.meta.events[e]), []);
   assert.deepEqual(states.flatMap(([, s]) => Object.keys(s.after ?? {})).filter((d) => !(d in itemSpec.meta.delays)), []);
 });
+
+test('context changes only through set and inc', () => {
+  const actions = states.flatMap(([, s]) => transitions(s).flatMap((t) => t.actions ?? []));
+  assert.deepEqual([...new Set(actions.map((a) => a.type))].sort(), ['inc', 'set']);
+});

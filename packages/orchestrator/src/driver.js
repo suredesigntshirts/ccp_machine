@@ -35,7 +35,7 @@ export const drive = ({ host, journal, actors, sessions, clock = systemClock, lo
         journal.append(result.entry);
         log({ entry: result.entry });
         result.effects.forEach(carryOut);
-        if (host.done) finish();
+        if (host.done) close();
       }
       checkIdle();
       return result;
@@ -83,14 +83,14 @@ export const drive = ({ host, journal, actors, sessions, clock = systemClock, lo
     }
   };
 
-  const finish = () => {
+  const close = () => {
     inFlight.forEach((c) => c.abort());
     timers.forEach((t) => clock.clearTimeout(t));
     settle.resolve(host.snapshot);
   };
 
   host.pending.forEach(carryOut);
-  if (host.done) finish();
+  if (host.done) close();
   return {
     send,
     settled,

@@ -36,20 +36,22 @@ const holds = (condition, scope) => {
 /** The guards (by name) that fail for { context, event }; empty when all hold. */
 export const failing = (spec, names, scope) => names.filter((name) => !spec.meta.guards[name].every((c) => holds(c, scope)));
 
-// Every transition in a state node, normalised to a list of objects, with a setter to put it back.
-const TRANSITION_KEYS = ['on', 'after'];
+// A transition as XState takes it (a target, an object, or a list of either), as a list of objects.
 const asList = (t) => [t].flat().map((x) => (typeof x === 'string' ? { target: x } : x));
 
+// A state with each of its transitions guarded by its own guard and its target's needs. Targets are sibling
+// state names (a transition without one stays, and keeps the needs of the state it is in).
 const bindState = (spec, siblings, state) => {
   const bind = (t) => {
     const actions = t.actions ?? [];
     const target = t.target ? siblings[t.target] : state;
-    const names = [...(t.guard ? [t.guard] : []), ...(target?.meta?.needs ?? [])];
+    if (!target) throw new Error(`no state ${t.target} beside the transition to it`);
+    const names = [...(t.guard ? [t.guard] : []), ...(target.meta?.needs ?? [])];
     const guard = names.length && (({ context, event }) => failing(spec, names, { context: applyActions(context, event, actions), event }).length === 0);
     return { ...t, ...(guard ? { guard } : {}) };
   };
   const out = { ...state };
-  for (const key of TRANSITION_KEYS) if (state[key]) out[key] = Object.fromEntries(Object.entries(state[key]).map(([ev, t]) => [ev, asList(t).map(bind)]));
+  for (const key of ['on', 'after']) if (state[key]) out[key] = Object.fromEntries(Object.entries(state[key]).map(([ev, t]) => [ev, asList(t).map(bind)]));
   if (state.invoke) {
     const { input = {}, onDone, onError } = state.invoke;
     out.invoke = {

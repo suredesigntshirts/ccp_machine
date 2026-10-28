@@ -2,9 +2,10 @@
 // test runs, merges); a session does only what needs judgement, and its claim never stands in for a fact:
 // the built commit and the verified commit come from git, not from what the session says.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gitForge } from './git.js';
+import { openItem } from './item.js';
 
 const write = (path, text) => (mkdirSync(join(path, '..'), { recursive: true }), writeFileSync(path, text), path);
 const lines = (items) => items.map((x) => `- ${x}`).join('\n');
@@ -95,4 +96,11 @@ export const makeSandbox = (repo) => {
   git('add', '-A');
   git('commit', '-q', '-m', 'Start');
   return repo;
+};
+
+/** The item kept in dir, with its sandbox repository (made on first use) and the actors that work on it. */
+export const openSandboxItem = (dir) => {
+  const repo = join(dir, 'repo');
+  if (!existsSync(repo)) makeSandbox(repo);
+  return { ...openItem(dir), actors: sandboxActors({ dir, repo }) };
 };
