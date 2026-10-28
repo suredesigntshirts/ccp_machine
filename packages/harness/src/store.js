@@ -109,10 +109,18 @@ export function openStore(dir) {
           }
           if (!s || !stale(s)) throw new Error(`another writer holds ${lock}`); // rule: oneWriter
         }
-        // Claims on earlier locks are no longer needed: each was broken before this lock was taken, over 60s ago.
-        // This lock's claims (the start of this claim's name) stay, so a writer that found it stale is refused.
-        for (const n of readdirSync(dir)) if (n.startsWith('lock.') && !claim.startsWith(file(n))) rmSync(file(n), { force: true });
-        rmSync(lock, { force: true });
+        // Only the lock this writer found is broken: a lock taken since (this writer stalled before its claim) stays,
+        // and taking the lock below refuses this writer.
+        let now;
+        try {
+          now = statSync(lock);
+        } catch {}
+        if (now && now.ino === found.ino && now.mtimeMs === found.mtimeMs) {
+          // Claims on earlier locks are no longer needed: each was broken before this lock was taken, over 60s ago.
+          // This lock's claims (the start of this claim's name) stay, so a writer that found it stale is refused.
+          for (const n of readdirSync(dir)) if (n.startsWith('lock.') && !claim.startsWith(file(n))) rmSync(file(n), { force: true });
+          rmSync(lock, { force: true });
+        }
       }
       let fd;
       try {

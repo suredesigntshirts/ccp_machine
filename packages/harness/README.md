@@ -175,8 +175,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, a writer held off by
   the lock (refused, it writes nothing, and lands once the holder lets go), repair held off by a writer and a
   writer held off by repair, two writers finding one stale lock, a writer that crashes after claiming a stale
-  lock (its claim goes stale and the next writer takes it over), two writers finding one stale claim, duplicates,
-  torn lines and a slow mount.
+  lock (its claim goes stale and the next writer takes it over), two writers finding one stale claim, a writer
+  that finds a stale lock and stalls while others break it and take the lock again (refused, the new lock stays),
+  duplicates, torn lines and a slow mount.
 - `src/canary.js`: `harness canary` files the day's canary item (bump `canary/last.txt`, PR, CI,
   merge) once per UTC day, with no tier: its triager gives it tier 0. `harness canary --check` times each stage and exits 1 with one attention line
   when the canary failed or is not merged 2 hours after the request. The digest leads with the canary when
