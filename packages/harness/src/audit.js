@@ -58,12 +58,12 @@ export function auditCard(picks, granted = []) {
   };
 }
 
-// Every grant decision, one short line each: the item, class, choice and as much of the reason as fits the card.
+// Every grant decision, one short line each: the item, class, choice, confidence and as much of the reason as fits the card.
 function grantedText(granted, room = 1000) {
   if (!granted.length) return '';
   const head = `Under your grant (${granted.length}; reverse any on mission control):`;
   const each = Math.max(0, Math.floor((room - head.length) / granted.length) - 1);
-  const rows = granted.map((r) => { const base = `${r.item} ${r.decisionClass}: ${r.choice}`; const why = r.reason ?? ''; return (why ? `${base} - ${why}` : base).slice(0, Math.max(base.length, each)); });
+  const rows = granted.map((r) => { const base = `${r.item} ${r.decisionClass}: ${r.choice}${r.confidence != null ? ` (${Math.round(r.confidence * 100)}% sure)` : ''}`; const why = r.reason ?? ''; return (why ? `${base} - ${why}` : base).slice(0, Math.max(base.length, each)); });
   // Past ~40 in one day even the bare lines overflow the card: the rest are named by count, all on mission control.
   while (rows.length > 1 && [head, ...rows].join('\n').length > room) rows.pop();
   const more = granted.length - rows.length;

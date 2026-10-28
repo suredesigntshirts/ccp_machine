@@ -173,14 +173,24 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `harness verify-taps` lists it with its message id for another session to read. Every decision carries its class's door (`meta.classes`: plan and accept are
   two-way, merge one-way). The decision reads the harness's grant as the stand-in's answer arrives and decides
   alone (`grantCovers`) only before the grant's end time (if it has one), for a class it names, and for a one-way door only
-  with the box; the answer still needs a reason, the confidence threshold and, for accept, `expectationsMet`.
-  Outside the grant the ladder rule (`standInMayDecide`) applies as before. Which one decided is logged
+  with the box; the answer still needs a reason and, for accept, `expectationsMet`, but not the confidence
+  threshold: under a grant the person has said they trust the stand-in's judgement, so an answer honest about
+  doubt decides like a sure one, and its confidence goes on the granted row. Only an answer received before the
+  guard's `thresholdBefore` (when #58 loosened the rule) keeps the threshold it was logged under, so replay
+  routes an older log as it was routed. Outside the grant the ladder rule (`standInMayDecide`) applies as before,
+  threshold included. A decision already waiting on the person goes back to the stand-in for a fresh answer when
+  the live grant covers it: the orchestrator sends `REASK_UNDER_GRANT {decision: <decision id>}` to the harness,
+  which refuses it from anyone else and unless the decision is in the inbox and the grant covers its class and
+  door at the event's own time (`grantMissesDecision`), then takes it out of the inbox and passes it through the
+  item to the decision (both refuse it from outside). The decision clears its card (a tap on it decides nothing)
+  and asks the stand-in again; if the fresh answer comes back to the person, a new card is asked for. The host
+  acks the old card's `postDecisionCard` effect `--outcome failed` if it never posted it. Which one decided is logged
   (`authority`). A decision made under the grant also reports itself (`DECIDED_UNDER_GRANT`, refused from
   outside), and the harness keeps one compact row per decision in `state.json` (`context.granted`: address,
   item, class, door, choice, confidence, reason, the grant's card or message, time). Live mission control declares
   `context.grant` and `context.granted` in its needs file and shows "Decided under your grant": the grant
-  (kinds, the one-way box, until or no end time, its card or message) and every row with its reason and how to reverse it. `harness page` and the
-  daily audit read the same list.
+  (kinds, the one-way box, until or no end time, its card or message) and every row with its confidence, its reason and how to reverse it. `harness page` and the
+  daily audit read the same list, each row with its confidence.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
   failed check `CHECKS_FAILED`, a merged PR `MERGED`, a PR closed unmerged `CANCEL`, each from actor github
@@ -276,6 +286,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 ```sh
 harness init --wip 3                # this session ($CLAUDE_CODE_SESSION_ID) is the orchestrator
 harness send '{"type":"WIP_SET","limit":2}'   # later, the orchestrator only: 1 to 4, raising starts queued items now
+harness send '{"type":"REASK_UNDER_GRANT","decision":"decision:a:plan:1"}'   # the orchestrator only: back to the stand-in, if the live grant covers it
 harness send '{"type":"DAY_STARTED","sevenDay":0.07,"fiveHour":0.04}' --to budget --id day-2026-10-26
 harness send '{"type":"REQUEST_RECEIVED","request":{"id":"a","title":"Fix login","expect":"login works"}}' --id req-a
 # each of these runs in its own thread, so it is sent as that session
