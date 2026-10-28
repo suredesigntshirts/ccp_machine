@@ -52,7 +52,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `AUDIT_ANSWERED` events, dated at or before the spawn), set on the decision when it is spawned, so a reversal
   lowers the very next decision's rung with no command run; a log that cannot be read gives `recommend`. Threshold is the
   constant in `decision.machine.json`'s context. Confidence is the stand-in's: `STAND_IN_ANSWERED` carries
-  only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, and is
+  only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, or with
+  a choice that is not one of the decision's options (approve, revise, reject: `context.options`, the same the
+  person's card offers, and the one list `harness answer`'s flags come from; approve moves the item on, revise
+  sends it back to building, or to triage from the plan gate, and reject cancels it), and is
   refused from the orchestrator and from every worker that reported a run for the item, succeeded or failed
   (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all six
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
