@@ -224,6 +224,12 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       readLiveGrant: assign({ grant: ({ system }) => system.get('harness')?.getSnapshot().context.grant ?? null, answeredAt: ({ event }) => event.receivedAt ?? null }),
       reportAnswerer: toParent(({ event }) => holdsRoles(event.actor) && { type: 'STAND_IN_RECORDED', by: event.actor.id }),
       acceptStandInChoice: assign(({ context }, params) => ({ choice: context.standIn.choice, decidedBy: 'stand-in', authority: params?.authority ?? null })),
+      // A decision made under the grant reports itself as one compact row, which the harness keeps for the person to review.
+      reportGrantDecision: enqueueActions(({ enqueue, context: c, system }) => {
+        const harness = system.get('harness');
+        if (harness)
+          enqueue.sendTo(harness, { type: 'DECIDED_UNDER_GRANT', row: { address: c.address, item: c.item, decisionClass: c.decisionClass, door: c.door, choice: c.standIn.choice, confidence: c.standIn.confidence, reason: c.standIn.reason, card: c.grant.card, at: c.answeredAt } });
+      }),
       recordPersonChoice: assign({ choice: ({ event }) => event.choice, decidedBy: 'person' }),
       recordCard,
       reportDecision: toParent(({ context }) => ({
@@ -376,6 +382,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       }),
       // The harness holds one grant: the latest tap replaces it whole.
       recordGrant: assign({ grant: ({ event }) => event.grant }),
+      recordGrantDecision: assign({ granted: ({ context, event }) => [...(context.granted ?? []), event.row] }),
       addToInbox: assign({ inbox: ({ context, event }) => [...context.inbox, event.decisionId] }),
       removeFromInbox: assign({
         inbox: ({ context, event }) => context.inbox.filter((d) => d !== event.decisionId)

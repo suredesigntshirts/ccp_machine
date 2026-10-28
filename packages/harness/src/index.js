@@ -4,7 +4,7 @@ export { init, apply, ack, status, cardAddress } from './runtime.js';
 export { renderPage, itemHref, prOf } from './page.js';
 export { budgetEvents } from './budget-feed.js';
 export { renderItemPage, itemRecords, itemTurns } from './item-page.js';
-export { logPrecedents, readDecisionLog, grantDecisions, classStats, renderDecisionLog, ladder, EARN_ACT, RUNGS } from './decision-log.js';
+export { logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, EARN_ACT, RUNGS } from './decision-log.js';
 export { renderDigest, writeDigest } from './digest.js';
 export { doctor } from './doctor.js';
 export { cardFor, checklistFor } from './card.js';

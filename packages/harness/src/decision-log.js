@@ -59,9 +59,6 @@ function row(e) {
   };
 }
 
-/** The decisions the stand-in made under the person's grant (authority grant), oldest first: each one the person may reverse. */
-export const grantDecisions = (rows) => rows.filter((r) => r.authority === 'grant' && r.decidedBy === 'stand-in');
-
 /** Acknowledge the pending logPrecedent effects: they are in the log already, as the outbox's own rows. */
 export function logPrecedents(store) {
   const pending = store.pending().filter((e) => e.name === 'logPrecedent').map((e) => e.id);

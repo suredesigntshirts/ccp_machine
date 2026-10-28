@@ -4,7 +4,7 @@
 // AUDIT_PICKED opens it and asks for the card, the ack names the card, and the answer is the person's tap,
 // AUDIT_ANSWERED, which the decision log reads as the person's decisions against the stand-in's lean.
 import { apply, status } from './runtime.js';
-import { readDecisionLog, reverseOf, grantDecisions } from './decision-log.js';
+import { readDecisionLog, reverseOf } from './decision-log.js';
 
 export const AUDIT_MAX = 3;
 // Past this many untested stand-in decisions in a row, doctor says the class needs an audit.
@@ -63,19 +63,19 @@ function grantedText(granted, room = 1000) {
   if (!granted.length) return '';
   const head = `Under your grant (${granted.length}; reverse any on mission control):`;
   const each = Math.max(0, Math.floor((room - head.length) / granted.length) - 1);
-  const rows = granted.map((r) => { const base = `${r.item} ${r.decisionClass}: ${r.choice}`; const why = r.standIn?.reason ?? ''; return (why ? `${base} - ${why}` : base).slice(0, Math.max(base.length, each)); });
+  const rows = granted.map((r) => { const base = `${r.item} ${r.decisionClass}: ${r.choice}`; const why = r.reason ?? ''; return (why ? `${base} - ${why}` : base).slice(0, Math.max(base.length, each)); });
   // Past ~40 in one day even the bare lines overflow the card: the rest are named by count, all on mission control.
   while (rows.length > 1 && [head, ...rows].join('\n').length > room) rows.pop();
   const more = granted.length - rows.length;
   return [head, ...rows, ...(more ? [`and ${more} more, listed on mission control`] : [])].join('\n');
 }
 
-/** The grant decisions an audit lists: made after the previous audit was picked and at or before this one. */
-const grantedFor = (store, rows, day) => {
+/** The grant decisions an audit lists (the harness's context.granted): made after the previous audit was picked and at or before this one. */
+const grantedFor = (store, day) => {
   const picked = store.events().filter((e) => e.event.type === 'AUDIT_PICKED').sort((a, b) => a.at.localeCompare(b.at));
   const i = picked.findIndex((e) => e.event.day === day);
   const [from, to] = i < 0 ? [picked.at(-1)?.at ?? '', '\uffff'] : [picked[i - 1]?.at ?? '', picked[i].at];
-  return grantDecisions(rows).filter((r) => r.at > from && r.at <= to);
+  return (store.read()?.snapshot.context.granted ?? []).filter((r) => r.at > from && r.at <= to);
 };
 
 /**
@@ -89,21 +89,20 @@ export function pickAudit(store, { by, now = new Date().toISOString(), max } = {
   const effect = () => store.outbox().find((e) => e.name === 'postAuditCard' && e.subject === address)?.id ?? null;
   const prior = store.events().find((e) => e.event.type === 'AUDIT_PICKED' && e.event.day === day);
   const rows = readDecisionLog(store);
-  if (prior) return { day, address, picks: prior.event.picks, granted: grantedFor(store, rows, day), effect: effect() };
+  if (prior) return { day, address, picks: prior.event.picks, granted: grantedFor(store, day), effect: effect() };
   const picks = auditPicks(rows, { max }).map((r) => r.effectId);
   if (!picks.length) return { day, address, picks, granted: [], effect: null };
   const r = apply(store, { type: 'AUDIT_PICKED', day, picks, ...by }, { id: `audit-${day}`, now });
   if (r.refused) throw new Error(r.why);
-  return { day, address, picks, granted: grantedFor(store, rows, day), effect: effect() };
+  return { day, address, picks, granted: grantedFor(store, day), effect: effect() };
 }
 
 /** Every audit waiting on the person, oldest first, its picks read from one map of the decision log and its card's
  * request_decision arguments (`ask`): mission control lists them under Needs you, auditCardFor prints one. */
 export function openAudits(store) {
-  const log = readDecisionLog(store);
-  const rows = new Map(log.map((r) => [r.effectId, r]));
+  const rows = new Map(readDecisionLog(store).map((r) => [r.effectId, r]));
   return (status(store)?.audits ?? []).filter((a) => a.state === 'awaitingPerson').sort((a, b) => a.day.localeCompare(b.day))
-    .map((a) => ({ ...a, picks: a.picks.map((id) => rows.get(id) ?? { effectId: id, standIn: {} }), granted: grantedFor(store, log, a.day) })).map((a) => ({ ...a, ask: auditCard(a.picks, a.granted) }));
+    .map((a) => ({ ...a, picks: a.picks.map((id) => rows.get(id) ?? { effectId: id, standIn: {} }), granted: grantedFor(store, a.day) })).map((a) => ({ ...a, ask: auditCard(a.picks, a.granted) }));
 }
 
 /** request_decision arguments for an open audit's postAuditCard effect, and the address its tap goes to. */

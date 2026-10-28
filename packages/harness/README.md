@@ -166,8 +166,12 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   alone (`grantCovers`) only before the grant's end time, for a class it names, and for a one-way door only
   with the box; the answer still needs a reason, the confidence threshold and, for accept, `expectationsMet`.
   Outside the grant the ladder rule (`standInMayDecide`) applies as before. Which one decided is logged
-  (`authority`), and mission control's "Decided under your grant" lists every grant decision with its reason
-  and how to reverse it.
+  (`authority`). A decision made under the grant also reports itself (`DECIDED_UNDER_GRANT`, refused from
+  outside), and the harness keeps one compact row per decision in `state.json` (`context.granted`: address,
+  item, class, door, choice, confidence, reason, the grant's card, time). Live mission control declares
+  `context.grant` and `context.granted` in its needs file and shows "Decided under your grant": the grant
+  (kinds, the one-way box, until) and every row with its reason and how to reverse it. `harness page` and the
+  daily audit read the same list.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
   failed check `CHECKS_FAILED`, a merged PR `MERGED`, a PR closed unmerged `CANCEL`, each from actor github
