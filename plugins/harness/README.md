@@ -67,8 +67,11 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   as they are; a command that sets, exports, clears or passes `HARNESS_AGENT` or `HARNESS_CALL` itself is
   denied with the reason (`setsHarnessAgent`), from either. SubagentStart writes `{ sessionId, agentId,
   agentType, at }` to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json`, which
-  `harness verify-actors` checks, and binds the agent to the oldest spawn of its agent type the spawn gate
-  recorded for the session and the store took (`WORKER_STARTED`). Without `HARNESS_ENFORCE=1` the marker is
+  `harness verify-actors` checks, and binds the agent to the newest spawn of its agent type the spawn gate
+  recorded for the session and the store took, when that spawn is unbound (`WORKER_STARTED`). Its input names
+  the agent and its type but not the Agent call, so this is sound only because a session has at most one
+  unbound spawn of a type at a time (`oneUnboundSpawn`, below). Only a bind the store takes is written on the
+  spawn's call record; the result, taken or refused, is added to the agent's record as `bind`. Without `HARNESS_ENFORCE=1` the marker is
   read only for a command that would be changed or denied, so other Bash calls pay nothing.
 - **Gates** (`scripts/gates.js`, PreToolUse on Agent, Bash and `mcp__github__merge_pull_request`): the spec
   decides (spec workItem, Workers; harness `meta.invariants`), asked through the harness CLI
@@ -78,7 +81,12 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   the agent definition by content hash and plugin version, the harness version), which the machine takes or
   refuses (no verifier brief yet, an edited verifier brief, a role or agent type the item does not take now).
   A malformed or repeated role line, an item not in the store, or a `harness:builder` or `harness:verifier`
-  spawn without one is `roleLine`. A spawn with no role line is allowed and recorded nowhere: its agent can
+  spawn without one is `roleLine`. A second spawn of an agent type while the session's last one of that type,
+  on any item, still waits for its agent is refused and denied (`oneUnboundSpawn`): the reason names the
+  waiting spawn; wait for its agent to start, or, if it never will, close it with
+  `harness send '{"type":"SPAWN_CLOSED","toolUseId":"<id>"}' --to item:<id>`. A spawn left waiting lapses after
+  the bind window (5 minutes). Hooks of one message run at once, so a CLI run that finds the store's lock held
+  is run again. A spawn with no role line is allowed and recorded nowhere: its agent can
   send nothing, since an agent sends only what its role on the item allows (harness `meta.agentEvents`). The
   **merge gate** sees the MCP merge tool and does not parse shell to find a merge: a Bash call whose text names
   `merge` with `gh`, `curl`, `wget`, `api` or `graphql` (quotes removed, escapes decoded, any case) is denied

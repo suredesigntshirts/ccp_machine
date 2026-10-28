@@ -236,7 +236,7 @@ test('a spawn whose agent never started is closed by its session (SPAWN_CLOSED),
   const triager = (tool) => spawned('triager', { agentType: 'general-purpose', tool });
   assert.ok(!send(triager('toolu_ledger'), 'item:ledger', 1).refused);
   const close = (tool, by = lead) => ({ type: 'SPAWN_CLOSED', toolUseId: tool, ...by });
-  assert.match(send(close('toolu_ledger', agent('x')), 'item:ledger', 2).why, /unattested/, 'a subagent closes it');
+  assert.match(send(close('toolu_ledger', agent('x')), 'item:ledger', 2).why, /agentEvents/, 'a subagent closes it');
   assert.match(send(close('toolu_nope'), 'item:ledger', 2).why, /noSpawnToClose/, 'no such spawn');
   assert.match(send(close('toolu_ledger', as('session', 'other')), 'item:ledger', 2).why, /noSpawnToClose/, 'another session closes it');
   assert.ok(!send(close('toolu_ledger'), 'item:ledger', 2).refused, 'the spawning session closes it');
