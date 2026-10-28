@@ -109,7 +109,10 @@ const workers = {
   noSpawnToClose: (args) => !spawnToClose(args),
   verdictOverreaches: ({ context, event: e }) =>
     !VERDICT_KINDS.includes(e.verdict) || !HEX(40).test(String(e.sha ?? '')) || !Number.isInteger(e.review) || !isText(e.text) || context.verifierBrief == null || !e.text.trimEnd().endsWith(context.verifierBrief),
-  unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS'
+  unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS',
+  // verifying waits for both CI and the verdict on one head (#71). CI names its head by a short sha, a prefix of the verdict's.
+  awaitsVerdict: ({ context: c, event: e }) => c.verifierBrief != null && !(String(e.sha ?? '').length >= 7 && Object.keys(c.verdicts ?? {}).some((s) => s.startsWith(e.sha))),
+  awaitsChecks: ({ context: c, event: e }) => c.checksPassed == null || !e.sha.startsWith(c.checksPassed)
 };
 const workerActions = {
   recordVerifierBrief: assign({ verifierBrief: ({ event }) => event.sha256 }),
@@ -131,6 +134,7 @@ const workerActions = {
       return args.context.spawns.map((x) => (x === s ? { ...x, closed: args.event.receivedAt } : x));
     }
   }),
+  recordChecksPassed: assign({ checksPassed: ({ event }) => String(event.sha ?? '') }),
   recordVerdict: assign({ verdicts: ({ context, event: e }) => ({ ...context.verdicts, [e.sha]: { verdict: e.verdict, review: e.review, by: e.actor.id, at: e.receivedAt } }) })
 };
 
@@ -340,7 +344,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       recordTriage: assign(({ context, event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {}, triagers: asSession(context.triagers, event.actor) })),
       recordCheck: assign(({ context, event: e }) => ({ checks: { ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }, checkers: asSession(context.checkers, e.actor) })),
       recordAnswerer: assign({ answerers: ({ context, event }) => [...new Set([...(context.answerers ?? []), event.by])] }),
-      clearChecks: assign({ checks: {} }),
+      clearChecks: assign({ checks: {}, checksPassed: null }),
       recordExpectations: assign((_, params) => ({ expectationsMet: params.met })),
       recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
       recordWorker: assign({ workers: ({ context, event }) => [...new Set([...(context.workers ?? []), event.actor?.id].filter(Boolean))] }),

@@ -50,8 +50,9 @@ function acceptDecidedUnderGrant(store) {
   assert.equal(asks(store, 'accept').length, 1, 'one accept decision, asked once: nothing reopened it');
   assert.equal(store.read().snapshot.children.x.snapshot.context.expectationsMet, true, 'the verifier\'s checks counted');
   ok(apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.85, reason: 'every criterion met' } }, { to: `item:x/${ask.subject}`, now: at(20) }), 'accept');
-  const accept = item(store).decisions.find((d) => d.decisionClass === 'accept');
-  assert.deepEqual([accept.state, accept.decidedBy, accept.authority], ['decided', 'stand-in', 'grant']);
+  // A decided decision leaves the item; the grant's row is the record the person reviews.
+  const row = store.read().snapshot.context.granted.find((g) => g.decisionClass === 'accept');
+  assert.deepEqual([row?.address, row?.choice], [`item:x/${ask.subject}`, 'approve'], 'decided by the stand-in under the grant');
   assert.equal(item(store).state, 'active.awaitingMergeDecision');
   assert.equal(store.events().filter((e) => e.event.type === 'PERSON_DECIDED').length, 0, 'no person tapped');
   assert.equal(store.outbox().filter((e) => e.name === 'postDecisionCard').length, 0, 'no card was asked for');
