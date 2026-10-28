@@ -152,10 +152,12 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
     }
     const snap = target.getSnapshot();
     // The machine is the only judge of what an event may do: one it would not take changes nothing. The reason
-    // names the guard of the refusing transition, when one refused it.
-    if (snap.status !== 'active' || !snap.can(event)) {
+    // names the guard of the refusing transition, when one refused it. A record transition takes its event in any
+    // state, a final one included, and does nothing (harness meta.store records).
+    const record = snap.status !== 'error' && !!snap.machine.getTransitionData(snap, event)?.some((t) => t.record === true);
+    if (!record && (snap.status !== 'active' || !snap.can(event))) {
       actor.stop();
-      const guard = snap.status === 'active' && refusingGuard(snap, event);
+      const guard = snap.status !== 'error' && refusingGuard(snap, event);
       // rule: machine
       return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}${guard ? ` (${guard})` : ''}`, effects: [] };
     }
@@ -177,7 +179,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
       return { version: state.version, wouldTake: true, effects: [] };
     }
     collecting = true;
-    target.send(event);
+    if (snap.status === 'active') target.send(event); // a finished actor takes only a record, which does nothing
     collecting = false;
     const snapshot = actor.getPersistedSnapshot();
     actor.stop();

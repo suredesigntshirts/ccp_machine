@@ -87,7 +87,7 @@
     }
   },
   "events": {
-    "description": "Every event type the history holds, with its current version and the payload fields it needs to mean anything (a weak schema: the rest are optional, because eras differ). Every type the machines take is here, and OUT_OF_BAND records work done outside the gates. A version above 1 needs a declared conversion from each earlier one.",
+    "description": "Every event type the history holds, with its current version and the payload fields it needs to mean anything (a weak schema: the rest are optional, because eras differ). Every type the machines take is here; OUT_OF_BAND, which records work done outside the gates, the item takes as a fact. A version above 1 needs a declared conversion from each earlier one.",
     "types": {
       "AUDIT_ANSWERED": { "v": 1 },
       "AUDIT_PICKED": { "v": 1 },
@@ -135,8 +135,8 @@
       "WRAP_UP": { "v": 1 },
       "OUT_OF_BAND": {
         "v": 1,
-        "required": ["orderedBy", "message", "what", "skipped"],
-        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. A landing names its PR (pr) and the head that landed (sha). harness doctor lists every one, and does not count a landing one records as a problem (harness meta.invariants reviewOnHead). An order given by no chat message (a button pressed on GitHub) holds a legacy placeholder in message.",
+        "required": ["orderedBy", "message", "what", "skipped", "pr"],
+        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done, which gates or states were skipped and the PR it touched (pr). A landing also names the head that landed (sha). A session sends it to the item with harness send, in any state of the item, done and cancelled included: the item takes it as a fact (workItem on.OUT_OF_BAND, harness meta.store records), its state unchanged. harness doctor lists every one, and does not count a landing one records as a problem (harness meta.invariants reviewOnHead). An order given by no chat message (a button pressed on GitHub) holds a legacy placeholder in message.",
         "schema": {
           "type": "object",
           "properties": {

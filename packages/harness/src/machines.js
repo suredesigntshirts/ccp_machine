@@ -4,6 +4,7 @@
 // to the person, it belongs in the JSON where it is visible and checked.
 import { readFileSync } from 'node:fs';
 import { setup, assign, enqueueActions } from 'xstate';
+import { eventProblems } from './history.js';
 
 const load = (name) =>
   JSON.parse(readFileSync(new URL(`../spec/${name}.machine.json`, import.meta.url), 'utf8'));
@@ -328,6 +329,8 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     actors: { decision: decisionMachine },
     guards: {
       ...provenance,
+      // The payload, less the envelope, does not hold what history.schema.json declares for its type.
+      unrecordable: ({ event: { actor, source, relayedBy, receivedAt, ...payload } }) => eventProblems(payload).length > 0,
       ...workers,
       holdsAnotherRole,
       reportedByOrchestrator: ({ context, event }) => !context.orchestrator || event.actor?.id === context.orchestrator,
