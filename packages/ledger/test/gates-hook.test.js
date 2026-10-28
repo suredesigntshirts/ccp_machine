@@ -178,7 +178,7 @@ test('merge gate (third review): a command naming a merge and gh, curl, wget, ap
       .map((p) => `gh api -X PUT ${p} -f sha=${HEAD}`),
     `gh api --method PUT repos/o/r/pulls/7/merge -f sha=${HEAD}`, `gh api -X PUT repos/o/r/pulls/7/merge -f sha=${HEAD} --input body.json`,
     `curl -X PUT https://api.github.com/repos/o/r/pulls/7/merge -d '{"sha":"${HEAD}"}'`, `wget --method=PUT https://api.github.com/repos/o/r/pulls/7/mer%67e`,
-    "gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", 'gh api repos/o/r/pulls/7/merge', 'gh pr view 7 --json mergeable'
+    "gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", 'gh api repos/o/r/pulls/7/merge'
   ];
   for (const c of notGated) {
     const o = hook(s, bashInput(c), enforce);
@@ -247,6 +247,40 @@ test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite);
     'gh pr create --title x --body y', 'gh api -X POST repos/o/r/issues/7/comments -f body=hi', 'curl -s https://api.github.com/repos/o/r',
     'git merge main', 'echo pr merge', 'gh --version'
   ]) assert.equal(hook(s, bashInput(c), enforce), null, c);
+});
+
+test('#64: the word merge in arguments, strings, jq filters or heredoc text is no merge; a merge, or one hidden where the gate cannot read, is still denied', () => {
+  const s = scratch();
+  const pin = `--match-head-commit ${HEAD}`;
+  // The three calls denied on 28 Oct, and the same word in other data positions: none of them merges.
+  for (const c of [
+    "gh api repos/suredesigntshirts/ccp_machine/pulls/60 --jq '{merged,merged_at}'",
+    "cat > packages/ledger/test/fixture.js <<'EOF'\n// Once PR 60 is merged, gh api reports merged: true and merged_at.\n// A fixture: nothing here runs.\nexport const pr = { merged: true };\nEOF",
+    'harness answer --reason "Approved: the plan holds once #62 is merged; gh shows it green"',
+    'HARNESS_DIR=/s node /h/packages/harness/bin/harness.js answer --reason "ok to merge once #62 lands; gh api shows it"',
+    "gh api repos/o/r/pulls/7 --jq '.merged'", 'gh pr view 7 --json mergeable,mergedAt', 'gh pr comment 7 --body "ready to merge once CI is green"',
+    'echo "gh pr merge needs the verifier\'s PASS"', "printf '%s\\n' 'merge after review, gh says' 2>&1 | jq -R .",
+    "cat <<EOF 2>/dev/null\nWe merge with gh pr merge after the PASS.\nEOF", 'gh issue create --title "gate reads merge as a word" --body "gh api ... merge"',
+    'curl -s https://api.github.com/repos/o/r/pulls/7 | jq .merged'
+  ]) {
+    const o = hook(s, bashInput(c), enforce);
+    assert.equal(o, null, `${c}: ${JSON.stringify(o)}`);
+  }
+  // Every merge form the gate takes today is still gated: exactly a gated form is judged by harness merge-gate (here
+  // the PR is bound to no item), any other merge denied (the third review's list above).
+  for (const c of [`gh pr merge 7 --repo o/r ${pin}`, `gh api -X PUT repos/o/r/pulls/7/merge -f sha=${HEAD}`])
+    denied(hook(s, bashInput(c), enforce), 'mergeBound', null, c);
+  denied(hook(s, mcpInput({ owner: 'o', repo: 'r', pullNumber: 7, expectedHeadSha: HEAD }), enforce), 'mergeBound', null, 'the MCP merge tool');
+  // A merge hidden behind eval, sh -c, a variable, a heredoc or a script file is denied: the gate denies what it cannot read.
+  for (const c of [
+    `eval "gh pr merge 7 --repo o/r ${pin}"`, `sh -c 'gh pr merge 7 --repo o/r ${pin}'`, `M=merge; gh pr $M 7 --repo o/r ${pin}`,
+    `echo 'gh pr merge 7 --repo o/r ${pin}' > m.sh; bash m.sh`, `echo 'gh pr merge 7 --repo o/r ${pin}' >> m.sh`, `printf 'gh pr merge 7' | tee m.sh`,
+    `cat > m.sh <<'EOF'\ngh pr merge 7 --repo o/r ${pin}\nEOF`,`cat > m.sh <<'EOF'\ngh pr merge 7 --repo o/r ${pin}\nEOF\nchmod +x m.sh && ./m.sh`,
+    `bash <<'EOF'\ngh pr merge 7 --repo o/r ${pin}\nEOF`, `cat <<EOF\n$(gh pr merge 7 --repo o/r ${pin})\nEOF`, `cat <<'EOF'; gh pr merge 7 --repo o/r ${pin}\nbody\nEOF`,
+    `node -e "require('child_process').execSync('gh pr merge 7 --repo o/r ${pin}')"`, `echo "gh api -X PUT repos/o/r/pulls/7/merge" | sh`,
+    `gh api -X POST repos/o/r/merges -f base=main -f head=feat`, "gh alias set m 'pr merge'", `gh pr -R o/r merge 7 ${pin}`, `gh pr view 7 && gh pr merge 7 --repo o/r ${pin}`,
+    "node -e \"fetch('https://api.github.com/graphql', {method: 'POST', body: 'mutation { enablePullRequestAutoMerge }'})\""
+  ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c);
 });
 
 test('without HARNESS_ENFORCE nothing is denied: the gates only record', () => {
