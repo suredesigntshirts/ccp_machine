@@ -59,6 +59,9 @@ export class Host {
     return reason ? { ok: false, reason } : { ok: true, ...this.#apply({ seq: this.journal.length, ...input }) };
   }
 
+  // Why an input cannot be taken, or null. An input is the start, a run's completion or error (only from a
+  // run in flight, and a completion only with output its actor's schema allows), a timer that is set, or an
+  // event the spec takes from outside (with a payload its schema allows); and the machine must take it now.
   #refusal({ event, run }) {
     const { meta } = this.#spec;
     const { type, ...payload } = event ?? {};
@@ -68,16 +71,13 @@ export class Host {
     if (this.done) return 'the item is done';
     if (type.startsWith(DONE) || type.startsWith(ERROR)) {
       const open = this.#runs.get(run);
-      if (!open || !type.endsWith(`.${open.id}`)) return `run ${run} is not in flight for ${type}`;
-      if (type.startsWith(DONE)) {
-        const bad = problems(meta.actors[open.actor], event.output);
-        if (bad) return `${open.actor} output: ${bad}`;
-      }
+      if (!open || ![DONE + open.id, ERROR + open.id].includes(type)) return `run ${run} is not in flight for ${type}`;
+      const bad = type.startsWith(DONE) && problems(meta.actors[open.actor], event.output);
+      if (bad) return `${open.actor} output: ${bad}`;
     } else if (type.startsWith(AFTER)) {
       if (!this.#timers.has(type)) return `no timer ${type} is set`;
-    } else if (!meta.events[type]) {
-      return `${type} is not an event this machine takes from outside`;
     } else {
+      if (!meta.events[type]) return `${type} is not an event this machine takes from outside`;
       const bad = problems(meta.events[type], payload);
       if (bad) return `${type}: ${bad}`;
     }
