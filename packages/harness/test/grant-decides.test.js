@@ -103,6 +103,30 @@ test('an answer logged before the rule was loosened keeps the threshold, so an o
   assert.equal(decision(s2, late).state, 'awaitingPerson', 'routed as dogfood2 logged it');
 });
 
+test('an answer an older release routed to the person after the cutoff replays as it was routed (#67)', () => {
+  // #67: code from before #60 kept writing after thresholdBefore, and sent an answer at 0.88 under a stop-asking grant to
+  // the person: its logged effects post the person's card. Write it as that release did, after the cutoff.
+  const late = new Date(Date.parse(specs.decision.states.routing.always[0].guard.params.thresholdBefore) + 6e5).toISOString();
+  const store = fresh(late);
+  grant(store, STOP_ASKING, late);
+  const plan = itemAtPlan(store, 'late', 2, late);
+  const asLogged = { matches: (effects) => effects.some((e) => e.name === 'postDecisionCard') };
+  const r = apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.88, reason: 'looks right' } }, { to: plan, now: late, fact: asLogged });
+  assert.deepEqual(r.route, { 'decision.routing:always.0': false }, 'today the grant decides it; the logged route is the person');
+  assert.equal(decision(store, plan).state, 'awaitingPerson', 'routed as the older release logged it');
+  // Replay takes the route the log holds, whatever the cutoff, and lists the event with the release that wrote it.
+  const rp = replay(store);
+  assert.deepEqual([rp.ok, rp.firstDivergence, rp.differences], [true, null, []]);
+  assert.deepEqual(rp.admittedThen.map((a) => [a.type, a.why]), [['STAND_IN_ANSWERED', 'routed otherwise today (decision.routing:always.0 passed over)']]);
+  // Today's rule decides the same answer under the grant.
+  const now = fresh(late);
+  grant(now, STOP_ASKING, late);
+  const today = itemAtPlan(now, 'today', 2, late);
+  answer(now, today, late, { confidence: 0.88 });
+  assert.equal(status(now).items.find((i) => i.id === 'today').state, 'active.building');
+  assert.equal(granted(now).length, 1);
+});
+
 test('a decision waiting on the person goes back to the stand-in when the live grant covers it, and is decided', () => {
   const store = fresh();
   // Answered before any grant: the person's card is up.
