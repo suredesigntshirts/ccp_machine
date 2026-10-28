@@ -486,7 +486,7 @@
           ]
         },
         "building": {
-          "description": "A worker thread builds on its own branch and opens a PR. Every build starts with no criterion checked: a check of an earlier build is not evidence for this one.",
+          "description": "A worker thread builds on its own branch and opens a PR. Every build starts with no criterion checked: a check of an earlier build is not evidence for this one. A FAIL verdict in verifying comes back here too, and the item's worker reports the next round's run.",
           "entry": [
             {
               "type": "clearChecks"
@@ -626,7 +626,7 @@
           }
         },
         "verifying": {
-          "description": "CI, spec checks and a reviewer run against the acceptance criteria. The reviewer sends one CRITERION_CHECKED {criterion, verdict, evidence} per criterion; the latest verdict for a criterion counts. The item leaves verifying only when both CI has passed and the verifier's verdict is recorded for the same head, in whichever order they arrive: CI that passes first while the item has a verifier brief and no verdict on CI's head (awaitsVerdict; CI's sha is a prefix of the verdict's) is kept (recordChecksPassed: checksPassed, its head) and the item stays for the verdict; a verdict that comes before CI passed on its head (awaitsChecks) is recorded and the item stays for CI. The other half arriving moves it to acceptGate. Why this and not checks after CI: the accept decision then opens once, with the verifier's checks already counted in expectationsMet, so the stand-in is asked one question and can decide it under the grant; a check that arrived after CI would have reopened the decision with a new ask (issue #71). The verifier sends its criterion checks before its verdict, which ends verifying. An item with no verifier brief fixed can be given no verdict (verdictOverreaches), so its CI does not wait for one. A new build clears checksPassed with the checks.",
+          "description": "CI, spec checks and a reviewer run against the acceptance criteria. The reviewer sends one CRITERION_CHECKED {criterion, verdict, evidence} per criterion; the latest verdict for a criterion counts. The item leaves verifying only when both CI has passed and the verifier's verdict is recorded for the same head, in whichever order they arrive: CI that passes first while the item has a verifier brief and no verdict on CI's head (awaitsVerdict; CI's sha is a prefix of the verdict's) is kept (recordChecksPassed: checksPassed, its head) and the item stays for the verdict; a verdict that comes before CI passed on its head (awaitsChecks) is recorded and the item stays for CI. The other half arriving moves it to acceptGate. Why this and not checks after CI: the accept decision then opens once, with the verifier's checks already counted in expectationsMet, so the stand-in is asked one question and can decide it under the grant; a check that arrived after CI would have reopened the decision with a new ask (issue #71). The verifier sends its criterion checks before its verdict, which ends verifying. A FAIL verdict (verdictIs FAIL) ends the round instead, CI or not: the item goes back to building with its tier, criteria, roles, workers and verifier brief hash, so the same builder reports the fixed head (RUN_SUCCEEDED), building's entry clears the round's checks and CI head, and a verifier spawned for the new head carries the brief fixed before the first round (issue #83). An item with no verifier brief fixed can be given no verdict (verdictOverreaches), so its CI does not wait for one. A new build clears checksPassed with the checks.",
           "entry": [
             {
               "type": "dispatchRun",
@@ -788,6 +788,20 @@
                   "type": "verdictOverreaches"
                 },
                 "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
+              },
+              {
+                "guard": {
+                  "type": "verdictIs",
+                  "params": {
+                    "verdict": "FAIL"
+                  }
+                },
+                "target": "building",
+                "actions": [
+                  {
+                    "type": "recordVerdict"
+                  }
+                ]
               },
               {
                 "guard": {
