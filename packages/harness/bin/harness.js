@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
-import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody } from '../src/index.js';
+import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody, renderLivePage } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -125,11 +125,14 @@ const HELP = `harness <command> [options]
   replay                         rebuild the harness from events.jsonl on a scratch copy and compare state
                                  and effects with the store; exits 1 on a difference. It re-applies github
                                  refs as logged without reading GitHub: verify-facts re-checks them
-  doctor                         check the store (version gaps, unknown acks, effects pending over a day,
+  doctor [--refreshes PATH]      check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore), verify-actors,
                                  verify-facts, and every merged PR of an item: the store's verifier PASS on
-                                 its merge head and a PASS review on GitHub on that sha; exits 1 on a problem. GitHub unreachable or a ledger not filed
-                                 for a session's event under 10 minutes old is listed as unverifiable, exit 0
+                                 its merge head and a PASS review on GitHub on that sha; exits 1 on a problem.
+                                 GitHub unreachable or a ledger not filed for a session's event under 10
+                                 minutes old is listed as unverifiable, exit 0.
+                                 --refreshes: a page's refresh rows (ArtifactData out_dir or list text);
+                                 each one slower than the spec's refreshSlowMs is a warning
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also
                                  rebuilds a state.json that is ahead of events.jsonl; exits 1 if any is left.
                                  It re-applies github refs as logged: verify-facts re-checks them
@@ -143,6 +146,13 @@ const HELP = `harness <command> [options]
                                  one page per item beside it (items/<id>.html), linked from its row,
                                  and the decision log (decisions.html);
                                  publish those as the Artifact's supporting files
+  page --live [--project chan_...] [--files-path P] [--html FILE]
+                                 render live mission control (default .harness/mission-control-live.html):
+                                 only the fields pages/mission-control/needs.json declares from state.json,
+                                 its age, and a Refresh button that rereads <P>/state.json through the
+                                 Artifact files capability and times each refresh into db; publish with
+                                 capabilities {files: {project}, db: {}}. A store outside the needs
+                                 schemaVersion range shows a red banner and no data
 
   --actor KIND:ID, --source KIND:REF
                                  who sent the event (person, session, agent, github, timer) and where it came
@@ -189,6 +199,10 @@ try {
       check: { type: 'boolean', default: false },
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
+      live: { type: 'boolean', default: false },
+      project: { type: 'string' },
+      'files-path': { type: 'string' },
+      refreshes: { type: 'string' },
       out: { type: 'string' },
       now: { type: 'string' },
       approve: { type: 'boolean', default: false },
@@ -498,7 +512,7 @@ try {
       break;
     }
     case 'doctor': {
-      const report = await doctor(store);
+      const report = await doctor(store, o.refreshes ? { refreshes: readRows(o.refreshes) } : {});
       print(report);
       if (!report.ok) process.exitCode = 1;
       break;
@@ -519,6 +533,16 @@ try {
       break;
     }
     case 'page': {
+      if (o.live) {
+        // The live page: the store's state.json, only the fields pages/<page>/needs.json declares, and a refresh button.
+        const state = store.read();
+        if (!state) throw new Error(`no harness in ${o.dir}`);
+        const file = o.html ?? `${o.dir}/mission-control-live.html`;
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, renderLivePage(state, { project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
+        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: `${o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : ''}state.json` });
+        break;
+      }
       const st = status(store);
       if (!st) throw new Error(`no harness in ${o.dir}`);
       const file = o.html ?? `${o.dir}/mission-control.html`;

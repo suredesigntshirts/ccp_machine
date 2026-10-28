@@ -11,6 +11,7 @@ import { untestedRuns, UNTESTED_WARN } from './audit.js';
 import { verifyActors, verifyActorsText } from './verify-actors.js';
 import { verifyFacts, verifyFactsText } from './verify-facts.js';
 import { verifyMerges, verifyMergesText } from './gates.js';
+import { slowRefreshes, slowRefreshText } from './pages.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
@@ -19,11 +20,13 @@ const LEDGER_GRACE_MS = 10 * 60_000;
 
 /**
  * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers`,
- * verify-facts with `fetcher`, and every merged PR of an item against its verifier's PASS (gates.js verifyMerges). Problems make the store unsafe to build on (`ok` false); unverifiable and warnings
+ * verify-facts with `fetcher`, and every merged PR of an item against its verifier's PASS (gates.js verifyMerges).
+ * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
+ * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable and warnings
  * (an untested class) leave `ok` true.
  * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], checked: object}>}
  */
-export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, ledgers, fetcher, verify = true } = {}) {
+export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, ledgers, fetcher, verify = true, refreshes } = {}) {
   const problems = [];
   const events = store.events();
   // The first event is version 2 (init writes version 1 with no event).
@@ -53,9 +56,12 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
     if (r.firstDivergence) problems.push(`replay diverges at ${r.firstDivergence}`);
     for (const d of r.differences) problems.push(`replay: ${d}`);
   }
-  const warnings = untestedRuns(readDecisionLog(store)).map(
-    (w) => `${w.decisionClass}: ${w.untested} stand-in decisions in a row with none checked by the person (over ${UNTESTED_WARN}); run harness audit`
-  );
+  const warnings = [
+    ...untestedRuns(readDecisionLog(store)).map(
+      (w) => `${w.decisionClass}: ${w.untested} stand-in decisions in a row with none checked by the person (over ${UNTESTED_WARN}); run harness audit`
+    ),
+    ...(refreshes ? slowRefreshes(refreshes).map((r) => slowRefreshText(r)) : [])
+  ];
   const unverifiable = [];
   const actors = verify ? verifyActors(store, ledgers ? { dir: ledgers } : {}) : [];
   const facts = verify ? await verifyFacts(store, fetcher ? { fetcher } : {}) : [];

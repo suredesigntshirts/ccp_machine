@@ -86,6 +86,10 @@ export function renderSpec() {
     const invariants = Object.entries(config.meta?.invariants ?? {});
     if (invariants.length)
       out.push('Host invariants (refused or denied outside the machines; every such site in the code names one of these or a guard):', '', ...invariants.map(([k, v]) => `- \`${k}\`: ${v}`), '');
+    // The store layout pages read (meta.store) and how pages refresh (meta.pages).
+    if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
+    if (config.meta?.pages)
+      out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
     out.push('```mermaid', diagram(config), '```', '');
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');
