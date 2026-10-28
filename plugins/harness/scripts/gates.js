@@ -11,9 +11,12 @@
 //   (roleLine). SubagentStart (agent-actor.js) binds the started agent to the spawn.
 // - Merge: the PR must be bound to an item (mergeBound), the call must pin the head sha (pinnedHead), the item's
 //   machine must take MERGED of that head (its verifier's PASS), and the PR must carry the PASS as a review on that
-//   sha (reviewOnHead): `harness merge-gate` answers. A Bash call is not parsed to find a merge: one whose text names
-//   'merge' with gh, curl, wget, api or graphql is denied unless it is exactly one of the gated forms (GATED_FORMS),
-//   which alone are read and judged. Any other Bash call is read for GitHub writes the gate cannot read (a gh command,
+//   sha (reviewOnHead): `harness merge-gate` answers. A Bash call is read into the simple commands it runs (commands):
+//   gh pr merge, or gh naming a merge endpoint, merges (merges); the words of gh and of data-only programs are data
+//   (isData), so 'merge' in their arguments, strings or heredoc text is none. A call that runs anything else is text
+//   the gate cannot read, and its text naming the word merge with gh, curl, wget, api or graphql counts as a merge
+//   (namesMerge). A merge is denied unless it is exactly one of the gated forms (GATED_FORMS), which alone are
+//   judged. Any other Bash call is read for GitHub writes the gate cannot read (a gh command,
 //   method or path built from a variable, a gh alias or extension, a GraphQL mutation or unreadable document, a curl
 //   or wget write built from a variable or to GraphQL), which are denied (readableGitHubWrite).
 // Each gated call is recorded at $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/<tool_use_id>.json with what
@@ -36,6 +39,13 @@ const WRITE_WORDS = new Set(['api', 'pr', 'graphql', 'merge', '-X', '--method', 
 // The only Bash merges the gate judges (spec harness meta.invariants readableGitHubWrite): one simple command each.
 const GATED_FORMS = 'one simple command, exactly `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` (with only --squash, --merge, --rebase, --delete-branch, --subject or --body beside it) or `gh api -X PUT repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>` (with only -f merge_method, commit_title or commit_message beside it); or the GitHub MCP merge tool with expectedHeadSha';
 const COMPOUND = /[;&|<>(){}$`\\\n\r]/;
+// A GitHub merge endpoint in a word, lower-cased: REST (pulls/<n>/merge, merges, merge-upstream) or GraphQL.
+const MERGE_ENDPOINT = /\/merges?(?:[/?#]|$)|\/merge-upstream|mergepullrequest|mergebranch|automerge/;
+// The word merge in text: also merges and compounds (merge_method, merge-upstream, mergePullRequest), not merged,
+// mergeable or merger.
+const MERGE_WORD = /[mM][eE][rR][gG][eE](?![a-rt-z])/;
+// Programs whose words are data to the gate (see isData).
+const DATA = new Set(['gh', 'echo', 'printf', 'cat', 'jq', 'harness']);
 // Percent-escapes decoded until none is left, so an escaped word reads as itself.
 const decodePct = (t) => { let prev; do { prev = t; t = t.replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))); } while (t !== prev); return t; };
 const answer = (out) => process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
@@ -115,9 +125,11 @@ function mergeCall(input) {
   if (input.tool_name === 'mcp__github__merge_pull_request')
     found = [{ pr: t.owner && t.repo && t.pullNumber != null ? `${t.owner}/${t.repo}#${t.pullNumber}` : '', sha: t.expectedHeadSha ?? null }];
   else if (input.tool_name === 'Bash' && typeof t.command === 'string') {
-    const tool = namesMerge(t.command);
-    found = tool ? [gatedMerge(t.command) ?? { unread: `this command names a merge with ${tool}, and the only Bash merges the gate takes are the gated forms` }]
-      : commands(t.command).map(githubWrite).filter(Boolean);
+    const cmds = commands(t.command);
+    const merge = cmds.find(merges);
+    const tool = !merge && cmds.some((c) => !isData(c)) && namesMerge(t.command);
+    found = merge || tool ? [gatedMerge(t.command) ?? { unread: merge ? 'this command merges, and the only Bash merges the gate takes are the gated forms' : `this command runs ${cmds.find((c) => !isData(c)).prog ?? 'a program built from a variable'} (text the gate cannot read, or a file write) and names a merge with ${tool}` }]
+      : cmds.map(githubWrite).filter(Boolean);
   } else return null;
   if (!found.length) return null;
   return {
@@ -137,11 +149,30 @@ function mergeCall(input) {
   };
 }
 
-// The GitHub tool a command names together with 'merge' (quotes and backslashes removed, escapes decoded, any case), or
-// null: such a command is judged only when it is exactly a gated form.
+// A simple command that merges: gh pr with the word merge, or gh naming a merge endpoint in any word, by any method.
+function merges({ prog, args }) {
+  if (prog !== 'gh') return false;
+  const words = args.map((a) => decodePct(a.text).toLowerCase());
+  return (words[0] === 'pr' && words.includes('merge')) || words.some((w) => MERGE_ENDPOINT.test(w));
+}
+
+// A simple command whose words are data: gh (read by merges and githubWrite) or a data-only program, named without a
+// path, writing no file. Anything else may run text the gate cannot read.
+function isData({ prog, word, args }) {
+  const harness = prog === 'node' && /(^|\/)bin\/harness\.js$/.test(args[0]?.text ?? '') && !args[0].dyn;
+  if (!harness && (!DATA.has(prog) || word !== prog)) return false;
+  if (prog === 'gh' && ['alias', 'extension'].includes(args[0]?.text)) return false; // its words are run later
+  return !args.some((a, i) => {
+    const r = /^(?:\d*|&)>>?(.*)$/.exec(a.text);
+    return r && !/^(?:&\d+|&-|\/dev\/(?:null|stdout|stderr))$/.test(r[1] || args[i + 1]?.text || '');
+  });
+}
+
+// The GitHub tool a command's text names together with the word merge (quotes and backslashes removed, escapes
+// decoded; merged, mergeable and merger are not the word), or null. Read only when the call runs what the gate cannot read.
 function namesMerge(text) {
-  const plain = decodePct(text.replace(/['"\\]/g, '')).toLowerCase();
-  return plain.includes('merge') ? /gh|curl|wget|api|graphql/.exec(plain)?.[0] ?? null : null;
+  const plain = decodePct(text.replace(/['"\\]/g, ''));
+  return MERGE_WORD.test(plain) ? /gh|curl|wget|api|graphql/.exec(plain.toLowerCase())?.[0] ?? null : null;
 }
 
 // { pr, sha } when the whole command is exactly one gated form (GATED_FORMS), else null. Words may be quoted, but
@@ -191,13 +222,44 @@ function gatedMerge(text) {
 // The simple commands a Bash command runs, each a list of words { text (quotes removed), dyn (it holds a $ or a
 // backtick outside single quotes, so the shell builds it) }. Lists, pipelines and subshells are split; the bodies of
 // $(...) and backticks, and sh -c and eval strings, are read as commands of their own; env, command, exec, nohup,
-// time, nice, timeout, sudo and xargs are looked through to the program they run.
+// time, nice, timeout, sudo and xargs are looked through to the program they run (and listed as programs too); a
+// heredoc's body is input, not commands.
 function commands(text, depth = 0) {
   const out = [], nested = [];
   let words = [], w = null, q = null;
   const push = () => { if (w) words.push(w); w = null; };
   const end = () => { push(); if (words.length) out.push(words); words = []; };
   const add = (c, dyn = false) => { w ??= { text: '', dyn: false }; w.text += c; if (dyn) w.dyn = true; };
+  // A heredoc (<<word, <<-word): its delimiter is read here, and its body, from the next line, is input, not commands;
+  // a body the shell expands (a $ or backtick under an unquoted delimiter) is text the gate cannot read.
+  const docs = [];
+  const heredoc = (j) => {
+    push();
+    const doc = { delim: '', quoted: false, strip: text[j] === '-' };
+    if (doc.strip) j++;
+    while (text[j] === ' ' || text[j] === '\t') j++;
+    for (; j < text.length && !/[\s;&|<>()]/.test(text[j]); j++) {
+      if (text[j] === "'" || text[j] === '"') { const k = text.indexOf(text[j], j + 1); doc.quoted = true; doc.delim += text.slice(j + 1, k < 0 ? text.length : k); j = k < 0 ? text.length : k; }
+      else if (text[j] === '\\') { doc.quoted = true; doc.delim += text[++j] ?? ''; }
+      else doc.delim += text[j];
+    }
+    docs.push(doc);
+    return j;
+  };
+  const bodies = (p) => {
+    for (const doc of docs.splice(0)) {
+      const body = [];
+      while (p < text.length) {
+        const nl = text.indexOf('\n', p);
+        const line = text.slice(p, nl < 0 ? text.length : nl);
+        p = nl < 0 ? text.length : nl + 1;
+        if ((doc.strip ? line.replace(/^\t+/, '') : line) === doc.delim) break;
+        body.push(line);
+      }
+      if (!doc.quoted && /[$`]/.test(body.join('\n'))) nested.push({ prog: null, word: null, dyn: true, args: [] });
+    }
+    return p;
+  };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q === "'") { if (c === "'") q = null; else add(c); continue; }
@@ -214,6 +276,9 @@ function commands(text, depth = 0) {
       continue;
     }
     if (c === '$') { add(c, true); continue; }
+    if (!q && c === '<' && text[i + 1] === '<' && text[i + 2] !== '<') { i = heredoc(i + 2) - 1; continue; }
+    if (!q && c === '\n' && docs.length) { end(); i = bodies(i + 1) - 1; continue; }
+    if (!q && c === '&' && /[<>]/.test(text[i - 1] + text[i + 1])) { add(c); continue; } // 2>&1, &>file: a redirect, not a list
     if (!q && /[;&|\n()]/.test(c)) { end(); continue; }
     if (!q && /\s/.test(c)) { push(); continue; }
     add(c);
@@ -226,18 +291,21 @@ function commands(text, depth = 0) {
 // sh -c or eval string.
 function run(ws, depth) {
   let i = 0;
+  const seen = []; // each wrapper, shell or eval looked through is a program too, whose words are not data (isData)
+  const out = (r) => [...seen.map((prog) => ({ prog, word: null, dyn: false, args: [] })), ...r];
   const skipFlags = (valued = new Set()) => { while (i < ws.length && /^-/.test(ws[i].text)) { if (valued.has(ws[i].text)) i++; i++; } };
   for (;;) {
     while (i < ws.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text)) i++;
     const p = ws[i]?.text.split('/').pop();
-    if (p === undefined) return [];
-    if (ws[i].dyn) return [{ prog: null, dyn: true, args: ws.slice(i + 1) }];
+    if (p === undefined) return out([]);
+    if (ws[i].dyn) return out([{ prog: null, dyn: true, args: ws.slice(i + 1) }]);
+    seen.push(p);
     if (p === 'env') {
       i++;
       skipFlags(new Set(['-u', '--unset', '-C', '--chdir']));
       if (!/^(-S|--split-string)/.test(ws[i - 1]?.text ?? '')) continue;
       const rest = ws.slice(i); // env -S: the rest is one command line, split by env
-      return rest.some((x) => x.dyn) ? [{ prog: null, dyn: true, args: rest }] : depth < 8 ? commands(rest.map((x) => x.text).join(' '), depth + 1) : [];
+      return out(rest.some((x) => x.dyn) ? [{ prog: null, dyn: true, args: rest }] : depth < 8 ? commands(rest.map((x) => x.text).join(' '), depth + 1) : []);
     }
     if (['command', 'exec', 'nohup', 'time', 'sudo', 'builtin'].includes(p)) { i++; skipFlags(new Set(['-u', '-g'])); continue; }
     if (p === 'nice') { i++; skipFlags(new Set(['-n'])); continue; }
@@ -245,14 +313,15 @@ function run(ws, depth) {
     if (p === 'xargs') { i++; skipFlags(new Set(['-n', '-I', '-P', '-L', '-d', '-a', '-s', '-E'])); continue; }
     if (['sh', 'bash', 'zsh', 'dash', 'ksh'].includes(p)) {
       const c = ws.findIndex((x, k) => k > i && /^-[a-z]*c[a-z]*$/.test(x.text));
-      if (c < 0 || !ws[c + 1]) return [];
-      return ws[c + 1].dyn ? [{ prog: null, dyn: true, args: ws.slice(c + 1) }] : depth < 8 ? commands(ws[c + 1].text, depth + 1) : [];
+      if (c < 0 || !ws[c + 1]) return out([]);
+      return out(ws[c + 1].dyn ? [{ prog: null, dyn: true, args: ws.slice(c + 1) }] : depth < 8 ? commands(ws[c + 1].text, depth + 1) : []);
     }
     if (p === 'eval') {
       const rest = ws.slice(i + 1);
-      return rest.some((x) => x.dyn) ? [{ prog: null, dyn: true, args: rest }] : depth < 8 ? commands(rest.map((x) => x.text).join(' '), depth + 1) : [];
+      return out(rest.some((x) => x.dyn) ? [{ prog: null, dyn: true, args: rest }] : depth < 8 ? commands(rest.map((x) => x.text).join(' '), depth + 1) : []);
     }
-    return [{ prog: p, dyn: false, args: ws.slice(i + 1) }];
+    seen.pop();
+    return out([{ prog: p, word: ws[i].text, dyn: false, args: ws.slice(i + 1) }]);
   }
 }
 

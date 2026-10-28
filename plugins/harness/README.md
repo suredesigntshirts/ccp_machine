@@ -80,9 +80,14 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   A malformed or repeated role line, an item not in the store, or a `harness:builder` or `harness:verifier`
   spawn without one is `roleLine`. A spawn with no role line is allowed and recorded nowhere: its agent can
   send nothing, since an agent sends only what its role on the item allows (harness `meta.agentEvents`). The
-  **merge gate** sees the MCP merge tool and does not parse shell to find a merge: a Bash call whose text names
-  `merge` with `gh`, `curl`, `wget`, `api` or `graphql` (quotes removed, escapes decoded, any case) is denied
-  (`readableGitHubWrite`, the reason naming the gated forms) unless the whole command is exactly one simple
+  **merge gate** sees the MCP merge tool and reads a Bash call into the simple commands it runs (harness
+  `meta.invariants.readableGitHubWrite` has the details): `gh pr merge`, or `gh` naming a merge endpoint by any
+  method, is a merge. The words of `gh` and of data-only programs (`echo`, `printf`, `cat`, `jq`, the harness
+  CLI) are data, so `merge` in their arguments, strings, jq filters or heredoc text is no merge unless the
+  command writes a file. A call that runs anything else (a shell, an interpreter, `eval`, a wrapper, a script,
+  a program named by a variable) is text the gate cannot read: there the word `merge` with `gh`, `curl`,
+  `wget`, `api` or `graphql` (quotes removed, escapes decoded; not `merged` or `mergeable`) counts as a merge.
+  A merge is denied (`readableGitHubWrite`, the reason naming the gated forms) unless the whole command is exactly one simple
   command, `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT
   repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`, with only the listed merge options beside it. Other
   Bash calls are read for a GitHub write the gate cannot read, which is denied too: a `gh` command,
