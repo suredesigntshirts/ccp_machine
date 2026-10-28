@@ -92,8 +92,8 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   send nothing, since an agent sends only what its role on the item allows (harness `meta.agentEvents`). The
   **merge gate** judges the GitHub MCP merge tool, the one route for a landing, and reads no Bash command: a
   command's text cannot say what bash will do, so any word may appear in one. A landing by another route is
-  not blocked; `harness doctor` lists it afterwards (every PR landed on main without the verifier's PASS on
-  its head). The MCP tool asks `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
+  not blocked; `harness doctor` lists it afterwards (every PR landed on main since the store began without the
+  verifier's PASS on its head). The MCP tool asks `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
   (`expectedHeadSha`: `pinnedHead`), the item's machine taking `MERGED` of
   that head, which needs its verifier's PASS (`machine`), and that PASS on GitHub as a review on the sha
   (`reviewOnHead`). Under `HARNESS_ENFORCE=1` both deny, the reason starting `harness (<rule>): `, and a gate

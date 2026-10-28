@@ -147,7 +147,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   pending over a day, a lock older than 60s, a snapshot that will not restore, an actor in a state whose spec
   names `meta.waitsOn` with no such effect pending for it, such as a decision in `askingStandIn` whose
   `askStandIn` was acked without its answer recorded), runs `verify-actors` and
-  `verify-facts` (one async `doctor()`), lists every PR landed on main, in each repository the store names
+  `verify-facts` (one async `doctor()`), lists every PR landed on main at or after the store's first event, in each repository the store names
   (its bound PRs' and its requests' issues'), bound to an item or not, and every landed PR bound to an item,
   whose landed head has no verifier PASS in the store or no PASS review on GitHub on that sha; a PR bound to
   no item has no PASS (`src/gates.js` `verifyMerges`, GitHub's REST API only), and

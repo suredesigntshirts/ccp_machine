@@ -100,19 +100,19 @@ const reposOf = (events, bound) => [
   ])
 ];
 
-/** Every PR GitHub says landed on main in `repo`, as {key: landed head}, read from REST pages of 100. */
-async function landedOnMain(repo, fetcher) {
+/** Every PR GitHub says landed on main in `repo` at or after `since`, as {key: landed head}, read from REST pages of 100. */
+async function landedOnMain(repo, fetcher, since) {
   const heads = {};
   for (let page = 1; ; page++) {
     const prs = [].concat(await fetcher(`repos/${repo}/pulls?state=closed&base=main&per_page=100&page=${page}`));
-    for (const p of prs) if (p?.merged_at) heads[`${repo}#${p.number}`] = String(p.head?.sha ?? '');
+    for (const p of prs) if (p?.merged_at && Date.parse(p.merged_at) >= since) heads[`${repo}#${p.number}`] = String(p.head?.sha ?? '');
     if (prs.length < 100) return heads;
   }
 }
 
 /**
- * Doctor's audit: every PR GitHub says landed on main, in each repository the store names, and every landed PR bound
- * to an item, needs its item's latest verdict on its landed head to be PASS in the store, and GitHub to carry it as a
+ * Doctor's audit: every PR GitHub says landed on main, in each repository the store names, at or after the store's
+ * first event (an older landing is outside what the store can judge), and every landed PR bound to an item, needs its item's latest verdict on its landed head to be PASS in the store, and GitHub to carry it as a
  * review on that sha, compared as the merge gate does, unless an OUT_OF_BAND row records that landing. A PR bound to no
  * item has no verdict, so its landing is a problem. [{result: ok|problem|outOfBand|unreachable, pr, item, why?, row?}]
  */
@@ -123,7 +123,7 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   const landed = {};
   for (const repo of reposOf(events, bound)) {
     try {
-      Object.assign(landed, await landedOnMain(repo, fetcher));
+      Object.assign(landed, await landedOnMain(repo, fetcher, Date.parse(events[0].at)));
     } catch (e) {
       out.push({ result: 'unreachable', pr: repo, why: `cannot list the PRs landed on main: ${e.message}` });
     }
