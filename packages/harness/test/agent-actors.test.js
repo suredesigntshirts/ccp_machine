@@ -50,8 +50,8 @@ test('the spec defines the agent actor: kind agent, id <session_id>/<agent_id>, 
 
 test('the envelope takes an agent actor and refuses one that does not name both a session and an agent', () => {
   const store = fresh();
-  taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...agent('filer') }, undefined, 'an agent files a request');
-  assert.equal(ctx(store).requester, `${LEAD}/filer`);
+  // A well-formed agent passes the envelope, and is then judged by what its role allows: an agent files no request (agentEvents).
+  assert.match(refused(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...agent('filer') }, undefined, 'an agent files a request').why, /\(agentEvents\)/);
   for (const id of ['filer', `${LEAD}/`, `/x`, `${LEAD}/x/y`]) {
     const r = refused(store, { type: 'REQUEST_RECEIVED', request: { id: 'b' }, actor: { kind: 'agent', id }, source: { kind: 'cli', ref: 'x' } }, undefined, `agent id ${id}`);
     assert.match(r.why, /actor/);
@@ -73,6 +73,7 @@ function lead(store) {
   taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...session(LEAD) }, undefined, 'the lead files');
   spawn(store, 'triager', 'triager');
   taken(store, { type: 'TRIAGED', tier: 1, criteria: ['a works'], ...agent('triager') }, 'item:a', "the lead's triager subagent triages");
+  spawn(store, 'stand-in', 'stand-in');
   taken(store, { type: 'STAND_IN_ANSWERED', answer: sure, ...agent('stand-in') }, decisionOf(store), "the lead's stand-in subagent answers");
   assert.ok(!decide(store, decisionOf(store), 'approve').refused);
   taken(store, { type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF, ...session(LEAD) }, 'item:a', 'the lead fixes the verifier brief');
@@ -110,6 +111,7 @@ test('an agent stand-in cannot answer for the item it built, checked or triaged'
   spawn(store, 'triager', 'triager');
   taken(store, { type: 'TRIAGED', tier: 1, criteria: ['a works'], ...agent('triager') }, 'item:a');
   refused(store, { type: 'STAND_IN_ANSWERED', answer: sure, ...agent('triager') }, decisionOf(store), 'the triager subagent answers the plan');
+  spawn(store, 'stand-in', 'stand-in');
   taken(store, { type: 'STAND_IN_ANSWERED', answer: sure, ...agent('stand-in') }, decisionOf(store), 'another subagent answers the plan');
 });
 

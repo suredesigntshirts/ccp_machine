@@ -85,7 +85,7 @@ export const expectationsMet = ({ context: c }) =>
 
 // Workers (spec workItem, Workers): spawns recorded by the lead, bound to their agent when it starts, and verdicts.
 const HEX = (n) => new RegExp(`^[0-9a-f]{${n}}$`);
-const SPAWN_ROLES = ['builder', 'verifier', 'triager'];
+const SPAWN_ROLES = ['builder', 'verifier', 'triager', 'stand-in'];
 const VERDICT_KINDS = ['PASS', 'FAIL'];
 // The unbound spawn a starting agent belongs to: the sender's oldest of that agent type, at most withinMs old.
 const spawnToBind = ({ context: c, event: e }, withinMs) =>
@@ -96,14 +96,12 @@ const workers = {
   roleNotHere: ({ event }, { roles }) => !roles.includes(event.role),
   agentTypeIsNot: ({ event }, types) => event.role in types && event.agentType !== types[event.role],
   noVerifierBrief: ({ context }) => context.verifierBrief == null,
-  briefDiffers: ({ context, event }) => context.verifierBrief == null || event.briefSha256 !== context.verifierBrief,
+  briefDiffers: ({ context, event }) => event.role === 'verifier' && (context.verifierBrief == null || event.briefSha256 !== context.verifierBrief),
   noSpawnToBind: (args, { withinMs }) => {
     const { context: c, event: e } = args;
     const [sid, aid, ...more] = String(e.agent ?? '').split('/');
     return sid !== e.actor?.id || !aid || more.length || (c.spawns ?? []).some((s) => s.agent === e.agent) || !spawnToBind(args, withinMs);
   },
-  // Sessions are not spawns and are exempt; an agent must be bound to a spawn of this item with this role.
-  unspawnedAgent: ({ context, event: { actor } }, { role }) => actor?.kind === 'agent' && !(context.spawns ?? []).some((s) => s.agent === actor.id && s.role === role),
   verdictOverreaches: ({ context, event: e }) =>
     !VERDICT_KINDS.includes(e.verdict) || !HEX(40).test(String(e.sha ?? '')) || !Number.isInteger(e.review) || !isText(e.text) || context.verifierBrief == null || !e.text.trimEnd().endsWith(context.verifierBrief),
   unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS'

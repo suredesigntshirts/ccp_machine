@@ -150,7 +150,7 @@ test('merge gate: each route is denied without a verdict, without a pinned head,
   for (const input of routes(null)) denied(hook(s, input, enforce), 'pinnedHead', /pins no full head sha/, JSON.stringify(input.tool_input));
   for (const input of routes(HEAD)) denied(hook(s, input, enforce), 'machine', /MERGED in active\.verifying/, JSON.stringify(input.tool_input));
   denied(hook(s, mcpInput({ owner: 'o', repo: 'r', pullNumber: 8, expectedHeadSha: HEAD }), enforce), 'mergeBound', /bound to no item/, 'another PR');
-  denied(hook(s, bashInput(`gh api repos/o/r/pulls/8/merge -X PUT -F sha=${HEAD}`), enforce), 'mergeBound', /bound to no item/, 'another PR by gh api');
+  denied(hook(s, bashInput(`gh api -X PUT repos/o/r/pulls/8/merge -f sha=${HEAD}`), enforce), 'mergeBound', /bound to no item/, 'another PR by gh api');
   const call = callRecord(s, `toolu_m${n - 1}`);
   assert.deepEqual([call.kind, call.pr, call.decision, call.rule], ['merge', 'o/r#8', 'denied', 'mergeBound']);
   // Not merges: untouched.

@@ -50,6 +50,20 @@ function resolve(root, to) {
   return actor;
 }
 
+// The one allow-list for agent actors (harness meta.agentEvents): an agent's roles on an item are the roles of the
+// item's spawns it is bound to; it sends an event only when one of those roles lists it. Null when allowed.
+const AGENT_EVENTS = specs.harness.meta.agentEvents.roles;
+function agentEventsError(root, event, to) {
+  if (event.actor?.kind !== 'agent') return null;
+  const item = /^item:([^/]+)/.exec(to ?? '')?.[1];
+  let spawns = [];
+  if (item) try { spawns = resolve(root, `item:${item}`).getSnapshot().context.spawns ?? []; } catch {}
+  const roles = spawns.filter((s) => s.agent === event.actor.id).map((s) => s.role);
+  if (roles.some((r) => AGENT_EVENTS[r]?.includes(event.type))) return null;
+  const why = !item ? 'an agent sends only to an item it was spawned for' : roles.length ? `its role on item ${item} (${roles.join(', ')}) does not send it` : `it is bound to no spawn of item ${item}`;
+  return `from agent ${event.actor.id}: ${why} (agentEvents)`;
+}
+
 // A decision opening now takes its class's rung from the store's decided decisions up to now; unreadable gives recommend.
 const rungAt = (store, now) => (cls) => { try { return ladder(readDecisionLog(store).filter((r) => r.at <= now), cls).autonomy; } catch { return 'recommend'; } };
 
@@ -113,6 +127,12 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
     const actor = restore(state, null, (e) => collecting && effects.push(e), rungAt(store, now));
     actor.start();
     const target = resolve(actor, to);
+    // An agent actor sends only what its role on the addressed item allows (harness meta.agentEvents), whatever the event.
+    const notAllowed = agentEventsError(actor, event, to);
+    if (notAllowed) {
+      actor.stop();
+      return { version: state.version, refused: true, why: `refused: ${event.type} ${notAllowed}`, effects: [] }; // rule: agentEvents
+    }
     const snap = target.getSnapshot();
     // The machine is the only judge of what an event may do: one it would not take changes nothing. The reason
     // names the guard of the refusing transition, when one refused it.

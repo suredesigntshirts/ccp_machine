@@ -11,17 +11,17 @@
 //   (roleLine). SubagentStart (agent-actor.js) binds the started agent to the spawn.
 // - Merge: the PR must be bound to an item (mergeBound), the call must pin the head sha (pinnedHead), the item's
 //   machine must take MERGED of that head (its verifier's PASS), and the PR must carry the PASS as a review on that
-//   sha (reviewOnHead): `harness merge-gate` answers. A Bash call is read whole (lists, pipelines, $(...) and
-//   backticks, sh -c and eval strings, env/command/xargs wrappers): a literal merge however wrapped is judged so, and
-//   a GitHub write the gate cannot read (a gh command, method or path built from variables, a gh alias or extension,
-//   a GraphQL mutation or unreadable document, a merge by curl or wget) is denied (readableGitHubWrite).
+//   sha (reviewOnHead): `harness merge-gate` answers. A Bash call is not parsed to find a merge: one whose text names
+//   'merge' with gh, curl, wget, api or graphql is denied unless it is exactly one of the gated forms (GATED_FORMS),
+//   which alone are read and judged. Any other Bash call is read for GitHub writes the gate cannot read (a gh command,
+//   method or path built from a variable, a gh alias or extension, a GraphQL mutation or unreadable document, a curl
+//   or wget write built from a variable or to GraphQL), which are denied (readableGitHubWrite).
 // Each gated call is recorded at $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/<tool_use_id>.json with what
 // the gate decided. A gate that cannot reach the store or the CLI denies under HARNESS_ENFORCE=1 (storeReachable).
 // It does nothing unless the project has installed the harness (host.js); on its own failure it exits 0, and denies
 // only under HARNESS_ENFORCE=1 when the call was one it gates.
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { gate, deny, enforced, safeId, writeCall, runHarness, pluginRoot, version } from './host.js';
 
@@ -33,6 +33,11 @@ const GH = new Set(['agent-task', 'alias', 'api', 'attestation', 'auth', 'browse
 // Words that make a command run by a name the gate cannot read look like a GitHub write.
 const WRITE_WORDS = new Set(['api', 'pr', 'graphql', 'merge', '-X', '--method', '--request', 'PUT', 'POST', 'PATCH', 'DELETE']);
 
+// The only Bash merges the gate judges (spec harness meta.invariants readableGitHubWrite): one simple command each.
+const GATED_FORMS = 'one simple command, exactly `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` (with only --squash, --merge, --rebase, --delete-branch, --subject or --body beside it) or `gh api -X PUT repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>` (with only -f merge_method, commit_title or commit_message beside it); or the GitHub MCP merge tool with expectedHeadSha';
+const COMPOUND = /[;&|<>(){}$`\\\n\r]/;
+// Percent-escapes decoded until none is left, so an escaped word reads as itself.
+const decodePct = (t) => { let prev; do { prev = t; t = t.replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))); } while (t !== prev); return t; };
 const answer = (out) => process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...out } }));
 
 let gated = false; // set once the call is one a gate judges, so a failure after it denies under enforcement
@@ -109,14 +114,17 @@ function mergeCall(input) {
   let found;
   if (input.tool_name === 'mcp__github__merge_pull_request')
     found = [{ pr: t.owner && t.repo && t.pullNumber != null ? `${t.owner}/${t.repo}#${t.pullNumber}` : '', sha: t.expectedHeadSha ?? null }];
-  else if (input.tool_name === 'Bash' && typeof t.command === 'string') found = commands(t.command).map((c) => githubWrite(c, input.cwd)).filter(Boolean);
-  else return null;
+  else if (input.tool_name === 'Bash' && typeof t.command === 'string') {
+    const tool = namesMerge(t.command);
+    found = tool ? [gatedMerge(t.command) ?? { unread: `this command names a merge with ${tool}, and the only Bash merges the gate takes are the gated forms` }]
+      : commands(t.command).map(githubWrite).filter(Boolean);
+  } else return null;
   if (!found.length) return null;
   return {
     kind: 'merge',
     judge(how) {
       const unread = found.find((f) => f.unread);
-      if (unread) return { rule: 'readableGitHubWrite', record: { unread: found.filter((f) => f.unread).map((f) => f.unread) }, why: `${unread.unread}. Merge through gh pr merge, gh api or the GitHub MCP merge tool with a literal PR and --match-head-commit / sha / expectedHeadSha, which the merge gate reads` };
+      if (unread) return { rule: 'readableGitHubWrite', record: { unread: found.filter((f) => f.unread).map((f) => f.unread) }, why: `${unread.unread}. Merge with ${GATED_FORMS}` };
       let last = null;
       for (const { pr, sha } of found) {
         const r = runHarness(['merge-gate', '--pr', pr || 'none', '--sha', sha || 'none'], how);
@@ -127,6 +135,57 @@ function mergeCall(input) {
       return last;
     }
   };
+}
+
+// The GitHub tool a command names together with 'merge' (quotes and backslashes removed, escapes decoded, any case), or
+// null: such a command is judged only when it is exactly a gated form.
+function namesMerge(text) {
+  const plain = decodePct(text.replace(/['"\\]/g, '')).toLowerCase();
+  return plain.includes('merge') ? /gh|curl|wget|api|graphql/.exec(plain)?.[0] ?? null : null;
+}
+
+// { pr, sha } when the whole command is exactly one gated form (GATED_FORMS), else null. Words may be quoted, but
+// nothing else of the shell is read: any compound or expanding character makes it not a gated form.
+function gatedMerge(text) {
+  const t = text.trim();
+  if (COMPOUND.test(t)) return null;
+  const words = [];
+  const word = /\s*(?:'([^']*)'|"([^"]*)"|([^\s'"]+))(?=\s|$)/y;
+  while (word.lastIndex < t.length) {
+    const m = word.exec(t);
+    if (!m) return null;
+    words.push(m[1] ?? m[2] ?? m[3]);
+  }
+  const opts = (rest, valued, flags) => {
+    const got = {};
+    for (let i = 0; i < rest.length; i++) {
+      let [name, value] = rest[i].split(/=(.*)/s);
+      if (!valued[name] && !flags[name]) return null;
+      const key = valued[name] ?? flags[name];
+      if (key in got) return null;
+      if (valued[name] && value === undefined) value = rest[++i];
+      if (valued[name] ? value === undefined : value !== undefined) return null;
+      got[key] = value ?? true;
+    }
+    return got;
+  };
+  if (words[0] === 'gh' && words[1] === 'pr' && words[2] === 'merge' && /^\d+$/.test(words[3] ?? '')) {
+    const o = opts(words.slice(4), { '--repo': 'repo', '-R': 'repo', '--match-head-commit': 'sha', '--subject': 'subject', '-t': 'subject', '--body': 'body', '-b': 'body' },
+      { '--squash': 'squash', '-s': 'squash', '--merge': 'merge', '-m': 'merge', '--rebase': 'rebase', '-r': 'rebase', '--delete-branch': 'delete', '-d': 'delete' });
+    if (!o || !/^[\w.-]+\/[\w.-]+$/.test(o.repo ?? '')) return null;
+    return { pr: `${o.repo}#${words[3]}`, sha: o.sha ?? null };
+  }
+  const path = /^repos\/([\w.-]+)\/([\w.-]+)\/pulls\/(\d+)\/merge$/.exec(words[4] ?? '');
+  if (words[0] === 'gh' && words[1] === 'api' && words[2] === '-X' && words[3] === 'PUT' && path) {
+    const fields = {};
+    for (let i = 5; i < words.length; i += 2) {
+      const [k, v] = (words[i] === '-f' ? words[i + 1] ?? '' : '').split(/=(.*)/s);
+      if (!['sha', 'merge_method', 'commit_title', 'commit_message'].includes(k) || v === undefined || k in fields) return null;
+      fields[k] = v;
+    }
+    return { pr: `${path[1]}/${path[2]}#${path[3]}`, sha: fields.sha ?? null };
+  }
+  return null;
 }
 
 // The simple commands a Bash command runs, each a list of words { text (quotes removed), dyn (it holds a $ or a
@@ -217,26 +276,25 @@ function flags(args, valued) {
   return { got, pos, has: (...n) => got.filter((f) => n.includes(f.name)) };
 }
 
-// What one simple command does to GitHub: { pr, sha } for a literal merge, { unread: why } for a write the gate
-// cannot read, or null.
-function githubWrite({ prog, dyn, args }, cwd) {
+// A GitHub write one simple command makes that the gate cannot read ({ unread: why }), or null. Merges never get here:
+// a command naming one is judged by namesMerge and gatedMerge.
+function githubWrite({ prog, dyn, args }) {
   if (dyn) {
     const hit = args.find((a) => WRITE_WORDS.has(a.text) || /api\.github\.com|\/pulls\/[^/\s]*\/merge/.test(a.text));
     return hit ? { unread: `a command run by a name the gate cannot read (a variable or substitution) with "${hit.text}" in it` } : null;
   }
-  if (prog === 'gh') return ghWrite(args, cwd);
+  if (prog === 'gh') return ghWrite(args);
   if (prog === 'curl' || prog === 'wget') return httpWrite(prog, args);
   return null;
 }
 
-function ghWrite(args, cwd) {
+function ghWrite(args) {
   const [first, sub] = args;
   if (!first) return null;
   if (first.dyn) return { unread: 'a gh command built from a variable' };
   if (!GH.has(first.text)) return { unread: `gh ${first.text} is not one of gh's own commands (an alias or an extension)` };
   if (first.text === 'pr') {
-    if (sub?.dyn) return { unread: 'a gh pr subcommand built from a variable' };
-    return sub?.text === 'merge' ? prMerge(args.slice(2), cwd) : null;
+    return sub?.dyn ? { unread: 'a gh pr subcommand built from a variable' } : null;
   }
   if (first.text !== 'api') return null;
   const f = flags(args.slice(1), new Set(['-X', '--method', '-H', '--header', '-f', '--raw-field', '-F', '--field', '--input', '-q', '--jq', '-t', '--template', '--cache', '--hostname', '-p', '--preview']));
@@ -248,63 +306,12 @@ function ghWrite(args, cwd) {
   const [path] = f.pos;
   if (!path || verb === 'GET' || verb === 'HEAD') return null;
   if (path.dyn) return { unread: `a gh api ${verb} to a path built from a variable` };
-  const r = reducePath(path.text);
-  if (r.unread) return r;
-  if (r.low.join('/') === 'graphql') {
+  if (/^\/*graphql\/*(?:[?#]|$)/i.test(decodePct(path.text))) {
     const query = fields.find((x) => x.text.startsWith('query='));
     if (input || !query || query.dyn || query.text.startsWith('query=@')) return { unread: 'a GraphQL document the gate cannot read (from a file, --input or a variable)' };
     return /\bmutation\b/i.test(query.text) ? { unread: 'a GraphQL mutation' } : null;
   }
-  const m = mergePath(r, path.text);
-  if (!m || m.unread) return m;
-  const sha = input ? null : fields.find((x) => x.text.startsWith('sha=') && !x.dyn)?.text.slice(4) ?? null;
-  const repo = m.owner === '{owner}' || m.repo === '{repo}' ? originOf(cwd) : `${m.owner}/${m.repo}`;
-  return { pr: repo ? `${repo}#${m.number}` : '', sha };
-}
-
-// A write's path in its one canonical form (spec harness meta.invariants readableGitHubWrite): the scheme and host,
-// the query and the fragment dropped, each segment's percent-escapes decoded once, empty and '.' segments dropped and
-// '..' resolved. { segs, low (case folded) }, or { unread: why } for a path the gate does not reduce: a bad escape, an
-// escape that leaves '%', '?', '#', '/', '\\' or a control character, a '..' above the root, or repositories/<id>.
-function reducePath(text) {
-  const path = String(text).replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, '').replace(/[?#][\s\S]*$/, '');
-  const segs = [];
-  for (const raw of path.split('/')) {
-    let seg;
-    try { seg = decodeURIComponent(raw); } catch { return { unread: `the path ${text} has a percent-escape the gate cannot decode` }; }
-    if (/[%?#/\\\x00-\x20\x7f]/.test(seg)) return { unread: `the path ${text} escapes a separator or another escape, which the gate does not reduce` };
-    if (seg === '' || seg === '.') continue;
-    if (seg === '..') {
-      if (!segs.length) return { unread: `the path ${text} climbs above its root` };
-      segs.pop();
-      continue;
-    }
-    segs.push(seg);
-  }
-  const low = segs.map((x) => x.toLowerCase());
-  if (low[0] === 'repositories') return { unread: `the path ${text} names a repository by id (repositories/), which the gate cannot bind to a PR` };
-  return { segs, low };
-}
-
-// A reduced path that touches pulls/<n>/merge: { owner, repo, number } when it is exactly
-// repos/<owner>/<repo>/pulls/<number>/merge, else { unread }; null when it touches no merge endpoint.
-function mergePath({ segs, low }, text) {
-  if (!low.some((x, i) => x === 'pulls' && low[i + 2] === 'merge')) return null;
-  if (low.length === 6 && low[0] === 'repos' && low[3] === 'pulls' && /^\d+$/.test(low[4]) && low[5] === 'merge') return { owner: segs[1], repo: segs[2], number: low[4] };
-  return { unread: `the path ${text} reaches a pull's merge endpoint but is not repos/<owner>/<repo>/pulls/<number>/merge` };
-}
-
-function prMerge(rest, cwd) {
-  const f = flags(rest, new Set(['--match-head-commit', '--repo', '-R', '--subject', '-t', '--body', '-b', '--body-file', '-F', '--author-email', '-A']));
-  const value = (...n) => { const v = f.has(...n).at(-1)?.value; return v && !v.dyn ? v.text : null; };
-  const sha = value('--match-head-commit');
-  const repo = value('--repo', '-R');
-  const sel = f.pos[0];
-  if (!sel || sel.dyn) return { pr: '', sha };
-  const url = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(sel.text);
-  if (url) return { pr: `${url[1]}#${url[2]}`, sha };
-  if (/^#?\d+$/.test(sel.text)) return { pr: `${repo ?? originOf(cwd) ?? ''}#${sel.text.replace('#', '')}`, sha };
-  return { pr: '', sha };
+  return null;
 }
 
 function httpWrite(prog, args) {
@@ -319,18 +326,6 @@ function httpWrite(prog, args) {
   if (verb === 'GET' || verb === 'HEAD') return null;
   const urls = [...f.pos, ...f.has('--url').map((x) => x.value)];
   if (urls.some((u) => u.dyn)) return { unread: `a ${prog} ${verb} to a URL built from a variable` };
-  for (const u of urls) { // on any host: an address can name GitHub without saying github.com
-    const r = reducePath(u.text);
-    if (r.unread) return r;
-    if (mergePath(r, u.text) || r.low.join('/') === 'graphql') return { unread: `a ${prog} ${verb} to ${u.text}: a merge or GraphQL write by ${prog}` };
-  }
-  return null;
-}
-
-// owner/repo of the checkout's origin, for a `gh pr merge <n>` without --repo.
-function originOf(cwd) {
-  try {
-    const url = execFileSync('git', ['-C', cwd || '.', 'remote', 'get-url', 'origin'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    return /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(url)?.[1] ?? null;
-  } catch { return null; }
+  const gql = urls.find((u) => /\/graphql\/*(?:[?#]|$)/i.test(decodePct(u.text))); // on any host: an address can name GitHub without saying github.com
+  return gql ? { unread: `a ${prog} ${verb} to ${gql.text}: a GraphQL write by ${prog}` } : null;
 }
