@@ -8,7 +8,9 @@ else the item's machine holds is refused. A triager, who is not the requester, t
 sends `TRIAGED {tier, criteria}`; until it does, nothing leaves triage, and with no criteria the item waits
 for the person (`needsCriteria`, tagged `needs-human`) and only a cancel ends it. A reviewer, who is neither
 the orchestrator nor a worker, sends `CRITERION_CHECKED {criterion, verdict, evidence}` per criterion; a new
-build clears them. The stand-in may approve accept only when every criterion is met with evidence from such a
+build clears them. An item with a verifier brief leaves verifying only when CI has passed and the verifier's
+verdict is recorded for the same head, in either order (spec workItem, `verifying`), so the verifier's checks
+count before the accept decision opens. The stand-in may approve accept only when every criterion is met with evidence from such a
 reviewer (`expectationsMet`); an unmet, unclear or missing check sends the accept to the person. Tier 0 still
 skips the plan and accept gates; that is acceptable for now because triage, not the filer, sets the tier.
 
@@ -253,7 +255,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   minutes). Every `agent:` actor is checked against the SubagentStart hook's record
   (`ledger/sessions/<session_id>/agents/<agent_id>.json`): `ok`, `no record` (no such subagent started in that
   session, another agent_type, or no session ledger yet) or `outside window` (before the subagent started or
-  after the session's last filed turn). It exits 1 on any failure and never writes; run it once the sessions'
+  after the session's last filed turn). The start is the earliest one a hook recorded: that record's `at`, or the
+  bind's call record `ledger/sessions/<session_id>/calls/start-<agent_id>.json`. It exits 1 on any failure and never writes; run it once the sessions'
   turns have ended.
 - Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
   stand-in answerers by actor, a session or an agent (a subagent), and refuses an event from an actor that

@@ -71,7 +71,9 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   recorded for the session and the store took, when that spawn is unbound (`WORKER_STARTED`). Its input names
   the agent and its type but not the Agent call, so this is sound only because a session has at most one
   unbound spawn of a type at a time (`oneUnboundSpawn`, below). Only a bind the store takes is written on the
-  spawn's call record; the result, taken or refused, is added to the agent's record as `bind`. Without `HARNESS_ENFORCE=1` the marker is
+  spawn's call record; the result, taken or refused, is added to the agent's record as `bind`. A resumed agent
+  (SendMessage to one that ran) fires SubagentStart again: its record keeps its first `at` and `bind`, the new
+  start time is added to `resumes`, and nothing is bound. Without `HARNESS_ENFORCE=1` the marker is
   read only for a command that would be changed or denied, so other Bash calls pay nothing.
 - **Gates** (`scripts/gates.js`, PreToolUse on Agent, Bash and `mcp__github__merge_pull_request`): the spec
   decides (spec workItem, Workers; harness `meta.invariants`), asked through the harness CLI

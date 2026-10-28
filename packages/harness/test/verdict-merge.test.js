@@ -19,7 +19,8 @@ const OLD = 'c'.repeat(40);
 const PR = 'https://github.com/o/r/pull/7';
 const ok = (r, label) => assert.ok(!r.refused, `${label}: ${r.why}`);
 
-// Item x, tier 0, built on PR o/r#7 by a session worker, its verifier spawned and bound, CI green: merging.
+// Item x, tier 0, built on PR o/r#7 by a session worker, its verifier spawned and bound, CI green: verifying until the
+// verdict (#71), merging once it is in.
 function merging(brief = BRIEF) {
   const store = openStore(tempDir('harness-verdict-'));
   init(store);
@@ -91,7 +92,7 @@ test('merge-gate: bound, pinned, the machine takes MERGED of the head, and the P
   assert.deepEqual((await gate(PR, 'abc')).rule, 'pinnedHead', 'a short head');
   const none = await gate(PR, HEAD);
   assert.deepEqual([none.allow, none.rule], [false, 'machine']);
-  assert.match(none.why, /unverifiedHead/);
+  assert.match(none.why, /in active\.verifying/, 'no verdict yet: the item still waits in verifying (#71)');
   await give(store, gh, 'FAIL\nbroken');
   assert.match((await gate(PR, HEAD)).why, /unverifiedHead/, 'a FAIL');
   await give(store, gh, 'PASS\nfixed', OLD);

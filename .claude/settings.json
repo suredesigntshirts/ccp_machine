@@ -5,6 +5,10 @@
     "allow": [
       "Edit(/.claude/settings.json)",
       "Write(/.claude/settings.json)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)",
+      "Edit(~/.claude/settings.json)",
+      "Write(~/.claude/settings.json)",
       "mcp__claude-code-remote__list_events",
       "Bash(node /home/user/harness-archive/tools/salvage.mjs page:*)",
       "Bash(node /home/user/harness-archive/tools/salvage.mjs finalize:*)"
@@ -15,6 +19,19 @@
       "$defaults",
       "Reading this project's own Claude session transcripts with mcp__claude-code-remote__list_events (read-only paging by session_id and before_id) is allowed: the project owner authorized copying them into a local archive on 2026-10-28.",
       "Running node /home/user/harness-archive/tools/salvage.mjs page|finalize is allowed: it only writes gzipped copies with sha256 hashes under /home/user/harness-archive/data, never the original sessions."
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=/home/user/ccp_machine/infra/cloud-environment/session-start.sh; [ -f \"$f\" ] && bash \"$f\"; exit 0",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
