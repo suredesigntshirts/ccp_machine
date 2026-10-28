@@ -118,7 +118,7 @@
           "guard": {
             "type": "grantCovers",
             "params": {
-              "thresholdBefore": "2026-10-28T09:00:00.000Z"
+              "thresholdBefore": "2026-10-28T10:00:41.000Z"
             }
           },
           "target": "decided",

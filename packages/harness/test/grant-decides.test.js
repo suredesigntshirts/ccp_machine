@@ -93,6 +93,14 @@ test('an answer logged before the rule was loosened keeps the threshold, so an o
   assert.equal(decision(store, plan).state, 'awaitingPerson', 'the rule the answer was logged under');
   const r = replay(store);
   assert.equal(r.ok, true, JSON.stringify(r.differences.concat(r.firstDivergence ?? [])));
+  // The cut is when the loosened rule went live (PR #60 landed at 10:00:41Z), not when it was written: dogfood2 logged
+  // an accept answer at 09:20:31Z with 0.88 under a stop-asking grant, and the code then running sent it to the person.
+  const live = '2026-10-28T09:20:31.427Z';
+  const s2 = fresh(live);
+  grant(s2, STOP_ASKING, live);
+  const late = itemAtPlan(s2, 'late', 2, live);
+  answer(s2, late, live, { confidence: 0.88 });
+  assert.equal(decision(s2, late).state, 'awaitingPerson', 'routed as dogfood2 logged it');
 });
 
 test('a decision waiting on the person goes back to the stand-in when the live grant covers it, and is decided', () => {

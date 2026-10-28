@@ -56,7 +56,7 @@ stateDiagram-v2
   [*] --> askingStandIn
   askingStandIn --> routing : STAND_IN_ANSWERED
   askingStandIn --> awaitingPerson : STAND_IN_FAILED
-  routing --> decided : always [grantCovers {"thresholdBefore":"2026-10-28T09:00:00.000Z"}]
+  routing --> decided : always [grantCovers {"thresholdBefore":"2026-10-28T10:00:41.000Z"}]
   routing --> decided : always [standInMayDecide]
   routing --> awaitingPerson : always
   awaitingPerson --> decided : PERSON_DECIDED
