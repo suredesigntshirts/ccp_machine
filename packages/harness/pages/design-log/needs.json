@@ -2,7 +2,7 @@
   "page": "design-log",
   "title": "Design log",
   "description": "The decisions and what they led to: requests, stand-in answers, the person's taps and grants, and every out-of-band step with who ordered it and which gates it skipped (V3).",
-  "reads": { "file": "events.jsonl", "historySchema": { "min": 1, "max": 1 } },
+  "reads": { "file": "events.jsonl", "schemaVersion": { "min": 1, "max": 1 } },
   "events": {
     "REQUEST_RECEIVED": ["at", "event.request.id", "event.request.title", "event.request.url"],
     "STAND_IN_ANSWERED": ["at", "to", "event.answer.choice", "event.answer.reason"],

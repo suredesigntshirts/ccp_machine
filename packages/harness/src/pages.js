@@ -1,4 +1,4 @@
-// The page needs contract. Each page has pages/<page>/needs.json: the one store file it reads, the fields of it,
+// The page needs contract. Each page has pages/<page>/needs.json: the one file it reads, the fields of it,
 // the schemaVersion range it understands, and the spec states and events it names. checkPage() holds a store and
 // the spec to that declaration and names the page and the missing piece; renderLivePage() builds the page that
 // reads only what the declaration lists. The store layout (schemaVersion) and the refresh rules are the spec's
@@ -7,14 +7,16 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { specs as SPECS } from './machines.js';
 import { CSS, wrapPage } from './page.js';
 import { rowsOf } from './intake.js';
-import { project, schemaProblem, renderShell, renderView, viewKeys } from './live.js';
-import { checkLogNeeds } from './history.js';
+import { schemaProblem, renderShell, renderView, renderData, viewKeys, formatOf } from './live.js';
+import { checkLogNeeds, HISTORY } from './history.js';
 
 const ROOT = new URL('../pages/', import.meta.url);
 export const PAGES = readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
 export const loadNeeds = (page) => JSON.parse(readFileSync(new URL(`${page}/needs.json`, ROOT), 'utf8'));
 export const STORE_LAYOUT = SPECS.harness.meta.store;
 export const PAGE_RULES = SPECS.harness.meta.pages;
+// What a file a page reads means when it carries no schemaVersion: the store's layout, or the history's.
+const absentMeansOf = (needs) => (needs.reads.file === 'events.jsonl' ? HISTORY : STORE_LAYOUT).absentMeans;
 // The page script: live.js as it is, each export made a plain declaration.
 const LIVE_SRC = readFileSync(new URL('./live.js', import.meta.url), 'utf8').replace(/^export /gm, '');
 
@@ -75,26 +77,57 @@ function strictView(view, needs, reads) {
   );
 }
 
+// Wrap projected history rows so a read of a field the needs file does not declare for the row's type is recorded.
+function strictLog(rows, needs, reads) {
+  return rows.map((r) => {
+    const fields = [...(needs.events['*'] ?? []), ...(needs.events[r.event.type] ?? [])];
+    const allowed = new Set(['event', 'event.type', ...fields.flatMap((f) => f.split('.').map((_, i, a) => a.slice(0, i + 1).join('.')))]);
+    const wrap = (obj, path) =>
+      new Proxy(obj, {
+        get(target, key, recv) {
+          const v = Reflect.get(target, key, recv);
+          if (typeof key !== 'string' || key in Object.prototype) return v;
+          const p = path ? `${path}.${key}` : key;
+          if (!allowed.has(p)) reads.add(`${r.event.type} field ${p}`);
+          return v && typeof v === 'object' && allowed.has(p) && !fields.includes(p) ? wrap(v, p) : v;
+        }
+      });
+    return wrap(r, '');
+  });
+}
+
 /**
  * Everything that breaks `page`'s declared needs, each line starting with the page's name: a spec machine,
  * state or event it names that the spec does not have; a view state or event missing from its spec lists; and,
  * given a store's state.json, a schemaVersion outside its range, a declared field no row of its kind has, and a
  * read of a field it does not declare. A view that reads the one history (reads.file events.jsonl) declares event
- * types and fields instead, and is held to history.schema.json and, given rows, to that history (checkLogNeeds).
+ * types and fields instead, and is held to history.schema.json and, given rows, to that history (checkLogNeeds);
+ * one with a renderer (the ledger) also names the machines that take its event types and reads nothing else.
  */
 export function checkPage(page, { state, history, specs = SPECS, needs = loadNeeds(page) } = {}) {
-  if (needs.reads.file === 'events.jsonl')
-    return [...(needs.page === page ? [] : [`${page}: pages/${page}/needs.json names page "${needs.page}"`]), ...checkLogNeeds(needs, history)];
   const out = [];
   const say = (msg) => out.push(`${page}: ${msg}`);
   const file = `pages/${page}/needs.json`;
   if (needs.page !== page) say(`${file} names page "${needs.page}"`);
-  for (const [kind, id] of Object.entries(needs.kinds)) if (!specs[id]) say(`kind ${kind} is spec machine "${id}", which the spec does not have`);
-  for (const [machine, refs] of Object.entries(needs.spec)) {
+  for (const [kind, id] of Object.entries(needs.kinds ?? {})) if (!specs[id]) say(`kind ${kind} is spec machine "${id}", which the spec does not have`);
+  for (const [machine, refs] of Object.entries(needs.spec ?? {})) {
     const config = specs[machine];
     if (!config) { say(`names spec machine "${machine}", which the spec does not have`); continue; }
     for (const s of refs.states ?? []) if (!stateNode(config, s)) say(`names ${machine} state "${s}", which spec/${machine}.machine.json does not have`);
     for (const e of refs.events ?? []) if (!hasEvent(config, e)) say(`names ${machine} event ${e}, which spec/${machine}.machine.json does not take`);
+  }
+  if (needs.reads.file === 'events.jsonl') {
+    out.push(...checkLogNeeds(needs, history));
+    if (!needs.spec) return out;
+    const named = Object.values(needs.spec).flatMap((m) => m.events ?? []);
+    for (const type of Object.keys(needs.events)) if (type !== '*' && !named.includes(type)) say(`its view reads ${type}, which ${file} spec does not name under a machine that takes it`);
+    if (!history) return out;
+    const problem = schemaProblem(history, needs, absentMeansOf(needs));
+    if (problem) { say(problem); return out; }
+    const reads = new Set();
+    renderData(strictLog(formatOf(needs).project(history, needs), needs, reads), needs);
+    for (const r of reads) say(`reads ${r}, which ${file} does not declare`);
+    return out;
   }
   const refs = viewRefs(needs.view);
   for (const [m, s] of refs.states) if (!needs.spec[m]?.states?.includes(s)) say(`its view uses ${m} state "${s}", which ${file} spec.${m}.states does not list`);
@@ -109,7 +142,7 @@ export function checkPage(page, { state, history, specs = SPECS, needs = loadNee
     for (const p of paths) if (!rows[kind].some((r) => get(r, p) !== undefined)) say(`needs ${kind} field ${p}, which no ${kind} in this store has`);
   }
   const reads = new Set();
-  renderView(strictView(project(state, needs), needs, reads), needs);
+  renderView(strictView(formatOf(needs).project(state, needs), needs, reads), needs);
   for (const r of reads) say(`reads ${r}, which ${file} does not declare`);
   return out;
 }
@@ -121,26 +154,27 @@ const LIVE_CSS = `${CSS}
 .bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}`;
 
 /**
- * Mission control as a live page: the store as it was at render (only the declared fields), the data age, and a
- * Refresh button that reads `<path>/<needs.reads.file>` through the Artifact files capability of `project`, renders
- * it and records the timing in the db collection the spec names. Publish with capabilities
- * {files: {project}, db: {}}.
+ * A live page: its data as it was at render (a store's state.json for mission control, a history's rows for the
+ * ledger; only the declared fields), the data age, and a Refresh button that reads `<path>/<needs.reads.file>`
+ * through the Artifact files capability of `project`, renders it and records the timing in the db collection the
+ * spec names. Publish with capabilities {files: {project}, db: {}}.
  */
-export function renderLivePage(state, { page = 'mission-control', project: projectId = null, path = '', title, standalone = false, now = new Date().toISOString() } = {}) {
+export function renderLivePage(data, { page = 'mission-control', project: projectId = null, path = '', title, standalone = false, now = new Date().toISOString() } = {}) {
   const needs = loadNeeds(page);
+  const format = formatOf(needs);
   const cfg = {
     page,
     title: title ?? needs.title,
     needs,
     project: projectId,
     path: `${path ? `${path.replace(/\/+$/, '')}/` : ''}${needs.reads.file}`,
-    absentMeans: STORE_LAYOUT.absentMeans,
+    absentMeans: absentMeansOf(needs),
     slowMs: PAGE_RULES.refreshSlowMs,
     collection: PAGE_RULES.refreshCollection
   };
-  const problem = schemaProblem(state, needs, STORE_LAYOUT.absentMeans);
-  const view = problem ? null : project(state, needs);
-  const meta = { readAt: now, version: view?.store.version ?? null, updatedAt: view?.store.updatedAt ?? null };
+  const problem = schemaProblem(data, needs, cfg.absentMeans);
+  const view = problem ? null : format.project(data, needs);
+  const meta = { readAt: now, of: format.of, ...(view ? format.age(view) : { version: null, updatedAt: null }) };
   const body = `${renderShell(view, problem, cfg, meta)}\n<script>${LIVE_SRC}\nclient(${json(cfg)}, ${json(meta)});</script>`;
   return wrapPage(cfg.title, body, { standalone, css: LIVE_CSS });
 }

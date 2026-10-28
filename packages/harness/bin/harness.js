@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
-import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody, renderLivePage, checklistFor } from '../src/index.js';
+import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody, renderLivePage, loadNeeds, formatOf, checklistFor } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -163,13 +163,14 @@ const HELP = `harness <command> [options]
                                  one page per item beside it (items/<id>.html), linked from its row,
                                  and the decision log (decisions.html);
                                  publish those as the Artifact's supporting files
-  page --live [--project chan_...] [--files-path P] [--html FILE]
-                                 render live mission control (default .harness/mission-control-live.html):
-                                 only the fields pages/mission-control/needs.json declares from state.json,
-                                 its age, and a Refresh button that rereads <P>/state.json through the
-                                 Artifact files capability and times each refresh into db; publish with
-                                 capabilities {files: {project}, db: {}}. A store outside the needs
-                                 schemaVersion range shows a red banner and no data
+  page --live [--page P] [--project chan_...] [--files-path F] [--html FILE]
+                                 render a live page (default mission-control, into <dir>/<P>-live.html): only
+                                 the fields pages/<P>/needs.json declares from the one file it names
+                                 (mission-control: the store's state.json; ledger: a history's events.jsonl,
+                                 such as scripts/history/join.mjs writes), its age, and a Refresh button that
+                                 rereads <F>/<file> through the Artifact files capability and times each
+                                 refresh into db; publish with capabilities {files: {project}, db: {}}. Data
+                                 outside the needs schemaVersion range shows a red banner and no data
 
   --actor KIND:ID, --source KIND:REF
                                  who sent the event (person, session, agent, github, timer) and where it came
@@ -219,6 +220,7 @@ try {
       live: { type: 'boolean', default: false },
       project: { type: 'string' },
       'files-path': { type: 'string' },
+      page: { type: 'string', default: 'mission-control' },
       refreshes: { type: 'string' },
       out: { type: 'string' },
       now: { type: 'string' },
@@ -553,13 +555,15 @@ try {
     }
     case 'page': {
       if (o.live) {
-        // The live page: the store's state.json, only the fields pages/<page>/needs.json declares, and a refresh button.
-        const state = store.read();
-        if (!state) throw new Error(`no harness in ${o.dir}`);
-        const file = o.html ?? `${o.dir}/mission-control-live.html`;
+        // The live page: the one file pages/<page>/needs.json names (a store's state.json, a history's events.jsonl),
+        // only the fields it declares, and a refresh button.
+        const needs = loadNeeds(o.page);
+        const source = join(o.dir, needs.reads.file);
+        if (!existsSync(source)) throw new Error(`no ${needs.reads.file} in ${o.dir}`);
+        const file = o.html ?? `${o.dir}/${o.page}-live.html`;
         mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, renderLivePage(state, { project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
-        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: `${o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : ''}state.json` });
+        writeFileSync(file, renderLivePage(formatOf(needs).parse(readFileSync(source, 'utf8')), { page: o.page, project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
+        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: `${o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : ''}${needs.reads.file}` });
         break;
       }
       const st = status(store);

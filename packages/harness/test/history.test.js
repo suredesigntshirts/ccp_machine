@@ -126,7 +126,7 @@ test('C3: a field a view reads that the history lacks fails, naming the view and
   const needs = structuredClone(loadNeeds('design-log'));
   needs.events.DECISION_TAKEN = ['at'];
   assert.ok(checkLogNeeds(needs).includes('design-log: reads DECISION_TAKEN, which history.schema.json does not declare'));
-  needs.reads.historySchema = { min: 2, max: 2 };
+  needs.reads.schemaVersion = { min: 2, max: 2 };
   assert.ok(checkLogNeeds(needs).some((p) => p.startsWith('design-log: reads history schema 2..2')));
   // A placeholder does not meet a need: the view would show it as a value.
   const legacy = golden().map((r) => (r.event.type === 'OUT_OF_BAND' ? { ...r, event: { ...r.event, what: { legacy: 'lost' } } } : r));

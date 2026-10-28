@@ -1,13 +1,21 @@
 {
   "page": "ledger",
   "title": "Ledger report",
-  "description": "Who did the work on each item, as which role and on which model: spawns, starts, runs and usage samples from the one history (spec/history.schema.json). Each era's placeholders are counted in a corner, never shown as values. Replaces the per-session ledger files as its source (#48, V1).",
-  "reads": { "file": "events.jsonl", "historySchema": { "min": 1, "max": 1 } },
+  "description": "Who did the work on each item, as which role and on which model: spawns, starts, runs and usage samples from the one history (spec/history.schema.json). Each era's placeholders are counted in a corner, never shown as values. Replaces the per-session ledger files as its source (#48, V1). The page reads one file, a history's events.jsonl, and of each row only the fields below for its type (\"*\": every row); harness page --live --page ledger renders it, and its refresh button reads the file again through the Artifact files capability.",
+  "reads": { "file": "events.jsonl", "schemaVersion": { "min": 1, "max": 1 } },
   "events": {
     "WORKER_SPAWNED": ["at", "to", "actor", "event.role", "event.agentType", "event.model"],
     "WORKER_STARTED": ["at", "to", "actor", "event.agentType"],
     "RUN_SUCCEEDED": ["at", "to", "actor", "event.pr"],
     "USAGE_SAMPLED": ["at", "event.sevenDay", "event.fiveHour"],
-    "*": ["provenance.origin", "provenance.from.ref"]
+    "*": ["at", "provenance.origin", "provenance.from.ref"]
+  },
+  "spec": {
+    "workItem": { "events": ["WORKER_SPAWNED", "WORKER_STARTED", "RUN_SUCCEEDED"] },
+    "budget": { "events": ["USAGE_SAMPLED"] }
+  },
+  "db": {
+    "collection": "refreshes",
+    "fields": ["page", "at", "ms", "storeVersion", "schemaVersion", "bytes", "ok", "error"]
   }
 }
