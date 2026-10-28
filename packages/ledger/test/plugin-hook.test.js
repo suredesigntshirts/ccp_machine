@@ -147,7 +147,8 @@ test('status mod data: the gate and the status text, the load record only when i
 });
 
 // What the status mod may not touch: the retired store, Library reads or listings, the network.
-const modForbidden = /state\/main|\$\.fs\.|\$\.net/;
+// $.fs.write stays allowed: the owner's mod probe (621fb69) logs with it.
+const modForbidden = /state\/main|\$\.fs\.(?!write\b)|\$\.net/;
 
 test('the status mod rule: only $.fs.write passes; $.fs reads and listings, $.net and state/main fail', () => {
   assert.doesNotMatch("await $.fs.write(log, 'x')", modForbidden);
