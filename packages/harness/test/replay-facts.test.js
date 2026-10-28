@@ -11,6 +11,8 @@ import { tempDir } from './tmp.js';
 import { apply, start } from './send.js';
 import { openStore, init, replay, doctor } from '../src/index.js';
 import { harnessVersion, writerError } from '../src/runtime.js';
+import { validate } from '../src/history.js';
+import { verifyActors } from '../src/verify-actors.js';
 
 // The retired dogfood store as harness 0.1.0 wrote it (commits 0b43582, d8edf5a and 3789038), copied from a copy of
 // /mnt/project-files/harness/state/dogfood: events by agents spawned before WORKER_SPAWNED existed (#55).
@@ -42,6 +44,40 @@ test('doctor lists an event the rules changed for, with its id and release, and 
   assert.equal(d.ok, true);
   const line = d.admittedThen.find((l) => l.startsWith('triage-spawn-merge-gates-1 '));
   assert.match(line, /^triage-spawn-merge-gates-1 \(TRIAGED\): admitted when written by harness 0\.1\.0@0b43582; today's rules: refused: .*agentEvents/);
+});
+
+// The ledgers as the Library filed them for the retired store's actors (session windows, SubagentStart records). Two
+// records were rewritten by a resume before #82 kept the first start (#50): aa493f167da2afc8f and a78cba7f1a72829a1.
+const LEDGER = fileURLToPath(new URL('./fixtures/dogfood-retired-ledger/', import.meta.url));
+const offline = async () => {
+  throw new Error('offline');
+};
+
+test('doctor on the retired store with its ledgers is clean: a rewritten start record yields to the recovered first start, which doctor lists', async () => {
+  const store = copyOf(RETIRED);
+  const d = await doctor(store, { now: lastAt(store), ledgers: LEDGER, fetcher: offline });
+  assert.deepEqual(d.problems, []);
+  assert.equal(d.ok, true);
+  const starts = d.recoveredStarts.join('\n');
+  for (const [agent, at, line] of [['aa493f167da2afc8f', '2026-10-27T18:52:55.991Z', 13449], ['a78cba7f1a72829a1', '2026-10-28T02:31:43.291Z', 18618]])
+    assert.ok(starts.includes(`2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/${agent} started ${at}`) && starts.includes(`sessions/session_01KfkB5JrJtRHxr12jv9nkHq/events.jsonl.gz line ${line}`), starts);
+});
+
+test('a recovered first start names its source, and without it the rewritten records still fail: no waiver', () => {
+  const rows = readFileSync(fileURLToPath(new URL('../scripts/history/recovered/dogfood.jsonl', import.meta.url)), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows.flatMap(validate), []);
+  for (const r of rows) {
+    assert.equal(r.event.type, 'AGENT_STARTED');
+    assert.equal(r.provenance.origin, 'recovered');
+    assert.match(r.provenance.from.ref, /^sessions\/session_\w+\/events\.jsonl\.gz$/);
+    assert.ok(r.provenance.from.line >= 1);
+  }
+  const store = copyOf(RETIRED);
+  const without = verifyActors(store, { dir: LEDGER, starts: [] }).filter((r) => r.result !== 'ok');
+  assert.deepEqual(without.map((r) => r.id.split('/')[1]).sort(), ['a78cba7f1a72829a1', 'aa493f167da2afc8f']);
+  // A recovered start only ever moves a window earlier: one later than the hook's record changes nothing.
+  const late = rows.map((r) => ({ ...r, at: '2026-10-28T03:50:00.000Z' }));
+  assert.equal(verifyActors(store, { dir: LEDGER, starts: late }).filter((r) => r.result !== 'ok').length, 2);
 });
 
 test('a corrupt store or a lost event stays a problem', async () => {
