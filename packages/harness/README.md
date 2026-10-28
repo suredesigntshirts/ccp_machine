@@ -10,7 +10,9 @@ for the person (`needsCriteria`, tagged `needs-human`) and only a cancel ends it
 the orchestrator nor a worker, sends `CRITERION_CHECKED {criterion, verdict, evidence}` per criterion; a new
 build clears them. An item with a verifier brief leaves verifying only when CI has passed and the verifier's
 verdict is recorded for the same head, in either order (spec workItem, `verifying`), so the verifier's checks
-count before the accept decision opens. The stand-in may approve accept only when every criterion is met with evidence from such a
+count before the accept decision opens. A FAIL verdict sends the item back to building, keeping its roles,
+workers and verifier brief hash, so the same builder reports its next round's run and a verifier with the
+same brief checks the new head (#83). The stand-in may approve accept only when every criterion is met with evidence from such a
 reviewer (`expectationsMet`); an unmet, unclear or missing check sends the accept to the person. Tier 0 still
 skips the plan and accept gates; that is acceptable for now because triage, not the filer, sets the tier.
 

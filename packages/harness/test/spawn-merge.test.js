@@ -157,10 +157,14 @@ test('MERGED is taken only for a head whose latest verdict is the verifier PASS'
   assert.match(stateOf(store), /verifying/, 'CI alone does not leave verifying: it waits for the verdict on its head (#71)');
   const merge = (sha) => ({ type: 'MERGED', sha, ...github() });
   taken(store, verdict('FAIL', SHA('a'), verifier));
-  assert.match(stateOf(store), /merging/, 'with the verdict in, tier 0 goes straight to merging');
-  assert.match(refused(store, merge(SHA('a')), 'item:a', 'the latest verdict is a FAIL').why, /unverifiedHead/);
+  assert.match(stateOf(store), /building/, 'a FAIL sends the item back to building (#83)');
+  refused(store, merge(SHA('a')), 'item:a', 'the latest verdict is a FAIL');
+  taken(store, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/1', ...builder });
+  taken(store, { type: 'CHECKS_PASSED', sha: SHA('a').slice(0, 7), ...github('o/r#1@' + SHA('a') + ':checks=success') });
   taken(store, verdict('PASS', SHA('a'), verifier));
+  assert.match(stateOf(store), /merging/, 'with the verdict in, tier 0 goes straight to merging');
   taken(store, verdict('FAIL', SHA('a'), verifier));
+  assert.match(refused(store, merge(SHA('a')), 'item:a', 'the latest verdict is a FAIL').why, /unverifiedHead/);
   refused(store, merge(SHA('a')), 'item:a', 'the latest verdict is a FAIL again');
   taken(store, verdict('PASS', SHA('a'), verifier));
   refused(store, merge(SHA('c')), 'item:a', 'a PASS on an older head');

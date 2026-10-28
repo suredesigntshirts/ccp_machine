@@ -110,6 +110,7 @@ const workers = {
   verdictOverreaches: ({ context, event: e }) =>
     !VERDICT_KINDS.includes(e.verdict) || !HEX(40).test(String(e.sha ?? '')) || !Number.isInteger(e.review) || !isText(e.text) || context.verifierBrief == null || !e.text.trimEnd().endsWith(context.verifierBrief),
   unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS',
+  verdictIs: ({ event }, { verdict }) => event.verdict === verdict,
   // verifying waits for both CI and the verdict on one head (#71). CI names its head by a short sha, a prefix of the verdict's.
   awaitsVerdict: ({ context: c, event: e }) => c.verifierBrief != null && !(String(e.sha ?? '').length >= 7 && Object.keys(c.verdicts ?? {}).some((s) => s.startsWith(e.sha))),
   awaitsChecks: ({ context: c, event: e }) => c.checksPassed == null || !e.sha.startsWith(c.checksPassed)
