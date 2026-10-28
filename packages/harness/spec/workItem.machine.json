@@ -58,6 +58,21 @@
           }
         ]
       }
+    ],
+    "REASK_UNDER_GRANT": [
+      {
+        "guard": {
+          "type": "fromOutside"
+        },
+        "description": "Sent by the harness, passing on the orchestrator's REASK_UNDER_GRANT once the person's live grant covers the decision; the same event from outside (any event with an actor) is refused. The item passes it to its open decision when that is the one named (forwardReask)."
+      },
+      {
+        "actions": [
+          {
+            "type": "forwardReask"
+          }
+        ]
+      }
     ]
   },
   "states": {

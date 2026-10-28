@@ -163,6 +163,11 @@ export const grantOf = (options, picks) => ({
 /** Whether grant g, at time `at`, covers a decision of class cls behind door: live (before until, if it has one), the class named, a one-way door only with the box. */
 export const grantCoversAt = (g, at, cls, door) =>
   g != null && typeof at === 'string' && (g.until == null || Date.parse(at) < Date.parse(g.until)) && (g.kinds ?? []).includes(cls) && (door === 'two-way' || g.oneWay === true);
+// A decision's id, as openDecision makes it (decision:<item>:<class>:<n>): its item, class and door.
+const decisionOf = (id) => {
+  const m = /^decision:(.+):([^:]+):\d+$/.exec(String(id ?? ''));
+  return m && { item: m[1], decisionClass: m[2], door: CLASSES[m[2]]?.door ?? 'one-way' };
+};
 // A grant in the person's words (spec harness PERSON_GRANTED): the checklist's kinds and box, and at most one end time after the event's own time.
 const MESSAGE_OPTIONS = grantOptions(null);
 const messageGrantOverreaches = ({ event: { picks, source, receivedAt } }) => {
@@ -251,6 +256,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
   const decisionMachine = setup({
     guards: {
       unattested: provenance.unattested,
+      fromOutside: provenance.fromOutside,
       ...cards,
       choiceNotOffered: ({ context, event }) => !context.options.includes(event.choice),
       holdsAnotherRole,
@@ -260,8 +266,9 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       // Tier from the item, autonomy and threshold from this decision's context, confidence from the stand-in.
       // An unknown tier is not below 2, and an accept decision needs the item's expectationsMet to be true.
       // The harness's one grant, read as the answer arrived, judged at the answer's own time; the answer's checks as for the ladder, plus a reason.
-      grantCovers: ({ context: c }) =>
-        grantCoversAt(c.grant, c.answeredAt, c.decisionClass, c.door) && isText(c.standIn.reason) && c.standIn.confidence >= c.threshold && (c.decisionClass !== 'accept' || c.expectationsMet === true),
+      // Its confidence does not count, except for an answer received before thresholdBefore, logged under the rule that needed it.
+      grantCovers: ({ context: c }, { thresholdBefore }) =>
+        grantCoversAt(c.grant, c.answeredAt, c.decisionClass, c.door) && isText(c.standIn.reason) && (!(Date.parse(c.answeredAt) < Date.parse(thresholdBefore)) || c.standIn.confidence >= c.threshold) && (c.decisionClass !== 'accept' || c.expectationsMet === true),
       standInMayDecide: ({ context: c }) =>
         typeof c.tier === 'number' && c.tier < 2 && c.autonomy === 'act' && c.standIn.confidence >= c.threshold && (c.decisionClass !== 'accept' || c.expectationsMet === true)
     },
@@ -279,6 +286,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       }),
       recordPersonChoice: assign({ choice: ({ event }) => event.choice, decidedBy: 'person' }),
       recordCard,
+      clearCard: assign({ card: null }),
       reportDecision: toParent(({ context }) => ({
         type: 'DECISION_MADE',
         choice: context.choice,
@@ -340,6 +348,9 @@ export function createMachines(sink = () => {}, { rung } = {}) {
             ...(params.gate === 'accept' && { expectationsMet: context.expectationsMet }), ...(rung && { autonomy: rung(params.gate) }) }
         });
       }),
+      forwardReask: enqueueActions(({ enqueue, context, event }) => {
+        if (context.decisionId && context.decisionId === event.decision) enqueue.sendTo(context.decisionId, { type: 'REASK_UNDER_GRANT' });
+      }),
       withdrawDecision: enqueueActions(({ enqueue, context }) => {
         if (context.decisionId) enqueue.stopChild(context.decisionId);
         enqueue.assign({ decisionId: null });
@@ -378,7 +389,12 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       messageGrantOverreaches,
       wipOutOfRange: ({ event: { limit } }, { min, max }) => !Number.isInteger(limit) || limit < min || limit > max,
       modeIs: ({ event }, params) => event.mode === params.mode,
-      inboxEmpty: ({ context }) => context.inbox.length === 0
+      inboxEmpty: ({ context }) => context.inbox.length === 0,
+      // The decision waits on the person, and the live grant covers its class and door at the event's own time.
+      grantMissesDecision: ({ context: c, event: e }) => {
+        const d = decisionOf(e.decision);
+        return !d || !c.inbox.includes(e.decision) || !grantCoversAt(c.grant, e.receivedAt, d.decisionClass, d.door);
+      }
     },
     actions: {
       // The orchestrator's id comes from here, never from the request or a report.
@@ -433,6 +449,12 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       // The harness holds one grant: the latest tap replaces it whole.
       recordGrant: assign({ grant: ({ event }) => event.grant }),
       recordMessageGrant: assign({ grant: ({ event }) => ({ message: event.source.ref, ...grantOf(MESSAGE_OPTIONS, event.picks), at: event.receivedAt ?? null }) }),
+      // Out of the inbox and back to the stand-in, through the decision's item.
+      reaskDecision: enqueueActions(({ enqueue, context, event, system }) => {
+        enqueue.assign({ inbox: context.inbox.filter((d) => d !== event.decision) });
+        const item = system.get(`item:${decisionOf(event.decision).item}`);
+        if (item) enqueue.sendTo(item, { type: 'REASK_UNDER_GRANT', decision: event.decision });
+      }),
       recordGrantDecision: assign({ granted: ({ context, event }) => [...(context.granted ?? []), event.row] }),
       addToInbox: assign({ inbox: ({ context, event }) => [...context.inbox, event.decisionId] }),
       removeFromInbox: assign({

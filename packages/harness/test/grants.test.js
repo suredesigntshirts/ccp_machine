@@ -159,13 +159,13 @@ test('under a live grant the stand-in decides a two-way door it names, on a fres
   assert.deepEqual([decision(store, merge).door, decision(store, merge).state], ['one-way', 'awaitingPerson']);
 });
 
-test('a grant decides nothing outside its kinds, without a reason, below the threshold, or on an unmet accept', () => {
+test('a grant decides nothing outside its kinds, without a reason, or on an unmet accept (its confidence does not matter: grant-decides.test.js)', () => {
   const store = fresh();
   grant(store, ask(store).address, ['kind:accept', until(8)]);
   const plan = itemAtPlan(store, 'p', 2, at(1));
   answer(store, plan, at(2));
   assert.equal(decision(store, plan).state, 'awaitingPerson', 'plan is not in the grant');
-  for (const [id, a] of [['q', { reason: null }], ['r', { confidence: 0.5 }]]) {
+  for (const [id, a] of [['q', { reason: null }]]) {
     const store2 = fresh();
     grant(store2, ask(store2).address, ['kind:plan', until(8)]);
     const d = itemAtPlan(store2, id, 1, at(1));
