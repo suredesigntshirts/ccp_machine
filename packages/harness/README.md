@@ -75,6 +75,16 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   design log) declares the event types and fields it reads instead of state fields, and `checkPage` holds it to the
   schema and, given rows, to that history. `test/history.test.js` checks all of it against the golden history,
   `test/fixtures/history-golden/events.jsonl`.
+- `scripts/history/`: tools that build the one history, outside the plugin and the runtime (tracer T, #65).
+  `extract-store.mjs <store dir> <archive ref>` (E1) reads a store's `events.jsonl` and prints each row as a
+  history row (provenance `migrated`, `from` the archive ref and the line) or, on stderr, a skip naming the line
+  and why. `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
+  per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
+  `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
+  and `report.json` lists the dropped rows, the conflicts and the rows the current code refuses. It writes
+  nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
+  Point them at a copy of a store, never the live one. `test/history-tracer.test.js` runs both on the golden
+  history and, when `HARNESS_DOGFOOD2_DIR` names a store, on a copy of it.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":
   the request (`request.expect` if given, else its title), triage's criteria each with its latest check,
   how it ended (state, CI, acceptance, PR),
