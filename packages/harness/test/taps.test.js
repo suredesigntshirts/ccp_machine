@@ -277,7 +277,7 @@ test('harness audit picks once a day through the machine and prints the card; th
   assert.equal(out.day, new Date().toISOString().slice(0, 10), 'the day is today\'s, in UTC');
   assert.match(out.card.question, /Did the stand-in call these 1 right\?/);
   assert.equal(out.card.address, out.address);
-  assert.deepEqual(Object.keys(out).sort(), ['address', 'card', 'day', 'effect', 'picks'], 'no derived posted or answered');
+  assert.deepEqual(Object.keys(out).sort(), ['address', 'card', 'day', 'effect', 'granted', 'picks'], 'no derived posted or answered');
   assert.equal(store.events().at(-1).event.type, 'AUDIT_PICKED');
   const again = JSON.parse(run(orch, 'audit', '--dir', store.dir).stdout);
   assert.equal(again.effect, out.effect, 'the same audit, not a second one');

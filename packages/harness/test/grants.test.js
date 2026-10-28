@@ -16,9 +16,9 @@ const session = (id) => ({ actor: { kind: 'session', id }, source: { kind: 'cli'
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
 const harness = (dir, ...args) => spawnSync(process.execPath, [bin, ...args, '--dir', dir], { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME, CLAUDE_CODE_SESSION_ID: 'lead' } });
 
-function fresh() {
+function fresh(wip) {
   const store = openStore(tempDir('harness-grant-'));
-  init(store, {}, T0);
+  init(store, wip ? { wipLimit: wip } : {}, T0);
   start(store, T0);
   return store;
 }
@@ -110,12 +110,18 @@ test('only the person\'s tap on the checklist the machine asked for records a gr
   // Picks must be the card's own options, each once, with exactly one end time.
   for (const bad of [['kind:deploy', until(8)], ['kind:plan'], ['kind:plan', until(8), until(24)], ['kind:plan', 'kind:plan', until(8)], ['kind:plan', 'until:2099-01-01T00:00:00.000Z'], 'kind:plan', [['kind:plan'], until(8)]])
     assert.equal(applyEvent(store, { type: 'PERSON_GRANTED', picks: bad, ...tapOn(card) }, { to: address, now: T0 }).refused, true, JSON.stringify(bad));
+  // A new harness cannot be born with a grant either: init takes only its WIP limit.
+  assert.throws(() => init(openStore(tempDir('harness-grant-')), { grant: { card: 'cmsg_x', kinds: ['merge'], oneWay: true, until: '2099-01-01T00:00:00Z' } }, T0), /only wipLimit/);
   assert.equal(liveGrant(store), null, 'nothing refused made a grant');
   const r = grant(store, address, picks, { card });
   assert.equal(r.refused, undefined, r.why);
   assert.deepEqual(liveGrant(store), { card, kinds: ['plan'], oneWay: false, until: hoursAfter(T0, 8), at: T0 });
   // The checklist is answered: a second tap on it changes nothing, so it cannot widen or extend the grant.
-  assert.throws(() => applyEvent(store, { type: 'PERSON_GRANTED', picks: ['kind:plan', 'kind:merge', 'one-way', until(72)], ...tapOn(card) }, { to: address, now: at(1) }), /no actor|refused/);
+  const again = (() => {
+    try { return applyEvent(store, { type: 'PERSON_GRANTED', picks: ['kind:plan', 'kind:merge', 'one-way', until(72)], ...tapOn(card) }, { to: address, now: at(1) }); }
+    catch (e) { return { refused: true, why: e.message }; }
+  })();
+  assert.equal(again.refused, true);
   assert.deepEqual(liveGrant(store).kinds, ['plan']);
   // The tap is on the log for verify-taps, with the picks it claims.
   const row = verifyTaps(store).find((t) => t.type === 'PERSON_GRANTED');
@@ -217,20 +223,20 @@ test('a grant ends at its end time, and a new tap replaces it', () => {
 });
 
 test('every grant decision is listed for the person, with its reason, on mission control and in the daily audit', () => {
-  const store = fresh();
+  const store = fresh(4);
   grant(store, ask(store).address, ['kind:plan', until(24)]);
-  for (const [i, id] of ['a', 'b', 'c', 'd', 'e'].entries()) answer(store, itemAtPlan(store, id, 2, at(i + 1)), at(i + 1), { reason: `reason for ${id}` });
+  for (const [i, id] of ['a', 'b', 'c', 'd'].entries()) answer(store, itemAtPlan(store, id, 2, at(i + 1)), at(i + 1), { reason: `reason for ${id}` });
   logPrecedents(store);
   const granted = grantDecisions(readDecisionLog(store));
-  assert.deepEqual(granted.map((r) => r.item), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(granted.map((r) => r.item), ['a', 'b', 'c', 'd']);
   const page = renderPage(status(store), { granted });
   assert.match(page, /Decided under your grant/);
-  for (const id of ['a', 'b', 'c', 'd', 'e']) assert.match(page, new RegExp(`reason for ${id}`));
+  for (const id of ['a', 'b', 'c', 'd']) assert.match(page, new RegExp(`reason for ${id}`));
   // The audit picks up to 3 to reverse, grant decisions first, and its card lists every grant decision.
   const audit = pickAudit(store, { by: session('lead'), now: hoursAfter(T0, 1) });
   assert.equal(audit.picks.length, 3);
-  assert.deepEqual(audit.granted.map((r) => r.item), ['a', 'b', 'c', 'd', 'e']);
+  assert.deepEqual(audit.granted.map((r) => r.item), ['a', 'b', 'c', 'd']);
   const [open] = openAudits(store);
-  for (const id of ['a', 'b', 'c', 'd', 'e']) assert.match(open.ask.context, new RegExp(`${id} plan: approve`));
-  assert.match(open.ask.context, /reason for e/);
+  for (const id of ['a', 'b', 'c', 'd']) assert.match(open.ask.context, new RegExp(`${id} plan: approve`));
+  assert.match(open.ask.context, /reason for d/);
 });

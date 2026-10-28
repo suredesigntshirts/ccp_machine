@@ -73,6 +73,9 @@ export function tryRestore(store) {
 }
 
 export function init(store, input = {}, now = new Date().toISOString()) {
+  // A new harness takes only its WIP limit: everything else in its context (the orchestrator, the person's grant) comes from events.
+  const extra = Object.keys(input ?? {}).filter((k) => k !== 'wipLimit');
+  if (extra.length) throw new Error(`init takes only wipLimit, not ${extra.join(', ')}: the rest of the harness comes from events (a grant only from the person's tap)`);
   return store.withLock(() => {
     if (store.read()) throw new Error(`a harness already exists in ${store.dir}`);
     const actor = restore(null, input, () => {}).start();
@@ -141,8 +144,8 @@ export function apply(store, event, { to, id, now = new Date().toISOString() } =
   });
 }
 
-// Effects that ask the host to post a card, and where the card's decision or audit lives.
-const CARD_EFFECTS = ['postDecisionCard', 'postAuditCard'];
+// Effects that ask the host to post a card, and where the card's decision, audit or grant checklist lives.
+const CARD_EFFECTS = ['postDecisionCard', 'postAuditCard', 'postGrantCard'];
 export const cardAddress = (e) => e.detail?.address || e.subject;
 
 /**
@@ -182,7 +185,7 @@ export function status(store) {
         id: did,
         address: `${id}/${did}`,
         state: valueText(d.snapshot.value),
-        ...pick(d.snapshot.context, ['decisionClass', 'tier', 'question', 'choice', 'decidedBy', 'autonomy', 'card']),
+        ...pick(d.snapshot.context, ['decisionClass', 'door', 'tier', 'question', 'choice', 'decidedBy', 'authority', 'autonomy', 'card']),
         standIn: d.snapshot.context.standIn ?? null
       }));
       return {

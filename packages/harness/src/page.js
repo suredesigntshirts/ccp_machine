@@ -77,15 +77,26 @@ function auditCardHtml(a) {
   <div class="m">Answer on the card in the thread, or: <code>harness send '{"type":"AUDIT_ANSWERED","option":0}' --to ${esc(a.address)} --actor person:&lt;you&gt; --source tap:${a.card ? esc(a.card) : '&lt;card-message-id&gt;'}</code> (option 0 all right, N reverses pick N)</div></div>`;
 }
 
+// The person's grant and every decision the stand-in made under one, newest first, each with its reason and how to undo it.
+function grantSection(grant, granted, now) {
+  if (!grant && !granted.length) return '';
+  const live = grant && Date.parse(now) < Date.parse(grant.until) && grant.kinds.length;
+  const line = !grant ? 'No grant now: the ladder alone decides.'
+    : `${live ? 'Your grant' : 'Your last grant (ended)'}: ${grant.kinds.length ? esc(grant.kinds.join(', ')) : 'nothing'}${grant.oneWay ? ', one-way doors included' : ', two-way doors only'}, until ${esc(time(grant.until))} UTC (card ${esc(grant.card)}).`;
+  const rows = [...granted].reverse().map((r) => `<tr><td class="m">${esc(time(r.at))}</td><td><b>${esc(r.item)}</b></td><td>${esc(r.decisionClass)} <span class="m">${esc(r.door ?? '')} door</span></td><td><b>${esc(r.choice)}</b> <span class="m">${esc(pct(r.standIn?.confidence))}</span></td><td>${esc(r.standIn?.reason ?? '')}</td><td class="m">To reverse, ask the lead to revise or cancel item:${esc(r.item)}${r.door === 'one-way' ? ' (a merge needs a revert)' : ''}.</td></tr>`).join('');
+  return `<section><h2>Decided under your grant</h2><p class="m">${line}</p>${rows ? `<div class="tablewrap"><table><thead><tr><th>At</th><th>Item</th><th>Class</th><th>Choice</th><th>Reason</th><th>Reverse</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">The stand-in has decided nothing under a grant.</div>'}</section>`;
+}
+
 /**
  * @param {object} st from status()
  * @param {{events?: object[], pending?: object[], title?: string, standalone?: boolean, itemLinks?: boolean}} opts
  *   itemLinks: link each item to items/<id>.html (written next to the page by `harness page`)
  *   metrics: {id: text} per item (attentionText); finished items show it as an Attention column
  *   audits: unanswered stand-in audits (openAudits); each is one ask under Needs you
+ *   granted: every decision the stand-in made under the person's grant (grantDecisions), listed with its reason to reverse
  *   requestBox: add the "Ask for work" form, which saves to the Artifact db (publish with capabilities {db: {}})
  */
-export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {}, requestBox = false, audits = [] } = {}) {
+export function renderPage(st, { events = [], pending = [], title = 'Mission control', standalone = false, itemLinks = false, metrics = {}, requestBox = false, audits = [], granted = [] } = {}) {
   const live = st.items.filter((i) => !i.done);
   const finished = st.items.filter((i) => i.done);
   const asks = [
@@ -121,6 +132,7 @@ export function renderPage(st, { events = [], pending = [], title = 'Mission con
 </div>
 ${requestBox ? REQUEST_BOX : ''}
 <section><h2>Needs you${itemLinks ? ' <a class="m" href="decisions.html">decision log</a>' : ''}</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>
+${grantSection(st.context.grant, granted, st.updatedAt)}
 <section><h2>In flight</h2>${live.length ? `<div class="tablewrap"><table>${head}<tbody>${rows(live)}</tbody></table></div>` : '<div class="empty">Nothing in flight.</div>'}</section>
 ${finished.length ? `<section><h2>Finished</h2><div class="tablewrap"><table>${finishedHead}<tbody>${rows(finished, true)}</tbody></table></div></section>` : ''}
 <section><h2>Host to-do</h2>${

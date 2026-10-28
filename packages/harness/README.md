@@ -36,7 +36,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   GitHub fact `harness from-github` read), and `DECISION_MADE` and `BUDGET_MODE` only from inside the
   harness. `TRIAGED` is refused from the requester, the orchestrator and every worker on the item, and
   `CRITERION_CHECKED` from the orchestrator and every worker. The trust model is below.
-- The stand-in's gate (`standInMayDecide`): each input has one supplier, and the stand-in's caller supplies
+- The stand-in's gate (`standInMayDecide`, the ladder rule; under the person's grant `grantCovers` decides first, see `spec/grant.machine.json` below): each input has one supplier, and the stand-in's caller supplies
   none of the rules. Tier is the item's, set by triage (`TRIAGED`), never by the request. For an accept
   decision, `expectationsMet` is the item's, worked out at its accept gate from the criteria checks. Autonomy is the
   ladder's rung for the class over the store's own decided decisions (its `logPrecedent` effects and
@@ -45,7 +45,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   constant in `decision.machine.json`'s context. Confidence is the stand-in's: `STAND_IN_ANSWERED` carries
   only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, and is
   refused from the orchestrator and from every worker that reported a run for the item, succeeded or failed
-  (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all five
+  (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all six
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version, and carries the spec's `schemaVersion` (harness `meta.store`); `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
@@ -149,7 +149,25 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   and acks the effect with its message id; the answer is the person's tap, `AUDIT_ANSWERED {option}` to
   `audit:<day>` (0 confirms all, N reverses pick N), bound to that card exactly as a decision's tap. The
   decision log reads the event, so calibration and the ladder get tested decisions. Doctor warns when a
-  class goes over 20 stand-in decisions unchecked.
+  class goes over 20 stand-in decisions unchecked. Decisions made under the person's grant are picked first,
+  and the card's context, like `harness audit`'s `granted`, lists every grant decision since the last audit
+  with its reason.
+- `spec/grant.machine.json`: the person's grant to the stand-in, which decision kinds it may decide alone and
+  until when. When the person asks, a session sends `GRANT_ASKED` to the harness, which opens `grant:<n>` with
+  a checklist the machine generates: `kind:<class>` for each class in the decision spec's `meta.classes`, the
+  one-way-door box `one-way`, and `until:<time>` for each of `meta.checklist.endsAfterHours` after the ask. A
+  new ask withdraws an unanswered one. `harness card` prints the checklist (`src/card.js`, `checklistFor`); the
+  host posts it and acks `postGrantCard` with its message id, and the person's ticks come back as one tap,
+  `PERSON_GRANTED {picks}`, taken only on that card and only with the card's own options and one end time. The
+  grant actor reports `GRANT_GIVEN` to the harness, which holds one grant (`context.grant`) and refuses
+  `GRANT_GIVEN` from outside: nothing else creates, widens or extends a grant, and a later tap replaces it
+  whole (no kind ticked ends it). Every decision carries its class's door (`meta.classes`: plan and accept are
+  two-way, merge one-way). The decision reads the harness's grant as the stand-in's answer arrives and decides
+  alone (`grantCovers`) only before the grant's end time, for a class it names, and for a one-way door only
+  with the box; the answer still needs a reason, the confidence threshold and, for accept, `expectationsMet`.
+  Outside the grant the ladder rule (`standInMayDecide`) applies as before. Which one decided is logged
+  (`authority`), and mission control's "Decided under your grant" lists every grant decision with its reason
+  and how to reverse it.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
   failed check `CHECKS_FAILED`, a merged PR `MERGED`, a PR closed unmerged `CANCEL`, each from actor github
@@ -187,8 +205,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
   stand-in answerers by actor, a session or an agent (a subagent), and refuses an event from an actor that
   already holds another role on it. Two subagents of one session are two actors, and neither is the session. The person and GitHub are exempt from roles; the person acts only by a tap on a card (below).
-- Cards (spec decision and audit): a card exists only because the machine asked for it. A decision in
-  `awaitingPerson` queues `postDecisionCard`, the day's audit `postAuditCard`. `src/card.js`:
+- Cards (spec decision, audit and grant): a card exists only because the machine asked for it. A decision in
+  `awaitingPerson` queues `postDecisionCard`, the day's audit `postAuditCard`, a grant ask `postGrantCard`
+  (a checklist, see the grant above). `src/card.js`:
   `harness card <effect-id>` turns either into `request_decision` arguments (approve, revise or drop, with
   the stand-in's lean recommended) plus the `address` and `choices`. The host posts the card, then acks
   the effect alone and once with the card's message id (`harness ack <effect> --card cmsg_...`; `--note` never
@@ -199,11 +218,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   i is `PERSON_DECIDED {choice: choices[i]}` (an audit's `AUDIT_ANSWERED {option: i}`) with
   `--actor person:<id> --source tap:<that message id>`; the machine refuses a tap before the card is
   posted, on another card or with an option the card did not offer (`tapUnbound`, `choiceNotOffered`,
-  `optionNotOffered`). A person actor, or a tap source, on any other event is refused by `apply()`
+  `optionNotOffered`, `picksNotOffered`). A person actor, or a tap source, on any other event is refused by `apply()`
   (`tapEvents`, the events whose machine guards the tap): the person triages, builds, checks and blocks
   nothing.
 - `src/verify-taps.js`: `harness verify-taps [--store DIR]` lists every tap in the log, one line per tap:
-  event id, time, the card's message id, the decision or audit it went to, the choice it claims, the
+  event id, time, the card's message id, the decision, audit or checklist it went to, the choice (or picks) it claims, the
   person, and the session that relayed it (`relayedBy`, from `$CLAUDE_CODE_SESSION_ID`; inside a session a
   tap without it is refused). It never writes, and a `--store` with no `events.jsonl` is an error (exit 2). The machine binds a
   tap to its card, but only the platform knows whether the person tapped that option: verify-taps output

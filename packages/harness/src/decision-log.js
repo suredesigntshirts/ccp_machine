@@ -52,9 +52,15 @@ function row(e) {
     choice: d.choice ?? null,
     decidedBy: d.decidedBy ?? null,
     standIn: d.standIn ?? null,
-    autonomy: d.autonomy ?? d.standIn?.autonomy ?? null
+    autonomy: d.autonomy ?? d.standIn?.autonomy ?? null,
+    door: d.door ?? null,
+    authority: d.authority ?? null,
+    grant: d.authority === 'grant' ? d.grant ?? null : null
   };
 }
+
+/** The decisions the stand-in made under the person's grant (authority grant), oldest first: each one the person may reverse. */
+export const grantDecisions = (rows) => rows.filter((r) => r.authority === 'grant' && r.decidedBy === 'stand-in');
 
 /** Acknowledge the pending logPrecedent effects: they are in the log already, as the outbox's own rows. */
 export function logPrecedents(store) {
