@@ -52,6 +52,19 @@ test('a field a page needs that the store no longer has fails, naming the page a
   assert.ok(problems.some((p) => /^mission-control: /.test(p) && p.includes('context.title')), problems.join('\n'));
 });
 
+test('the contract store holds a grant and a decision made under it, and a store without them fails naming the page', async () => {
+  const { store } = await sim();
+  const { grant, granted } = store.read().snapshot.context;
+  assert.ok(grant?.kinds?.length, 'the sim contract store has a live grant');
+  assert.ok(granted?.length && granted.every((r) => r.reason), 'and a decision made under it, with its reason');
+  for (const field of ['grant', 'granted']) {
+    const state = clone(store.read());
+    delete state.snapshot.context[field];
+    const problems = checkPage('mission-control', { state });
+    assert.ok(problems.some((p) => /^mission-control: /.test(p) && p.includes(`context.${field}`)), `${field}: ${problems.join('\n')}`);
+  }
+});
+
 test('a field the page reads that its needs file does not declare fails, naming the page and the field', async () => {
   const { store } = await sim();
   const needs = clone(loadNeeds('mission-control'));

@@ -125,6 +125,9 @@
               "params": {
                 "authority": "grant"
               }
+            },
+            {
+              "type": "reportGrantDecision"
             }
           ]
         },
@@ -146,7 +149,7 @@
           "target": "awaitingPerson"
         }
       ],
-      "description": "The stand-in decides alone under the person's grant (grantCovers) when the harness's grant, read as the answer arrived (readLiveGrant: the one grant the harness holds, so a replaced grant is gone), has not ended by the answer's own time (receivedAt, before until), names this decision's class, and, for a one-way door, has the one-way-door box; the answer carries a reason, its confidence is at or above the machine's threshold, and for an accept decision the item's expectationsMet was true when it opened. Tier and autonomy do not matter there. Otherwise, as before the grant (the ladder rule, standInMayDecide), it decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides. Which rule decided is recorded (authority: grant or ladder) and logged with the precedent, so every grant decision can be listed for the person."
+      "description": "The stand-in decides alone under the person's grant (grantCovers) when the harness's grant, read as the answer arrived (readLiveGrant: the one grant the harness holds, so a replaced grant is gone), has not ended by the answer's own time (receivedAt, before until), names this decision's class, and, for a one-way door, has the one-way-door box; the answer carries a reason, its confidence is at or above the machine's threshold, and for an accept decision the item's expectationsMet was true when it opened. Tier and autonomy do not matter there. Otherwise, as before the grant (the ladder rule, standInMayDecide), it decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides. Which rule decided is recorded (authority: grant or ladder) and logged with the precedent. A decision made under the grant also reports itself to the harness (DECIDED_UNDER_GRANT, reportGrantDecision) with its choice, confidence, reason and the grant's card, and the harness keeps the row in context.granted, the one list mission control and the daily audit show the person."
     },
     "awaitingPerson": {
       "description": "A decision card is in front of the person, with the stand-in's recommendation. The card is the one the machine asked for (postDecisionCard); its message id arrives with the ack (CARD_POSTED), and only a tap on it decides.",

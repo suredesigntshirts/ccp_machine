@@ -1,7 +1,7 @@
 {
   "page": "mission-control",
   "title": "Mission control",
-  "description": "What needs the person, what is in flight and where each item stands. The page reads one file, the store's state.json, and only the fields below (paths into the store's root, the harness snapshot and each child's snapshot; children are told apart by kinds, the spec machine ids). harness page --live renders it, and its refresh button reads the file again through the Artifact files capability.",
+  "description": "What needs the person, what is in flight, where each item stands, and the person's grant to the stand-in with every decision made under it (harness context.grant and context.granted). The page reads one file, the store's state.json, and only the fields below (paths into the store's root, the harness snapshot and each child's snapshot; children are told apart by kinds, the spec machine ids). harness page --live renders it, and its refresh button reads the file again through the Artifact files capability.",
   "reads": {
     "file": "state.json",
     "schemaVersion": {
@@ -26,7 +26,9 @@
       "context.wipLimit",
       "context.inFlight",
       "context.queued",
-      "children"
+      "children",
+      "context.grant",
+      "context.granted"
     ],
     "item": [
       "value",

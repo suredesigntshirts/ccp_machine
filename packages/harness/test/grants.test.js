@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { tempDir } from './tmp.js';
-import { apply, start, post } from './send.js';
-import { openStore, init, ack, status, apply as applyEvent, readDecisionLog, logPrecedents, grantDecisions, pickAudit, openAudits, renderPage, verifyTaps, specs } from '../src/index.js';
+import { apply, start, post, earn } from './send.js';
+import { openStore, init, ack, status, apply as applyEvent, readDecisionLog, logPrecedents, pickAudit, openAudits, renderPage, renderLivePage, verifyTaps, specs } from '../src/index.js';
 
 const T0 = '2026-10-28T10:00:00.000Z';
 const at = (minutes) => new Date(Date.parse(T0) + minutes * 6e4).toISOString();
@@ -222,15 +222,27 @@ test('a grant ends at its end time, and a new tap replaces it', () => {
   assert.deepEqual(liveGrant(s2).kinds, []);
 });
 
-test('every grant decision is listed for the person, with its reason, on mission control and in the daily audit', () => {
+test('every grant decision is listed for the person, with its reason, on live mission control, the full page and the daily audit', () => {
   const store = fresh(4);
   grant(store, ask(store).address, ['kind:plan', until(24)]);
   for (const [i, id] of ['a', 'b', 'c', 'd'].entries()) answer(store, itemAtPlan(store, id, 2, at(i + 1)), at(i + 1), { reason: `reason for ${id}` });
-  logPrecedents(store);
-  const granted = grantDecisions(readDecisionLog(store));
-  assert.deepEqual(granted.map((r) => r.item), ['a', 'b', 'c', 'd']);
-  const page = renderPage(status(store), { granted });
-  assert.match(page, /Decided under your grant/);
+  // The store keeps one compact row per grant decision in state.json, the file live mission control reads.
+  const granted = store.read().snapshot.context.granted;
+  assert.deepEqual(granted.map((r) => [r.item, r.decisionClass, r.door, r.choice, r.reason, r.card]), ['a', 'b', 'c', 'd'].map((id) => [id, 'plan', 'two-way', 'approve', `reason for ${id}`, liveGrant(store).card]));
+  assert.deepEqual(granted.map((r) => r.address), ['a', 'b', 'c', 'd'].map((id) => `item:${id}/decision:${id}:plan:1`));
+  // Only a decision the grant made writes a row: DECIDED_UNDER_GRANT from outside is refused.
+  for (const by of [session('lead'), tapOn('cmsg_x')])
+    assert.equal(applyEvent(store, { type: 'DECIDED_UNDER_GRANT', row: { item: 'forged' }, ...by }, { now: at(9) }).refused, true);
+  // Live mission control (harness page --live): the grant (kinds, the one-way box, until) and every row, with its reason and how to reverse it.
+  const live = renderLivePage(store.read(), { now: at(10) });
+  assert.match(live, /Decided under your grant/);
+  assert.match(live, /plan, two-way doors only, until 10-29 10:00 UTC/);
+  for (const id of ['a', 'b', 'c', 'd']) {
+    assert.match(live, new RegExp(`reason for ${id}`));
+    assert.match(live, new RegExp(`--to item:${id}`), `${id}: how to reverse it`);
+  }
+  // The full page (harness page) shows the same rows.
+  const page = renderPage(status(store));
   for (const id of ['a', 'b', 'c', 'd']) assert.match(page, new RegExp(`reason for ${id}`));
   // The audit picks up to 3 to reverse, grant decisions first, and its card lists every grant decision.
   const audit = pickAudit(store, { by: session('lead'), now: hoursAfter(T0, 1) });
@@ -239,4 +251,15 @@ test('every grant decision is listed for the person, with its reason, on mission
   const [open] = openAudits(store);
   for (const id of ['a', 'b', 'c', 'd']) assert.match(open.ask.context, new RegExp(`${id} plan: approve`));
   assert.match(open.ask.context, /reason for d/);
+  assert.match(open.ask.context, /mission control/, 'the card says where the full list is');
+});
+
+test('a decision the ladder made is not listed as a grant decision', () => {
+  const store = fresh();
+  earn(store, 'plan');
+  const plan = itemAtPlan(store, 'l', 1, at(1));
+  answer(store, plan, at(2));
+  assert.equal(status(store).items[0].state, 'active.building');
+  assert.equal(lastLogged(store).authority, 'ladder');
+  assert.deepEqual(store.read().snapshot.context.granted, []);
 });
