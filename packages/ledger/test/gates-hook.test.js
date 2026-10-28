@@ -243,7 +243,7 @@ test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite);
     'echo 7 | xargs gh pr merge --repo o/r'
   ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c); // not a gated form
   for (const c of [
-    'gh pr view $N', 'gh api repos/o/r/pulls/$N', 'gh api graphql -f query=\'query { viewer { login } }\'',
+    'gh pr view $N', 'gh api "repos/o/r/pulls/$N"','gh api graphql -f query=\'query { viewer { login } }\'',
     'gh pr create --title x --body y', 'gh api -X POST repos/o/r/issues/7/comments -f body=hi', 'curl -s https://api.github.com/repos/o/r',
     'git merge main', 'echo pr merge', 'gh --version'
   ]) assert.equal(hook(s, bashInput(c), enforce), null, c);
@@ -261,7 +261,11 @@ test('#64: the word merge in arguments, strings, jq filters or heredoc text is n
     "gh api repos/o/r/pulls/7 --jq '.merged'", 'gh pr view 7 --json mergeable,mergedAt', 'gh pr comment 7 --body "ready to merge once CI is green"',
     'echo "gh pr merge needs the verifier\'s PASS"', "printf '%s\\n' 'merge after review, gh says' 2>&1 | jq -R .",
     "cat <<EOF 2>/dev/null\nWe merge with gh pr merge after the PASS.\nEOF", 'gh issue create --title "gate reads merge as a word" --body "gh api ... merge"',
-    'curl -s https://api.github.com/repos/o/r/pulls/7 | jq .merged'
+    'curl -s https://api.github.com/repos/o/r/pulls/7 | jq .merged',
+    // Round 2 (review 5683080803): a bare argument that is just the word, and an endpoint named outside gh api's path.
+    'gh pr comment 7 --body merge', 'gh pr list --search merge', 'gh pr view 7 --json merge', 'gh issue comment 7 --body "endpoint is /merge"',
+    // A word the shell expands only after a literal start, in quotes, stays one word that cannot be a flag.
+    `gh api repos/o/r/commits/"$SHA"/check-runs`, 'gh pr view 7 --json files --jq ".files[] | {path}"', 'gh api "repos/o/r/pulls/$N" --jq .merged'
   ]) {
     const o = hook(s, bashInput(c), enforce);
     assert.equal(o, null, `${c}: ${JSON.stringify(o)}`);
@@ -279,7 +283,16 @@ test('#64: the word merge in arguments, strings, jq filters or heredoc text is n
     `bash <<'EOF'\ngh pr merge 7 --repo o/r ${pin}\nEOF`, `cat <<EOF\n$(gh pr merge 7 --repo o/r ${pin})\nEOF`, `cat <<'EOF'; gh pr merge 7 --repo o/r ${pin}\nbody\nEOF`,
     `node -e "require('child_process').execSync('gh pr merge 7 --repo o/r ${pin}')"`, `echo "gh api -X PUT repos/o/r/pulls/7/merge" | sh`,
     `gh api -X POST repos/o/r/merges -f base=main -f head=feat`, "gh alias set m 'pr merge'", `gh pr -R o/r merge 7 ${pin}`, `gh pr view 7 && gh pr merge 7 --repo o/r ${pin}`,
-    "node -e \"fetch('https://api.github.com/graphql', {method: 'POST', body: 'mutation { enablePullRequestAutoMerge }'})\""
+    "node -e \"fetch('https://api.github.com/graphql', {method: 'POST', body: 'mutation { enablePullRequestAutoMerge }'})\"",
+    // Round 2 (review 5683080803): a word bash rewrites before gh sees it is unreadable, like a variable. Brace
+    // expansion, tilde, globs (* ? [ and extglob), word splitting of an unquoted expansion, and a quoted expansion
+    // that may start with a dash (a flag), wherever they decide what gh, curl or wget does.
+    `gh pr {merge,} 7 --repo o/r ${pin}`, `gh pr m{e,}rge 7 --repo o/r ${pin}`, `gh pr {m,}erge 7 --repo o/r ${pin}`,
+    `gh api -X PUT repos/o/r/pulls/7/{merge,} -f sha=${HEAD}`, `gh api -X PUT repos/o/r/pulls/7/m{e,}rge -f sha=${HEAD}`,
+    `gh pr mer? 7 --repo o/r ${pin}`, `gh pr mer* 7 --repo o/r ${pin}`, `gh pr [m]erge 7 --repo o/r ${pin}`, `gh pr @(merge) 7 --repo o/r ${pin}`,
+    `gh pr ~merge 7 --repo o/r ${pin}`, `gh pr -R{,} o/r merge 7 ${pin}`, `gh api repos/o/r/pulls/7/m* -X PUT -f sha=${HEAD}`,
+    `gh api {-X,PUT} repos/o/r/pulls/7/m{e,}rge`, 'gh api repos/o/r/pulls/$N', 'gh api "$A" "$B"', `gh api "$P" -f sha=${HEAD}`,
+    'curl "$A" "$B"', 'curl {-XPUT,} https://api.github.com/repos/o/r/pulls/7/m{e,}rge', 'wget $W'
   ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c);
 });
 
