@@ -12,8 +12,9 @@
 //   (setsHarnessAgent). Every other command is left as it is.
 // - SubagentStart: files { sessionId, agentId, agentType, at } at
 //   $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json, which harness verify-actors checks, and binds
-//   the agent to the oldest spawn of its agent type that the spawn gate recorded for this session and the store took
-//   (WORKER_STARTED; spec workItem, Workers).
+//   the agent to the newest spawn of its agent type that the spawn gate recorded for this session and the store took,
+//   when that spawn is unbound (WORKER_STARTED; spec workItem, Workers; harness meta.invariants oneUnboundSpawn). The
+//   bind's result is added to the agent's record as bind { item, spawn, result }.
 // It does nothing unless the project has installed the harness (host.js), and on its own failure it prints
 // nothing and exits 0.
 import { createHash } from 'node:crypto';
@@ -33,11 +34,16 @@ try {
     if (session && agent && (await gate(1000)) === 'installed') {
       const dir = join(libraryDir(), 'ledger', 'sessions', session, 'agents');
       mkdirSync(dir, { recursive: true });
-      const tmp = join(dir, `.${agent}.${process.pid}.tmp`);
       const agentType = String(input.agent_type ?? '');
-      writeFileSync(tmp, JSON.stringify({ sessionId: session, agentId: agent, agentType, at: new Date().toISOString() }));
-      renameSync(tmp, join(dir, `${agent}.json`));
-      bind(session, agent, agentType, input.cwd);
+      const record = { sessionId: session, agentId: agent, agentType, at: new Date().toISOString() };
+      const file = (r) => {
+        const tmp = join(dir, `.${agent}.${process.pid}.tmp`);
+        writeFileSync(tmp, JSON.stringify(r));
+        renameSync(tmp, join(dir, `${agent}.json`));
+      };
+      file(record);
+      const bound = bind(session, agent, agentType, input.cwd);
+      if (bound) file({ ...record, bind: bound });
     }
   } else if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'Bash' && typeof command === 'string') {
     const sets = SETS.test(command);
@@ -60,18 +66,22 @@ try {
 }
 process.exit(0);
 
-// The spawn gate's records of this session's spawns that the store took, oldest first, not yet bound.
+// The spawn this agent belongs to is the session's newest spawn of its agent type that the store took: a session has
+// at most one waiting per type (spec harness meta.invariants oneUnboundSpawn), and one already bound means the agent
+// has no item role. The store judges the bind. Only a bind it takes is written on the spawn's record, so a refused
+// one never overwrites another agent's; the result goes on this agent's own record. Returns it, or null.
 function bind(session, agent, agentType, cwd) {
   const dir = callsDir(session);
-  let spawns = [];
+  let last;
   try {
-    spawns = readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => ({ f, r: JSON.parse(readFileSync(join(dir, f), 'utf8')) }))
-      .filter(({ r }) => r.kind === 'spawn' && r.recorded === true && !r.boundAgent && r.agentType === agentType)
-      .sort((a, b) => String(a.r.at).localeCompare(String(b.r.at)));
+    [last] = readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')))
+      .filter((r) => r.kind === 'spawn' && r.recorded === true && r.agentType === agentType)
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
   } catch {}
-  const [first] = spawns;
-  if (!first) return;
-  const call = writeCall(session, `start-${agent}`, { kind: 'start', agentId: null, agentType: null, item: first.r.item, agent: `${session}/${agent}` });
-  const r = runHarness(['send', JSON.stringify({ type: 'WORKER_STARTED', agent: `${session}/${agent}`, agentType }), '--to', `item:${first.r.item}`, '--id', `start-${agent}`], { session, call, cwd });
-  writeCall(session, first.r.toolUseId, { ...first.r, boundAgent: r.status === 0 ? `${session}/${agent}` : null, bindResult: r.out?.why ?? (r.status === 0 ? 'bound' : r.err) });
+  if (!last || last.boundAgent) return null;
+  const call = writeCall(session, `start-${agent}`, { kind: 'start', agentId: null, agentType: null, item: last.item, agent: `${session}/${agent}` });
+  const r = runHarness(['send', JSON.stringify({ type: 'WORKER_STARTED', agent: `${session}/${agent}`, agentType }), '--to', `item:${last.item}`, '--id', `start-${agent}`], { session, call, cwd });
+  const ok = r.status === 0 && !r.out?.refused;
+  if (ok) writeCall(session, last.toolUseId, { ...last, boundAgent: `${session}/${agent}`, bindResult: 'bound' });
+  return { item: last.item, spawn: last.toolUseId, result: ok ? 'bound' : r.out?.why ?? r.err };
 }

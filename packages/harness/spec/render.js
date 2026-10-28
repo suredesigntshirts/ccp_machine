@@ -50,7 +50,9 @@ function states(node, path = [], rows = []) {
   for (const [key, child] of Object.entries(node.states ?? {})) {
     const p = [...path, key];
     const tags = (child.tags ?? []).map((t) => `\`${t}\``).join(', ');
-    if (child.description || tags) rows.push(`- \`${p.join('.')}\`${tags ? ` (tags: ${tags})` : ''}${child.description ? `: ${child.description}` : ''}`);
+    // meta.waitsOn: the effect that stays pending while the actor is in this state; harness doctor flags it missing.
+    const waits = child.meta?.waitsOn ? ` (waits on a pending \`${child.meta.waitsOn}\`)` : '';
+    if (child.description || tags || waits) rows.push(`- \`${p.join('.')}\`${tags ? ` (tags: ${tags})` : ''}${waits}${child.description ? `: ${child.description}` : ''}`);
     states(child, p, rows);
   }
   return rows;

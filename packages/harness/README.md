@@ -98,7 +98,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
-  pending over a day, a lock older than 60s, a snapshot that will not restore), runs `verify-actors` and
+  pending over a day, a lock older than 60s, a snapshot that will not restore, an actor in a state whose spec
+  names `meta.waitsOn` with no such effect pending for it, such as a decision in `askingStandIn` whose
+  `askStandIn` was acked without its answer recorded), runs `verify-actors` and
   `verify-facts` (one async `doctor()`), lists every merged PR bound to an item whose merge head has no
   verifier PASS in the store or no PASS review on GitHub on that sha (`src/gates.js` `verifyMerges`), and
   exits 1 on a problem: a mismatch, a merge without its PASS, or a session's missing ledger for
@@ -176,7 +178,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   with the box; the answer still needs a reason and, for accept, `expectationsMet`, but not the confidence
   threshold: under a grant the person has said they trust the stand-in's judgement, so an answer honest about
   doubt decides like a sure one, and its confidence goes on the granted row. Only an answer received before the
-  guard's `thresholdBefore` (when #58 loosened the rule) keeps the threshold it was logged under, so replay
+  guard's `thresholdBefore` (when #58's looser rule went live, as PR #60 landed) keeps the threshold it was logged under, so replay
   routes an older log as it was routed. Outside the grant the ladder rule (`standInMayDecide`) applies as before,
   threshold included. A decision already waiting on the person goes back to the stand-in for a fresh answer when
   the live grant covers it: the orchestrator sends `REASK_UNDER_GRANT {decision: <decision id>}` to the harness,

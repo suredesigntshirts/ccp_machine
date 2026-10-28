@@ -12,11 +12,29 @@ import { verifyActors, verifyActorsText } from './verify-actors.js';
 import { verifyFacts, verifyFactsText } from './verify-facts.js';
 import { verifyMerges, verifyMergesText } from './gates.js';
 import { slowRefreshes, slowRefreshText } from './pages.js';
+import { specs } from './machines.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
 // The Stop hook files a session's ledger after its turn: until then, its missing ledger is not yet a problem.
 const LEDGER_GRACE_MS = 10 * 60_000;
+
+// Every actor in the snapshot that sits in a state whose spec names meta.waitsOn, with no pending effect of that
+// name for it (subject: its context.id): an actor waiting on an ask nobody holds.
+function waitingOnNothing(snapshot, pending, src = 'harness', path = []) {
+  const at = [];
+  const visit = (node, value, names) => {
+    for (const [k, v] of typeof value === 'string' ? [[value, null]] : Object.entries(value ?? {})) {
+      const child = node?.states?.[k];
+      if (child?.meta?.waitsOn && !pending.some((e) => e.name === child.meta.waitsOn && e.subject === snapshot.context?.id))
+        at.push(`${path.join('/') || 'harness'} is in ${[...names, k].join('.')} with no pending ${child.meta.waitsOn} effect (meta.waitsOn)`);
+      if (v) visit(child, v, [...names, k]);
+    }
+  };
+  if (snapshot.status === 'active') visit(specs[src], snapshot.value, []);
+  for (const [key, c] of Object.entries(snapshot.children ?? {})) if (c?.snapshot) at.push(...waitingOnNothing(c.snapshot, pending, c.src, [...path, c.systemId ?? key]));
+  return at;
+}
 
 /**
  * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers`,
@@ -45,6 +63,7 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   const outbox = store.outbox();
   const known = new Set(outbox.map((e) => e.id));
   for (const a of store.acks()) if (!known.has(a.effectId)) problems.push(`ack names unknown effect ${a.effectId}`);
+  if (state?.snapshot) problems.push(...waitingOnNothing(state.snapshot, store.pending()));
   for (const e of store.pending())
     if (now - Date.parse(e.at) > pendingMaxMs) problems.push(`effect ${e.id} (${e.name}) pending since ${e.at}`);
   const lock = join(store.dir, 'lock');
