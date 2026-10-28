@@ -3,6 +3,7 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { specs, referencedNames } from '../src/machines.js';
+import { HISTORY } from '../src/history.js';
 
 const asList = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 const safe = (s) => s.replace(/[^A-Za-z0-9_]/g, '_');
@@ -95,6 +96,8 @@ export function renderSpec() {
     const invariants = Object.entries(config.meta?.invariants ?? {});
     if (invariants.length)
       out.push('Host invariants (refused or denied outside the machines; every such site in the code names one of these or a guard):', '', ...invariants.map(([k, v]) => `- \`${k}\`: ${v}`), '');
+    // The host footer the merge gate and doctor tolerate after a verdict review (meta.reviewFooter).
+    if (config.meta?.reviewFooter) out.push(`Review footer (\`reviewFooter\`): ${JSON.stringify(config.meta.reviewFooter.text)}. ${config.meta.reviewFooter.description}`, '');
     // The store layout pages read (meta.store) and how pages refresh (meta.pages).
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
     if (config.meta?.pages)
@@ -111,6 +114,14 @@ export function renderSpec() {
     out.push(`Effects and context updates: ${[...names.actions].sort().map((n) => `\`${n}\``).join(', ')}`, '');
     out.push(`Guards: ${[...names.guards].sort().map((n) => `\`${n}\``).join(', ') || 'none'}`, '');
   }
+  // The one history's row format (history.schema.json): provenance, placeholders, event versions and fact identity.
+  const p = HISTORY.$defs.provenance.properties;
+  out.push(`## History (schema v${HISTORY.schemaVersion})`, '', HISTORY.description, '');
+  out.push(`Provenance: \`origin\` is one of ${p.origin.enum.map((o) => `\`${o}\``).join(', ')}. ${p.origin.description} \`from.source\` is one of ${HISTORY.$defs.from.properties.source.enum.map((s) => `\`${s}\``).join(', ')}. ${p.placeholders.description} ${HISTORY.$defs.legacy.description}`, '');
+  out.push(`Events: ${HISTORY.events.description}`, '');
+  out.push(...Object.entries(HISTORY.events.types).filter(([, d]) => d.required || d.description).map(([t, d]) => `- \`${t}\` v${d.v}${d.required ? `, needs ${d.required.map((f) => `\`${f}\``).join(', ')}` : ''}${d.description ? `: ${d.description}` : ''}`), '');
+  out.push(`Identity: ${HISTORY.identity.description}`, '');
+  out.push(...HISTORY.identity.rules.map((r) => `- ${r.fact} (${r.types.map((t) => `\`${t}\``).join(', ')}): key ${r.key.map((k) => `\`${k}\``).join(' + ')}, owner ${r.owner}. ${r.why}`), `- otherwise: key ${HISTORY.identity.otherwise.key.map((k) => `\`${k}\``).join(' + ')}. ${HISTORY.identity.otherwise.why}`, '');
   return out.join('\n');
 }
 

@@ -8,6 +8,7 @@ import { specs as SPECS } from './machines.js';
 import { CSS, wrapPage } from './page.js';
 import { rowsOf } from './intake.js';
 import { project, schemaProblem, renderShell, renderView, viewKeys } from './live.js';
+import { checkLogNeeds } from './history.js';
 
 const ROOT = new URL('../pages/', import.meta.url);
 export const PAGES = readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
@@ -78,9 +79,12 @@ function strictView(view, needs, reads) {
  * Everything that breaks `page`'s declared needs, each line starting with the page's name: a spec machine,
  * state or event it names that the spec does not have; a view state or event missing from its spec lists; and,
  * given a store's state.json, a schemaVersion outside its range, a declared field no row of its kind has, and a
- * read of a field it does not declare.
+ * read of a field it does not declare. A view that reads the one history (reads.file events.jsonl) declares event
+ * types and fields instead, and is held to history.schema.json and, given rows, to that history (checkLogNeeds).
  */
-export function checkPage(page, { state, specs = SPECS, needs = loadNeeds(page) } = {}) {
+export function checkPage(page, { state, history, specs = SPECS, needs = loadNeeds(page) } = {}) {
+  if (needs.reads.file === 'events.jsonl')
+    return [...(needs.page === page ? [] : [`${page}: pages/${page}/needs.json names page "${needs.page}"`]), ...checkLogNeeds(needs, history)];
   const out = [];
   const say = (msg) => out.push(`${page}: ${msg}`);
   const file = `pages/${page}/needs.json`;

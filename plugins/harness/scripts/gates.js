@@ -8,7 +8,8 @@
 //   by this session; the machine takes it or refuses it (no verifier brief yet, an edited verifier brief, ...), and a
 //   refused spawn is denied. A spawn with no role line is allowed and recorded nowhere: its agent can send no item
 //   event. A malformed or repeated role line, or a harness:builder or harness:verifier spawn without one, is denied
-//   (roleLine). SubagentStart (agent-actor.js) binds the started agent to the spawn.
+//   (roleLine). SubagentStart (agent-actor.js) binds the started agent to the spawn; its input does not name the Agent
+//   call, so a second spawn of an agent type while one waits for its agent is refused and denied (oneUnboundSpawn).
 // - Merge: the PR must be bound to an item (mergeBound), the call must pin the head sha (pinnedHead), the item's
 //   machine must take MERGED of that head (its verifier's PASS), and the PR must carry the PASS as a review on that
 //   sha (reviewOnHead): `harness merge-gate` answers. A Bash call is read into the simple commands it runs (commands):
@@ -72,6 +73,7 @@ process.exit(0);
 // Every deny names its rule (a guard or a host invariant), through host.js deny().
 function denyFor(rule, why) {
   if (rule === 'roleLine') return deny('roleLine', why);
+  if (rule === 'oneUnboundSpawn') return deny('oneUnboundSpawn', why);
   if (rule === 'mergeBound') return deny('mergeBound', why);
   if (rule === 'pinnedHead') return deny('pinnedHead', why);
   if (rule === 'reviewOnHead') return deny('reviewOnHead', why);

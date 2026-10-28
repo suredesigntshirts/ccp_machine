@@ -88,9 +88,12 @@ export const expectationsMet = ({ context: c }) =>
 const HEX = (n) => new RegExp(`^[0-9a-f]{${n}}$`);
 const SPAWN_ROLES = ['builder', 'verifier', 'triager', 'stand-in'];
 const VERDICT_KINDS = ['PASS', 'FAIL'];
-// The unbound spawn a starting agent belongs to: the sender's oldest of that agent type, at most withinMs old.
+// The unbound spawn a starting agent belongs to: the sender's oldest of that agent type, not closed, at most withinMs old.
 const spawnToBind = ({ context: c, event: e }, withinMs) =>
-  (c.spawns ?? []).find((s) => !s.agent && s.by === e.actor?.id && s.agentType === e.agentType && Date.parse(e.receivedAt) - Date.parse(s.at) <= withinMs);
+  (c.spawns ?? []).find((s) => !s.agent && !s.closed && s.by === e.actor?.id && s.agentType === e.agentType && Date.parse(e.receivedAt) - Date.parse(s.at) <= withinMs);
+// The sender's unbound, unclosed spawn with the event's toolUseId (SPAWN_CLOSED).
+const spawnToClose = ({ context: c, event: e }) =>
+  e.toolUseId ? (c.spawns ?? []).find((s) => !s.agent && !s.closed && s.by === e.actor?.id && s.toolUseId === e.toolUseId) : undefined;
 const workers = {
   briefOverreaches: ({ context, event }) => context.verifierBrief != null || !HEX(64).test(String(event.sha256 ?? '')),
   spawnOverreaches: ({ event: e }) => !SPAWN_ROLES.includes(e.role) || !HEX(64).test(String(e.briefSha256 ?? '')) || !isText(e.agentType) || (e.model != null && typeof e.model !== 'string'),
@@ -103,9 +106,13 @@ const workers = {
     const [sid, aid, ...more] = String(e.agent ?? '').split('/');
     return sid !== e.actor?.id || !aid || more.length || (c.spawns ?? []).some((s) => s.agent === e.agent) || !spawnToBind(args, withinMs);
   },
+  noSpawnToClose: (args) => !spawnToClose(args),
   verdictOverreaches: ({ context, event: e }) =>
     !VERDICT_KINDS.includes(e.verdict) || !HEX(40).test(String(e.sha ?? '')) || !Number.isInteger(e.review) || !isText(e.text) || context.verifierBrief == null || !e.text.trimEnd().endsWith(context.verifierBrief),
-  unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS'
+  unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS',
+  // verifying waits for both CI and the verdict on one head (#71). CI names its head by a short sha, a prefix of the verdict's.
+  awaitsVerdict: ({ context: c, event: e }) => c.verifierBrief != null && !(String(e.sha ?? '').length >= 7 && Object.keys(c.verdicts ?? {}).some((s) => s.startsWith(e.sha))),
+  awaitsChecks: ({ context: c, event: e }) => c.checksPassed == null || !e.sha.startsWith(c.checksPassed)
 };
 const workerActions = {
   recordVerifierBrief: assign({ verifierBrief: ({ event }) => event.sha256 }),
@@ -121,6 +128,13 @@ const workerActions = {
       return args.context.spawns.map((x) => (x === s ? { ...x, agent: args.event.agent } : x));
     }
   }),
+  closeSpawn: assign({
+    spawns: (args) => {
+      const s = spawnToClose(args);
+      return args.context.spawns.map((x) => (x === s ? { ...x, closed: args.event.receivedAt } : x));
+    }
+  }),
+  recordChecksPassed: assign({ checksPassed: ({ event }) => String(event.sha ?? '') }),
   recordVerdict: assign({ verdicts: ({ context, event: e }) => ({ ...context.verdicts, [e.sha]: { verdict: e.verdict, review: e.review, by: e.actor.id, at: e.receivedAt } }) })
 };
 
@@ -330,7 +344,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       recordTriage: assign(({ context, event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {}, triagers: asSession(context.triagers, event.actor) })),
       recordCheck: assign(({ context, event: e }) => ({ checks: { ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }, checkers: asSession(context.checkers, e.actor) })),
       recordAnswerer: assign({ answerers: ({ context, event }) => [...new Set([...(context.answerers ?? []), event.by])] }),
-      clearChecks: assign({ checks: {} }),
+      clearChecks: assign({ checks: {}, checksPassed: null }),
       recordExpectations: assign((_, params) => ({ expectationsMet: params.met })),
       recordRun: assign({ runs: ({ context }) => context.runs + 1, retries: 0 }),
       recordWorker: assign({ workers: ({ context, event }) => [...new Set([...(context.workers ?? []), event.actor?.id].filter(Boolean))] }),

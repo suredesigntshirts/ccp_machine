@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { openStore, init, giveVerdict, mergeGate, verifyMerges, verdictOf, doctor } from '../src/index.js';
 import { apply, start } from './send.js';
 import { tempDir } from './tmp.js';
+import { readFileSync } from 'node:fs';
+import { specs } from '../src/machines.js';
 
 const LEAD = 'sim-orchestrator';
 const cli = { kind: 'cli', ref: 'harness send' };
@@ -17,16 +19,17 @@ const OLD = 'c'.repeat(40);
 const PR = 'https://github.com/o/r/pull/7';
 const ok = (r, label) => assert.ok(!r.refused, `${label}: ${r.why}`);
 
-// Item x, tier 0, built on PR o/r#7 by a session worker, its verifier spawned and bound, CI green: merging.
-function merging() {
+// Item x, tier 0, built on PR o/r#7 by a session worker, its verifier spawned and bound, CI green: verifying until the
+// verdict (#71), merging once it is in.
+function merging(brief = BRIEF) {
   const store = openStore(tempDir('harness-verdict-'));
   init(store);
   start(store);
   ok(apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'x' }, ...lead }), 'request');
   ok(apply(store, { type: 'TRIAGED', tier: 0, criteria: ['it works'] }, { to: 'item:x' }), 'triage');
-  ok(apply(store, { type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF, ...lead }, { to: 'item:x' }), 'brief');
+  ok(apply(store, { type: 'VERIFIER_BRIEF_FIXED', sha256: brief, ...lead }, { to: 'item:x' }), 'brief');
   ok(apply(store, { type: 'RUN_SUCCEEDED', pr: PR }, { to: 'item:x' }), 'run');
-  ok(apply(store, { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: BRIEF, agentType: 'harness:verifier', ...lead }, { to: 'item:x' }), 'spawn');
+  ok(apply(store, { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: brief, agentType: 'harness:verifier', ...lead }, { to: 'item:x' }), 'spawn');
   ok(apply(store, { type: 'WORKER_STARTED', agent: `${LEAD}/v1`, agentType: 'harness:verifier', ...lead }, { to: 'item:x' }), 'start');
   ok(apply(store, { type: 'CHECKS_PASSED', actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: 'ci' } }, { to: 'item:x' }), 'ci');
   return store;
@@ -89,7 +92,7 @@ test('merge-gate: bound, pinned, the machine takes MERGED of the head, and the P
   assert.deepEqual((await gate(PR, 'abc')).rule, 'pinnedHead', 'a short head');
   const none = await gate(PR, HEAD);
   assert.deepEqual([none.allow, none.rule], [false, 'machine']);
-  assert.match(none.why, /unverifiedHead/);
+  assert.match(none.why, /in active\.verifying/, 'no verdict yet: the item still waits in verifying (#71)');
   await give(store, gh, 'FAIL\nbroken');
   assert.match((await gate(PR, HEAD)).why, /unverifiedHead/, 'a FAIL');
   await give(store, gh, 'PASS\nfixed', OLD);
@@ -119,4 +122,54 @@ test('doctor lists a merged PR whose merge head has no verifier PASS in the stor
   assert.deepEqual((await verifyMerges(store, { fetcher: github().fetcher })), [], 'an open PR is not audited');
   const down = await doctor(store, { ledgers: tempDir('harness-ledgers-'), fetcher: async () => { throw new Error('HTTP 502'); } });
   assert.ok(down.unverifiable.some((l) => /^merges: unreachable o\/r#7/.test(l)));
+});
+
+// #61: GitHub holds a verdict review as the stored text plus the host's footer (harness meta.reviewFooter). The real
+// case: review 5680229689 on #60 at d7799a5, and the VERDICT_GIVEN row the store held for it.
+const real = JSON.parse(readFileSync(new URL('./fixtures/github/review-5680229689.json', import.meta.url), 'utf8'));
+// Item x passed at the real head with the real stored verdict; GitHub (merged at that head) holds `review`.
+function passedReal(review) {
+  const v = real.verdict;
+  const store = merging(/Brief-Sha256: (\w{64})$/.exec(v.text)[1]);
+  ok(apply(store, { type: 'VERDICT_GIVEN', verdict: v.verdict, sha: v.sha, pr: PR, text: v.text, review: v.review, ...agent('v1') }, { to: 'item:x' }), 'the stored verdict');
+  const fetcher = async (path) => {
+    if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return [review];
+    if (path === 'repos/o/r/pulls/7') return { number: 7, merged: true, head: { sha: v.sha } };
+    throw new Error(`HTTP 404 ${path}`);
+  };
+  return { gate: () => mergeGate(store, { pr: PR, sha: v.sha }, { fetcher }), audit: async () => (await verifyMerges(store, { fetcher }))[0] };
+}
+
+test('#61: the real review 5680229689 is the stored verdict followed by exactly the spec\'s review footer', () => {
+  assert.equal(real.review.body, real.verdict.text + specs.harness.meta.reviewFooter.text);
+});
+
+test('#61: the merge gate and doctor accept review 5680229689 as GitHub holds it (the #60 refusal)', async () => {
+  const { gate, audit } = passedReal(real.review);
+  const yes = await gate();
+  assert.equal(yes.allow, true, yes.why);
+  assert.equal((await audit()).result, 'ok', (await audit()).why);
+  const plain = passedReal({ ...real.review, body: real.verdict.text });
+  assert.equal((await plain.gate()).allow, true, 'the verdict verbatim, with no footer');
+  assert.equal((await plain.audit()).result, 'ok');
+});
+
+test('#61: the merge gate and doctor refuse any other difference from the stored verdict', async () => {
+  const { text } = real.verdict;
+  const footer = specs.harness.meta.reviewFooter.text;
+  const cases = {
+    'changed verdict text': { body: text.replace('PASS', 'PASS!') + footer },
+    'a different Brief-Sha256': { body: text.replace(/Brief-Sha256: \w+/, `Brief-Sha256: ${'0'.repeat(64)}`) + footer },
+    'another review id': { id: real.review.id + 1 },
+    'another sha': { commit_id: 'e'.repeat(40) },
+    'text added after the footer': { body: `${text}${footer}\nand more` },
+    'another footer': { body: `${text}\n\n---\n_Generated by something else_` },
+    'the footer twice': { body: text + footer + footer },
+    'not COMMENTED': { state: 'APPROVED' }
+  };
+  for (const [label, change] of Object.entries(cases)) {
+    const { gate, audit } = passedReal({ ...real.review, ...change });
+    assert.equal((await gate()).rule, 'reviewOnHead', label);
+    assert.equal((await audit()).result, 'problem', label);
+  }
 });
