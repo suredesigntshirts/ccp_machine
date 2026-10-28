@@ -2,7 +2,7 @@
   "page": "flow-replay",
   "title": "Flow replay",
   "description": "Every event in time order, stepped through the machines, so the person can watch an item move from request to the end. Reads every row's envelope; payloads are shown as logged (V2).",
-  "reads": { "file": "events.jsonl", "historySchema": { "min": 1, "max": 1 } },
+  "reads": { "file": "events.jsonl", "schemaVersion": { "min": 1, "max": 1 } },
   "events": {
     "*": ["id", "version", "at", "to", "actor", "source", "event.type", "provenance.origin", "provenance.from.source"]
   }

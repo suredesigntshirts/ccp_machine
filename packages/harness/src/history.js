@@ -133,7 +133,7 @@ export function dedupe(rows) {
 export function checkLogNeeds(needs, rows) {
   const out = [];
   const say = (m) => out.push(`${needs.page}: ${m}`);
-  const range = needs.reads.historySchema;
+  const range = needs.reads.schemaVersion;
   if (HISTORY.schemaVersion < range.min || HISTORY.schemaVersion > range.max) say(`reads history schema ${range.min}..${range.max}, and history.schema.json is ${HISTORY.schemaVersion}`);
   for (const type of Object.keys(needs.events)) if (type !== '*' && !HISTORY.events.types[type]) say(`reads ${type}, which history.schema.json does not declare`);
   if (!rows) return out;

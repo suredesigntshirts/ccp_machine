@@ -61,7 +61,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
 - `pages/<page>/needs.json`, `src/pages.js` and `src/live.js`: the page needs contract. A page declares in its needs
-  file the one store file it reads (`reads.file`, mission control's is `state.json`), the `schemaVersion` range it
+  file the one file it reads (`reads.file`, mission control's is `state.json`), the `schemaVersion` range it
   understands, the fields it reads (paths into the store root, the harness snapshot and each child snapshot, the
   children told apart by spec machine id), and the spec states and events it names. `project()` copies only those
   fields; the renderer sees nothing else. `harness page --live --project chan_... --files-path <store path in the
@@ -76,6 +76,18 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   fixture) and fails naming the page and the missing piece: a spec state or event a page names, a field no row of
   its kind has, a field the renderer reads that the needs file does not declare, or a view state missing from the
   needs spec list.
+- The ledger page (`pages/ledger/needs.json`, #89) is the same live page over the one history instead of a store:
+  `harness page --live --page ledger --dir <history> --files-path <its path in the Library>` reads the history's
+  `events.jsonl` (such as `scripts/history/join.mjs` writes) and shows, by item, the spawns (role, model), starts
+  and runs, the usage samples, and in a corner each source's rows and the placeholders among the fields it reads,
+  counted and never shown as values. Its needs file declares the fields of each event type it reads and the spec
+  machines that take those types; `projectLog()` copies only those fields. The Refresh button, the timing row (its
+  `storeVersion` is the history's row count, `bytes` its size), the trend and `harness doctor --refreshes` are
+  mission control's. A history with a row whose `schemaVersion` (history.schema.json; absent means `absentMeans`)
+  is outside the page's `reads.schemaVersion`, or a file that is not a history, shows the red banner and no data.
+  `test/ledger-page.test.js` builds a history with the current code (`contractHistory`: the sim's contract store
+  through `extract-store.mjs` and `join.mjs`), renders it and the golden history and checks every count the page
+  shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
@@ -145,10 +157,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
   file, an empty title or a page over 1 MB, and saves screenshots to `--shots` (default a temp folder,
-  never the Library). It also renders live mission control from a sim-built store and, with a stand-in for the
-  Artifact runtime, presses Refresh: the page must not read the store or record anything before the press, must
-  re-render and record one timing row with the store version after it, and must show the red banner and no table
-  for a store whose `schemaVersion` it does not read. CI runs it and uploads the shots.
+  never the Library). It also renders live mission control from a sim-built store and the live ledger from that
+  store as a history and, with a stand-in for the Artifact runtime, presses Refresh on each: the page must not read
+  its file or record anything before the press, must re-render and record one timing row with the size it rendered
+  after it, and must show the red banner and no table for data whose `schemaVersion` it does not read. CI runs it
+  and uploads the shots.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
   log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.

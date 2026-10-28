@@ -363,7 +363,7 @@ Store: `schemaVersion` 1. The layout of a store's state.json. Every write record
 
 Closing effects (`closes`): A machine closes its own pending effects: an action may ask the runtime to close the pending effects of one subject by name (closeEffects). workItem's withdrawDecision asks for it, with its params closes, when it stops a decision that has not decided: the item leaves the gate on any event but that decision's own DECISION_MADE (a decided decision's ask is acked by its answer). runtime.apply writes an ack for each such effect still pending, outcome withdrawn, its note naming the subject and the event that withdrew it, in the same write as the event; it queues no effect for it. Nothing else closes an effect but the host's ack.
 
-Pages: a refresh slower than 3000 ms is flagged; rows go to `refreshes`. A page refreshes only when a viewer presses its refresh button: nothing refreshes on a schedule or without a viewer. Each refresh is timed from the press to the rendered page and recorded as one row in the Artifact db collection refreshCollection ({page, at, ms, storeVersion, schemaVersion, bytes, ok}); the page shows the recent rows, and harness doctor --refreshes flags a row slower than refreshSlowMs.
+Pages: a refresh slower than 3000 ms is flagged; rows go to `refreshes`. A page refreshes only when a viewer presses its refresh button: nothing refreshes on a schedule or without a viewer. Each refresh is timed from the press to the rendered page and recorded as one row in the Artifact db collection refreshCollection ({page, at, ms, storeVersion, schemaVersion, bytes, ok}; for a page that reads the history, storeVersion is its row count and schemaVersion its rows' layout, history.schema.json); the page shows the recent rows, and harness doctor --refreshes flags a row slower than refreshSlowMs.
 
 ```mermaid
 stateDiagram-v2
@@ -426,6 +426,8 @@ Guards: `auditOverreaches`, `fromOutside`, `grantMissesDecision`, `inboxEmpty`, 
 ## History (schema v1)
 
 One row of the one history (epic #59): today's event envelope plus where the row came from (provenance). Every row from every era (main, dogfood, dogfood2, sessions, GitHub, the live runtime) has this shape. A field that could not be recovered holds a legacy placeholder, never an invented value, and provenance.placeholders lists its path. Rows are never edited: a format change adds an event version and a declared conversion. src/history.js reads this file; nothing restates it.
+
+Row layout: a row's `schemaVersion`, absent means 1. The history schema the row was written in (schemaVersion above). A row without one was written before the field and is at absentMeans. A page that reads the history declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a history with a row outside it, shows a red banner naming the mismatch and no data.
 
 Provenance: `origin` is one of `live`, `migrated`, `recovered`. live: the runtime wrote it into this history. migrated: copied from an older store, upcast. recovered: reconstructed from a session transcript, GitHub or the Library, where no store recorded it. `from.source` is one of `store`, `session`, `github`, `library`, `artifact`. Paths in this row (actor, harness, event.sha, ...) that hold a legacy placeholder. Exactly those, no more and no fewer. A placeholder for a value that could not be recovered.
 

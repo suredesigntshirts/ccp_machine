@@ -31,4 +31,4 @@ export { verifyTaps, verifyTapsText } from './verify-taps.js';
 export { giveVerdict, mergeGate, verifyMerges, verifyMergesText, verdictOf, restPost } from './gates.js';
 export { verifyHead, SIM_HEAD, SIM_BRIEF, contractStore } from './sim.js';
 export { PAGES, loadNeeds, checkPage, renderLivePage, slowRefreshes, slowRefreshText, STORE_LAYOUT, PAGE_RULES } from './pages.js';
-export { project, schemaProblem, renderView } from './live.js';
+export { project, schemaProblem, renderView, parseLog, projectLog, renderLedger, formatOf } from './live.js';
