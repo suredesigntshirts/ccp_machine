@@ -21,7 +21,8 @@ version and commit, a Stop hook that files each turn's ledger into the Library, 
 pane. All stay quiet in projects without the install marker. The folder is the plugin as installed. See
 [its README](plugins/harness/README.md).
 
-**`infra/cloud-environment`.** The environment's setup script. See [its README](infra/cloud-environment/README.md).
+**`infra/cloud-environment`.** The environment's setup script and the SessionStart hook script that
+redoes its per-session steps. See [its README](infra/cloud-environment/README.md).
 
 ## Commands
 
