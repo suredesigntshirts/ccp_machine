@@ -99,7 +99,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore), runs `verify-actors` and
-  `verify-facts` (one async `doctor()`), and exits 1 on a problem: a mismatch, or a session's missing ledger for
+  `verify-facts` (one async `doctor()`), lists every merged PR bound to an item whose merge head has no
+  verifier PASS in the store or no PASS review on GitHub on that sha (`src/gates.js` `verifyMerges`), and
+  exits 1 on a problem: a mismatch, a merge without its PASS, or a session's missing ledger for
   an event 10 minutes old or more. What cannot be checked yet (GitHub unreachable, a ledger not filed for a
   session that acted under 10 minutes ago) is listed as `unverifiable`, exit 0.
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
@@ -187,10 +189,20 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   branch that does not name the item (see the branch form under Use). A CI result must name the PR's head by its full
   40-character sha (no sha or a short one is refused) and the head's combined check-run conclusion must agree
   (more runs than one page, `total_count` over the runs returned, is pending); MERGED needs `merged: true`
-  and an existing merge commit; CANCEL needs the PR closed and not merged, after the same checks. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
+  and an existing merge commit, and names the head GitHub merged (`sha`), which the item's machine takes only
+  when its verifier's latest verdict on that head is PASS; CANCEL needs the PR closed and not merged, after the same checks. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
   `owner/repo#N:merged@<merge sha>`, `owner/repo#N` for a close). If GitHub disagrees or cannot be read, it refuses with the reason and
   writes nothing. `harness send` refuses `--actor github` and `--source github-wake`.
   `HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness` also reads the real PR #21.
+- `src/gates.js`: the verifier's verdict and the merge gate (spec workItem, Workers). `harness verdict FILE
+  --to item:<id> --pr PR --sha SHA`, run by the verifier subagent, reads PASS or FAIL from the file's first
+  line, asks the machine first (a dry run: `apply(..., {dryRun: true})`), posts the text verbatim as a
+  COMMENT review on the PR at that head sha (`commit_id`), ending with the item's verifier brief sha256, and
+  sends the same verdict as `VERDICT_GIVEN` from its agent actor. A verdict the machine would refuse is never
+  posted. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with
+  403, measured 2026-10-27.) `harness merge-gate --pr PR --sha SHA` is the plugin merge gate's question: the
+  PR bound to an item, the head pinned, the item's machine taking `MERGED` of that head, and the PASS on
+  GitHub as that review on that sha; it exits 1 naming the rule, and never writes.
 - `src/verify-facts.js`: `harness verify-facts [--store DIR]` re-reads GitHub for every github-wake event in
   the log and prints one line per fact: `ok`, `mismatch` (GitHub does not back the ref now: other checks, not
   merged at that commit, a commit not on the PR, or a PR that is not the item's own) or `unreachable`. It
@@ -244,7 +256,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - The GitHub read checks CI and merges: `from-github` applies them only when GitHub's REST API says the same, for the item's own PR, and `send` cannot claim GitHub.
 - Local checks stop mistakes, not a hostile session. Code that runs inside a session can be forged by that session: a fake `gh` first on its PATH, an edited `github-read.js`, or a direct `apply()` with any ref. Nothing more is done locally against that. The check is `harness verify-facts`, which re-reads every GitHub fact in the log from GitHub, run afterwards from outside the session.
 - A session's id is the platform's: `harness` takes `session:<id>` from `CLAUDE_CODE_SESSION_ID` and refuses an `--actor session:<id>` that differs (outside Claude Code, with no variable set, it takes the flag as given). A session can still set the variable or call `apply()` itself, so `harness verify-actors` checks every session id in the log against the platform's ledger afterwards.
-- A subagent is an actor of its own: agent `<session_id>/<agent_id>`. Its Bash calls see its parent's environment, `CLAUDE_CODE_SESSION_ID` included; only hook input tells them apart (measured on Claude Code 2.1.311: a subagent's PreToolUse and SubagentStart carry `agent_id` and `agent_type`, the parent's PreToolUse neither). The plugin's PreToolUse hook (`plugins/harness/scripts/agent-actor.js`) exports `HARNESS_AGENT=<agent_id>:<agent_type>`, read-only, ahead of a subagent's command that names harness, and denies any command, the parent's included, that sets `HARNESS_AGENT` itself; the CLI then records the agent, and refuses `--actor session:<id>` or another agent for a subagent, and `--actor agent:...` for a session. Its SubagentStart hook files the record `harness verify-actors` checks agents against. As with sessions, this stops mistakes, not a hostile session: a command that hides the variable from the hook's text check (built by `eval`, or `env -i`) can still forge an agent, and verify-actors cannot tell one real subagent of a session from another.
+- A subagent is an actor of its own: agent `<session_id>/<agent_id>`. Its Bash calls see its parent's environment, `CLAUDE_CODE_SESSION_ID` included; only hook input tells them apart (measured on Claude Code 2.1.311: a subagent's PreToolUse and SubagentStart carry `agent_id` and `agent_type`, the parent's PreToolUse neither). The plugin's PreToolUse hook (`plugins/harness/scripts/agent-actor.js`) exports `HARNESS_AGENT=<agent_id>:<agent_type>`, read-only, ahead of a subagent's command that names harness, and denies any command, the parent's included, that sets `HARNESS_AGENT` itself; the CLI then records the agent, and refuses `--actor session:<id>` or another agent for a subagent, and `--actor agent:...` for a session. Its SubagentStart hook files the record `harness verify-actors` checks agents against. Before that, the hook records the call (`$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/calls/<tool_use_id>.json`: session, agent_id, tool_use_id, command hash, time, the sha256 of a fresh key, and whether the hook's own environment has `HARNESS_ENFORCE=1`), for the parent's harness calls too, and every Bash call under `HARNESS_ENFORCE=1`, and exports `HARNESS_CALL=<tool_use_id>:<key>` beside it. The CLI believes an actor only with that key and only when the record names that session and agent, so a variable-built or obfuscated `HARNESS_AGENT`, or an id a command writes itself, records nothing. A call recorded under `HARNESS_ENFORCE=1` marks its store enforced (`enforced.json`, naming the Library of the records); an enforced store takes a write only from a recorded call, and the CLI never reads `HARNESS_ENFORCE`, so a command that clears or overrides it, unsets `HARNESS_CALL` or `CLAUDE_CODE_SESSION_ID`, or points `HARNESS_LIBRARY_DIR` elsewhere writes nothing (spec harness `meta.invariants` `hookSawCall`). What this does not stop: a process that writes the Library's or the store's files directly (every session runs as the same user), and verify-actors cannot tell one real subagent of a session from another.
+- Worker spawns and merges pass through the machine (spec workItem, Workers). The plugin's spawn gate records an item-role spawn (the brief's line `Harness-Role: <role> item:<id>`) as `WORKER_SPAWNED` before the Agent call runs, and its SubagentStart hook binds the agent to it; a builder spawn is refused until `VERIFIER_BRIEF_FIXED`, a verifier spawn whose brief hash differs from it is refused, and an agent sends only the events its role on the addressed item allows (harness `meta.agentEvents`: a triager `TRIAGED`, a builder `RUN_SUCCEEDED` and `RUN_FAILED`, a verifier `CRITERION_CHECKED` and `VERDICT_GIVEN`, a stand-in, spawned while a decision is open, `STAND_IN_ANSWERED`), so an agent with no role, or on another item, sends nothing. The merge gate asks `harness merge-gate` before `mcp__github__merge_pull_request` and before a Bash call that is exactly one gated form (`gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`); any other Bash call naming `merge` with `gh`, `curl`, `wget`, `api` or `graphql` is denied without parsing it, and a GitHub write built from variables, a `gh` alias or extension, or a GraphQL mutation is denied too (`readableGitHubWrite`). Under `HARNESS_ENFORCE=1` both deny, naming the rule; without it they only record. A program that calls GitHub's API itself (a script in node or python) is not read, so each gate leaves a record another session audits: the spawn in the store and the call record, and `harness doctor`'s check of every merged PR against its verifier's PASS.
 - A tap is bound to the card the machine asked for: its ref must be the message id recorded from the ack of
   that decision's or audit's own card effect, and its choice one of the card's options. That the person
   really tapped it is checked only afterwards, against the platform: `harness verify-taps`, by another
@@ -271,6 +284,10 @@ harness verify-taps --store .harness   # later, from another session: check each
 harness from-github wake.txt        # CI and merges: the wake's text, applied once GitHub agrees
 harness verify-facts --store .harness  # later, from outside: re-read every GitHub fact in the log
 harness verify-actors --store .harness # later: every session in the log has a ledger covering its events
+# the lead fixes the verifier's brief before spawning a builder (sha256 of the exact Agent prompt)
+harness send "{\"type\":\"VERIFIER_BRIEF_FIXED\",\"sha256\":\"$(sha256sum < verifier-brief.md | cut -d' ' -f1)\"}" --to item:a
+harness verdict verdict.md --to item:a --pr <PR url> --sha <head sha>   # the verifier's: review + VERDICT_GIVEN
+harness merge-gate --pr <PR url> --sha <head sha>   # may it merge now (the plugin's merge gate asks this)
 harness effects                     # what the host still has to do
 harness ack e3.0 --note "dispatched"   # any other effect: a note, no card
 harness page --standalone           # .harness/mission-control.html

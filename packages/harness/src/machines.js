@@ -84,6 +84,46 @@ export const expectationsMet = ({ context: c }) =>
     return v?.verdict === 'met' && isText(v.evidence) && v.by != null && v.by !== c.orchestrator && !(c.workers ?? []).includes(v.by);
   });
 
+// Workers (spec workItem, Workers): spawns recorded by the lead, bound to their agent when it starts, and verdicts.
+const HEX = (n) => new RegExp(`^[0-9a-f]{${n}}$`);
+const SPAWN_ROLES = ['builder', 'verifier', 'triager', 'stand-in'];
+const VERDICT_KINDS = ['PASS', 'FAIL'];
+// The unbound spawn a starting agent belongs to: the sender's oldest of that agent type, at most withinMs old.
+const spawnToBind = ({ context: c, event: e }, withinMs) =>
+  (c.spawns ?? []).find((s) => !s.agent && s.by === e.actor?.id && s.agentType === e.agentType && Date.parse(e.receivedAt) - Date.parse(s.at) <= withinMs);
+const workers = {
+  briefOverreaches: ({ context, event }) => context.verifierBrief != null || !HEX(64).test(String(event.sha256 ?? '')),
+  spawnOverreaches: ({ event: e }) => !SPAWN_ROLES.includes(e.role) || !HEX(64).test(String(e.briefSha256 ?? '')) || !isText(e.agentType) || (e.model != null && typeof e.model !== 'string'),
+  roleNotHere: ({ event }, { roles }) => !roles.includes(event.role),
+  agentTypeIsNot: ({ event }, types) => event.role in types && event.agentType !== types[event.role],
+  noVerifierBrief: ({ context }) => context.verifierBrief == null,
+  briefDiffers: ({ context, event }) => event.role === 'verifier' && (context.verifierBrief == null || event.briefSha256 !== context.verifierBrief),
+  noSpawnToBind: (args, { withinMs }) => {
+    const { context: c, event: e } = args;
+    const [sid, aid, ...more] = String(e.agent ?? '').split('/');
+    return sid !== e.actor?.id || !aid || more.length || (c.spawns ?? []).some((s) => s.agent === e.agent) || !spawnToBind(args, withinMs);
+  },
+  verdictOverreaches: ({ context, event: e }) =>
+    !VERDICT_KINDS.includes(e.verdict) || !HEX(40).test(String(e.sha ?? '')) || !Number.isInteger(e.review) || !isText(e.text) || context.verifierBrief == null || !e.text.trimEnd().endsWith(context.verifierBrief),
+  unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS'
+};
+const workerActions = {
+  recordVerifierBrief: assign({ verifierBrief: ({ event }) => event.sha256 }),
+  recordSpawn: assign({
+    spawns: ({ context, event: e }) => [...(context.spawns ?? []), {
+      role: e.role, briefSha256: e.briefSha256, agentType: e.agentType, model: e.model ?? null, toolUseId: e.toolUseId ?? null,
+      definition: e.definition ?? null, harness: e.harness ?? null, by: e.actor.id, at: e.receivedAt, agent: null
+    }]
+  }),
+  bindSpawn: assign({
+    spawns: (args, { withinMs }) => {
+      const s = spawnToBind(args, withinMs);
+      return args.context.spawns.map((x) => (x === s ? { ...x, agent: args.event.agent } : x));
+    }
+  }),
+  recordVerdict: assign({ verdicts: ({ context, event: e }) => ({ ...context.verdicts, [e.sha]: { verdict: e.verdict, review: e.review, by: e.actor.id, at: e.receivedAt } }) })
+};
+
 // Who sent an event. runtime.apply() takes only events with an actor and a source; the machines send each
 // other events without them. These guards are the refusing first transition of an event (true refuses).
 // They check kinds, that a ref is there and that ids differ. from-github reads a GitHub ref's fact from GitHub
@@ -253,6 +293,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     actors: { decision: decisionMachine },
     guards: {
       ...provenance,
+      ...workers,
       holdsAnotherRole,
       reportedByOrchestrator: ({ context, event }) => !context.orchestrator || event.actor?.id === context.orchestrator,
       triagedByParty: ({ context: c, event }) => !c.orchestrator || !event.actor?.id || [c.requester, c.orchestrator, ...(c.workers ?? [])].includes(event.actor?.id),
@@ -270,6 +311,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     },
     actions: {
       recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
+      ...workerActions,
       recordTriage: assign(({ context, event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {}, triagers: asSession(context.triagers, event.actor) })),
       recordCheck: assign(({ context, event: e }) => ({ checks: { ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }, checkers: asSession(context.checkers, e.actor) })),
       recordAnswerer: assign({ answerers: ({ context, event }) => [...new Set([...(context.answerers ?? []), event.by])] }),

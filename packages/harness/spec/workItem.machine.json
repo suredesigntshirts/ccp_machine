@@ -1,7 +1,7 @@
 {
   "id": "workItem",
   "version": "0.1.0",
-  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. The request names the work (id, project, title, what the person expects in their own words) and nothing the machine holds: tier and criteria come from TRIAGED, sent by a triager who is not the requester, the orchestrator or a worker, and nothing leaves triage before it. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); every worker that reports a run, succeeded or failed, is recorded (workers), and both ids go to every decision the item opens, so neither can answer as the stand-in. Each criterion is checked by CRITERION_CHECKED from an actor who is neither the orchestrator nor a worker; the stand-in may approve accept only when expectationsMet holds, and a new build clears the checks. A tier, once triage sets it, never goes down: a re-triage after a revise may keep or raise it. Tier 0 still has no plan or accept gate. That is acceptable for now because the tier comes from triage, not from the filer. CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.\n\nRoles: the item records who played each part, by actor: its requester (REQUEST_RECEIVED), triagers (TRIAGED), workers (RUN_SUCCEEDED, RUN_FAILED), criterion checkers (CRITERION_CHECKED) and stand-in answerers (STAND_IN_ANSWERED on any of its decisions, which the decision reports up as STAND_IN_RECORDED). One actor plays one part on an item: an event whose actor already holds a different role there is refused (holdsAnotherRole), so the triager cannot build, check or answer, a worker cannot triage, check or answer, a checker cannot build or answer, and the stand-in cannot triage, build or check. Each decision the item opens takes the roles as they stand. Roles are held by the worker actors, sessions and agents (harness meta.actors), compared by the whole actor: a subagent is agent <session_id>/<agent_id>, so two subagents of one session are distinct from each other and from their parent session, and the lead's triager, builder and checker subagents can play different parts. The person and GitHub are exempt: they are never recorded or compared. A session id is the platform's: the CLI takes CLAUDE_CODE_SESSION_ID and refuses an --actor session:<id> that differs; for a subagent it takes the agent from the plugin's PreToolUse hook (HARNESS_AGENT) and refuses any --actor session or other agent. harness verify-actors checks every session in the log against the Stop hook's ledger and every agent against the SubagentStart hook's record.",
+  "description": "One thing moving through the pipeline: a change to one project of the monorepo, from request to merge. Runs and merges happen outside the machine; their results come back as events on later wakes. The request names the work (id, project, title, what the person expects in their own words) and nothing the machine holds: tier and criteria come from TRIAGED, sent by a triager who is not the requester, the orchestrator or a worker, and nothing leaves triage before it. Run results come from a worker other than the orchestrator, whose id the harness passes in (orchestrator); every worker that reports a run, succeeded or failed, is recorded (workers), and both ids go to every decision the item opens, so neither can answer as the stand-in. Each criterion is checked by CRITERION_CHECKED from an actor who is neither the orchestrator nor a worker; the stand-in may approve accept only when expectationsMet holds, and a new build clears the checks. A tier, once triage sets it, never goes down: a re-triage after a revise may keep or raise it. Tier 0 still has no plan or accept gate. That is acceptable for now because the tier comes from triage, not from the filer. CI and merge results come only from GitHub wakes, which from-github applies only after GitHub's REST API agrees. The machine checks actor and source kinds, that a ref is there, and that ids differ; who the sessions are is checked afterwards against the platform.\n\nRoles: the item records who played each part, by actor: its requester (REQUEST_RECEIVED), triagers (TRIAGED), workers (RUN_SUCCEEDED, RUN_FAILED), criterion checkers (CRITERION_CHECKED) and stand-in answerers (STAND_IN_ANSWERED on any of its decisions, which the decision reports up as STAND_IN_RECORDED). One actor plays one part on an item: an event whose actor already holds a different role there is refused (holdsAnotherRole), so the triager cannot build, check or answer, a worker cannot triage, check or answer, a checker cannot build or answer, and the stand-in cannot triage, build or check. Each decision the item opens takes the roles as they stand. Roles are held by the worker actors, sessions and agents (harness meta.actors), compared by the whole actor: a subagent is agent <session_id>/<agent_id>, so two subagents of one session are distinct from each other and from their parent session, and the lead's triager, builder and checker subagents can play different parts. The person and GitHub are exempt: they are never recorded or compared. A session id is the platform's: the CLI takes CLAUDE_CODE_SESSION_ID and refuses an --actor session:<id> that differs; for a subagent it takes the agent from the plugin's PreToolUse hook (HARNESS_AGENT) and refuses any --actor session or other agent. harness verify-actors checks every session in the log against the Stop hook's ledger and every agent against the SubagentStart hook's record.\n\nWorkers: the lead spawns its builder, verifier and triager subagents through the plugin's spawn gate, and each spawn is an event on the item (WORKER_SPAWNED, sent by the spawning session) recording the role, the sha256 of the brief, the agent type, the model, the agent definition and the harness version; the plugin's SubagentStart hook binds the new agent to it (WORKER_STARTED), and the agent actor (#33) is recorded on the spawn. A triager is taken while the item is triaging, a builder while it is building, a verifier once it is built. Before any builder is spawned the verifier's brief is fixed by its hash (VERIFIER_BRIEF_FIXED, once), so it cannot be written after reading the builder's report: a builder spawn is refused until then, and a verifier spawn whose brief hash differs from the fixed one is refused. A stand-in is spawned the same way while a decision is open. What an agent may send at all is one allow-list by its role on the item (harness meta.agentEvents): a triager TRIAGED, a builder RUN_SUCCEEDED and RUN_FAILED, a verifier CRITERION_CHECKED and VERDICT_GIVEN, a stand-in STAND_IN_ANSWERED on the item's decisions; an agent spawned with no role, or bound to another item, sends nothing. The verifier's verdict is VERDICT_GIVEN (PASS or FAIL for one head sha, the text posted verbatim as a COMMENT review on that sha, ending with the verifier brief's sha256), and MERGED is taken only for a head whose latest verdict is PASS. The host's own checks around these (the call record behind an agent actor, the role line of a brief, the store being reachable, the merge pinning its head and the review being on GitHub) are named in harness meta.invariants.",
   "initial": "active",
   "context": {
     "id": "",
@@ -20,7 +20,10 @@
     "requester": null,
     "triagers": [],
     "checkers": [],
-    "answerers": []
+    "answerers": [],
+    "verifierBrief": null,
+    "spawns": [],
+    "verdicts": {}
   },
   "on": {
     "CANCEL": {
@@ -70,7 +73,65 @@
               "type": "checkpoint"
             }
           ]
-        }
+        },
+        "VERIFIER_BRIEF_FIXED": [
+          {
+            "guard": {
+              "type": "unattested",
+              "params": {
+                "actor": [
+                  "session"
+                ]
+              }
+            },
+            "description": "Refused unless a session sends it: the lead fixes the verifier's brief; a subagent cannot."
+          },
+          {
+            "guard": {
+              "type": "briefOverreaches"
+            },
+            "description": "Refused unless sha256 is 64 lowercase hex characters and the item has no verifier brief yet: the hash is fixed once, so a later brief cannot replace it."
+          },
+          {
+            "actions": [
+              {
+                "type": "recordVerifierBrief"
+              }
+            ]
+          }
+        ],
+        "WORKER_STARTED": [
+          {
+            "guard": {
+              "type": "unattested",
+              "params": {
+                "actor": [
+                  "session"
+                ]
+              }
+            },
+            "description": "Refused unless a session sends it: the plugin's SubagentStart hook binds the agent as the session that spawned it."
+          },
+          {
+            "guard": {
+              "type": "noSpawnToBind",
+              "params": {
+                "withinMs": 300000
+              }
+            },
+            "description": "Refused unless agent is <session_id>/<agent_id> of the sending session, bound to no spawn of this item yet, and the sender recorded a spawn of agentType here that is unbound and at most withinMs old; the oldest such spawn is bound."
+          },
+          {
+            "actions": [
+              {
+                "type": "bindSpawn",
+                "params": {
+                  "withinMs": 300000
+                }
+              }
+            ]
+          }
+        ]
       },
       "states": {
         "queued": {
@@ -185,6 +246,53 @@
                   }
                 ]
               }
+            ],
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "triager"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is triager: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
+              },
+              {
+                "guard": {
+                  "type": "agentTypeIsNot",
+                  "params": {
+                    "builder": "harness:builder",
+                    "verifier": "harness:verifier"
+                  }
+                },
+                "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
             ]
           }
         },
@@ -290,6 +398,43 @@
                   }
                 ]
               }
+            ],
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "stand-in"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is stand-in: while the plan decision is open, only the stand-in that answers it is spawned."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
             ]
           },
           "exit": [
@@ -382,6 +527,59 @@
                   }
                 ]
               }
+            ],
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "builder"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is builder: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
+              },
+              {
+                "guard": {
+                  "type": "agentTypeIsNot",
+                  "params": {
+                    "builder": "harness:builder",
+                    "verifier": "harness:verifier"
+                  }
+                },
+                "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
+              },
+              {
+                "guard": {
+                  "type": "noVerifierBrief"
+                },
+                "description": "Refused while the item has no verifier brief hash (VERIFIER_BRIEF_FIXED): the verifier's brief is fixed before any builder is spawned, so it cannot be written after reading the builder's report."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
             ]
           }
         },
@@ -466,6 +664,83 @@
                 "actions": [
                   {
                     "type": "recordCheck"
+                  }
+                ]
+              }
+            ],
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "verifier"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is verifier: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
+              },
+              {
+                "guard": {
+                  "type": "agentTypeIsNot",
+                  "params": {
+                    "builder": "harness:builder",
+                    "verifier": "harness:verifier"
+                  }
+                },
+                "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
+              },
+              {
+                "guard": {
+                  "type": "briefDiffers"
+                },
+                "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
+            ],
+            "VERDICT_GIVEN": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "agent"
+                  }
+                },
+                "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
+              },
+              {
+                "guard": {
+                  "type": "verdictOverreaches"
+                },
+                "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordVerdict"
                   }
                 ]
               }
@@ -599,6 +874,84 @@
                   }
                 ]
               }
+            ],
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "verifier",
+                      "stand-in"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is verifier or stand-in: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built, and a stand-in while a decision of the item is open."
+              },
+              {
+                "guard": {
+                  "type": "agentTypeIsNot",
+                  "params": {
+                    "builder": "harness:builder",
+                    "verifier": "harness:verifier"
+                  }
+                },
+                "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
+              },
+              {
+                "guard": {
+                  "type": "briefDiffers"
+                },
+                "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
+            ],
+            "VERDICT_GIVEN": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "agent"
+                  }
+                },
+                "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
+              },
+              {
+                "guard": {
+                  "type": "verdictOverreaches"
+                },
+                "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordVerdict"
+                  }
+                ]
+              }
             ]
           },
           "exit": [
@@ -680,6 +1033,84 @@
                   }
                 ]
               }
+            ],
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "verifier",
+                      "stand-in"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is verifier or stand-in: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built, and a stand-in while a decision of the item is open."
+              },
+              {
+                "guard": {
+                  "type": "agentTypeIsNot",
+                  "params": {
+                    "builder": "harness:builder",
+                    "verifier": "harness:verifier"
+                  }
+                },
+                "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
+              },
+              {
+                "guard": {
+                  "type": "briefDiffers"
+                },
+                "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
+            ],
+            "VERDICT_GIVEN": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "agent"
+                  }
+                },
+                "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
+              },
+              {
+                "guard": {
+                  "type": "verdictOverreaches"
+                },
+                "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordVerdict"
+                  }
+                ]
+              }
             ]
           },
           "exit": [
@@ -707,12 +1138,95 @@
                 "description": "Refused unless a merge comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
+                "guard": {
+                  "type": "unverifiedHead"
+                },
+                "description": "Refused unless sha is the head merged and the item's latest verdict for that sha is the verifier's PASS: no verdict, a FAIL, or a PASS on an older head is not taken. The merge gate asks this before a merge call runs; harness doctor lists a merged PR without it."
+              },
+              {
                 "target": "#workItem.done"
               }
             ],
             "MERGE_FAILED": {
               "target": "#workItem.blocked"
-            }
+            },
+            "WORKER_SPAWNED": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": [
+                      "session"
+                    ]
+                  }
+                },
+                "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
+              },
+              {
+                "guard": {
+                  "type": "spawnOverreaches"
+                },
+                "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
+              },
+              {
+                "guard": {
+                  "type": "roleNotHere",
+                  "params": {
+                    "roles": [
+                      "verifier"
+                    ]
+                  }
+                },
+                "description": "Refused unless the role is verifier: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
+              },
+              {
+                "guard": {
+                  "type": "agentTypeIsNot",
+                  "params": {
+                    "builder": "harness:builder",
+                    "verifier": "harness:verifier"
+                  }
+                },
+                "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
+              },
+              {
+                "guard": {
+                  "type": "briefDiffers"
+                },
+                "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordSpawn"
+                  }
+                ]
+              }
+            ],
+            "VERDICT_GIVEN": [
+              {
+                "guard": {
+                  "type": "unattested",
+                  "params": {
+                    "actor": "agent"
+                  }
+                },
+                "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
+              },
+              {
+                "guard": {
+                  "type": "verdictOverreaches"
+                },
+                "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
+              },
+              {
+                "actions": [
+                  {
+                    "type": "recordVerdict"
+                  }
+                ]
+              }
+            ]
           }
         },
         "hist": {

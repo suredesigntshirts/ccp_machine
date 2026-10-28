@@ -263,3 +263,26 @@ test('a decision the ladder made is not listed as a grant decision', () => {
   assert.equal(lastLogged(store).authority, 'ladder');
   assert.deepEqual(store.read().snapshot.context.granted, []);
 });
+
+test('a spawned stand-in agent answers under the grant, and no agent can ask, grant or report a grant decision', () => {
+  const store = fresh();
+  const { address } = ask(store);
+  const lead = session('sim-orchestrator');
+  const agent = { actor: { kind: 'agent', id: 'sim-orchestrator/s1' }, source: { kind: 'cli', ref: 'harness answer' } };
+  // Nothing in the grant path takes an agent (harness meta.agentEvents lists none of these events for any role).
+  const card = post(store, address, 'cmsg_grant_agent');
+  for (const [event, to] of [[{ type: 'GRANT_ASKED' }, undefined], [{ type: 'PERSON_GRANTED', picks: ['kind:plan', until(8)] }, address], [{ type: 'GRANT_GIVEN', grant: { kinds: ['plan'], oneWay: false, until: until(8).slice(6) } }, undefined], [{ type: 'DECIDED_UNDER_GRANT', row: { item: 'x' } }, undefined]])
+    assert.equal(applyEvent(store, { ...event, ...agent }, { to, now: T0 }).refused, true, event.type);
+  grant(store, address, ['kind:plan', until(8)], { card });
+  const plan = itemAtPlan(store, 'x', 2, at(1));
+  // The lead spawns a stand-in agent for the open decision and starts it (spec workItem, Workers).
+  const H = 'b'.repeat(64);
+  for (const e of [
+    { type: 'WORKER_SPAWNED', role: 'stand-in', briefSha256: H, agentType: 'general-purpose', model: 'opus', toolUseId: 'toolu_s1', definition: { agentType: 'general-purpose', sha256: 'd'.repeat(64) }, harness: { version: '0.7.0', commit: null }, ...lead },
+    { type: 'WORKER_STARTED', agent: 'sim-orchestrator/s1', agentType: 'general-purpose', ...lead }
+  ]) assert.ok(!applyEvent(store, e, { to: 'item:x', now: at(1) }).refused, e.type);
+  const r = applyEvent(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.95, reason: 'small and covered' }, ...agent }, { to: plan, now: at(2) });
+  assert.ok(!r.refused, r.why);
+  assert.equal(status(store).items[0].state, 'active.building', 'the agent stand-in decided under the grant');
+  assert.deepEqual(store.read().snapshot.context.granted.map((g) => g.item), ['x']);
+});

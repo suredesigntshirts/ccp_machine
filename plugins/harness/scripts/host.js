@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 /** The harness's own Library folder; tests point it elsewhere. */
@@ -168,4 +169,54 @@ export function refresh(root = pluginRoot(), { stateDir = join(tmpdir(), 'harnes
   } catch {
     return skip('error');
   }
+}
+
+/** Whether the gates deny (HARNESS_ENFORCE=1) or only record. */
+export const enforced = () => process.env.HARNESS_ENFORCE === '1';
+
+/**
+ * A PreToolUse deny that names its rule: a guard of the spec or a host invariant (harness meta.invariants). Every
+ * deny in this plugin goes through here, and packages/harness/test/rules.test.js checks each call names one.
+ */
+export const deny = (rule, reason) => ({ permissionDecision: 'deny', permissionDecisionReason: `harness (${rule}): ${reason}` });
+
+/** A hook id reduced to what a file name may hold. */
+export const safeId = (s) => String(s ?? '').replace(/[^A-Za-z0-9_-]/g, '');
+
+/** Where the plugin keeps its records of a session's tool calls. */
+export const callsDir = (session) => join(libraryDir(), 'ledger', 'sessions', safeId(session), 'calls');
+
+/**
+ * The plugin's record of one tool call, written before the call runs: <callsDir(session)>/<call>.json. It holds the
+ * sha256 of a fresh random key and whether this hook's own environment enforces (HARNESS_ENFORCE=1). Returns what
+ * the call is stamped with, HARNESS_CALL=<call>:<key>: the harness CLI believes the call's actor only with that key,
+ * so an id the caller writes itself is never believed (spec harness meta.invariants hookSawCall).
+ */
+export function writeCall(session, call, record) {
+  const dir = callsDir(session);
+  mkdirSync(dir, { recursive: true });
+  const key = randomBytes(16).toString('hex');
+  const tmp = join(dir, `.${safeId(call)}.${process.pid}.tmp`);
+  writeFileSync(tmp, JSON.stringify({ sessionId: safeId(session), toolUseId: safeId(call), at: new Date().toISOString(), ...record, keySha256: createHash('sha256').update(key).digest('hex'), enforced: enforced() }));
+  renameSync(tmp, join(dir, `${safeId(call)}.json`));
+  return `${safeId(call)}:${key}`;
+}
+
+/** The harness CLI: HARNESS_BIN, else packages/harness/bin/harness.js of the checkout the plugin sits in. */
+export const harnessBin = () => process.env.HARNESS_BIN ?? join(pluginRoot(), '..', '..', 'packages', 'harness', 'bin', 'harness.js');
+
+/**
+ * Run the harness CLI as `session` (or its subagent `agent`), in the call the hook recorded (`call`, as writeCall
+ * stamped it), from `cwd` (HARNESS_DIR as the session has it, else the CLI's default). Returns { status, out (stdout
+ * as JSON, or null), err }.
+ */
+export function runHarness(args, { session, call, cwd, agent = null, ms = 20000 }) {
+  const env = { ...process.env, CLAUDE_CODE_SESSION_ID: safeId(session), HARNESS_CALL: String(call).replace(/[^A-Za-z0-9_:-]/g, '') };
+  // The CLI acts as whoever made the call: the session, or the subagent (agent: <agent_id>:<agent_type>).
+  if (agent) env.HARNESS_AGENT = agent;
+  else delete env.HARNESS_AGENT;
+  const r = spawnSync(process.execPath, [harnessBin(), ...args], { cwd: cwd && existsSync(cwd) ? cwd : undefined, env, encoding: 'utf8', timeout: ms });
+  let out = null;
+  try { out = JSON.parse(r.stdout); } catch {}
+  return { status: r.status, out, err: String(r.stderr || r.error?.message || '').trim() };
 }

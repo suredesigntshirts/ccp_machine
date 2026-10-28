@@ -10,6 +10,7 @@ import { readDecisionLog } from './decision-log.js';
 import { untestedRuns, UNTESTED_WARN } from './audit.js';
 import { verifyActors, verifyActorsText } from './verify-actors.js';
 import { verifyFacts, verifyFactsText } from './verify-facts.js';
+import { verifyMerges, verifyMergesText } from './gates.js';
 import { slowRefreshes, slowRefreshText } from './pages.js';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -18,9 +19,10 @@ const STALE_LOCK_MS = 60_000;
 const LEDGER_GRACE_MS = 10 * 60_000;
 
 /**
- * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers` and
- * verify-facts with `fetcher`. `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a
- * warning per refresh slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable and warnings
+ * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers`,
+ * verify-facts with `fetcher`, and every merged PR of an item against its verifier's PASS (gates.js verifyMerges).
+ * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
+ * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable and warnings
  * (an untested class) leave `ok` true.
  * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], checked: object}>}
  */
@@ -67,5 +69,8 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   for (const r of actors.filter((r) => r.result !== 'ok'))
     (['no ledger', 'no record'].includes(r.result) && /^no /.test(r.why) && now - lastAt[r.id] < LEDGER_GRACE_MS ? unverifiable : problems).push(`verify-actors: ${verifyActorsText([r])}`);
   for (const r of facts.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`verify-facts: ${verifyFactsText([r])}`);
-  return { ok: problems.length === 0, problems, unverifiable, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length } };
+  // A merged PR of an item needs the verifier's PASS on its merge head, in the store and as a review on GitHub.
+  const merges = verify ? await verifyMerges(store, fetcher ? { fetcher } : {}) : [];
+  for (const r of merges.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
+  return { ok: problems.length === 0, problems, unverifiable, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
 }

@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { openStore, init, status, parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, prMap, prKey } from '../src/index.js';
 import { readFact, combined } from '../src/github-read.js';
 import { apply, start } from './send.js';
+import { verifyHead } from '../src/sim.js';
 import { fakeGithub, recorded, HEAD, MERGE } from './github-fake.js';
 
 // PR o/r#7 is item x's: its branch names the item and it was opened after the request (12:00, before CREATED).
@@ -78,7 +79,7 @@ test('the reader reads recorded REST responses for #21: the checks and the merge
   const fetcher = fakeGithub();
   const pr = 'suredesigntshirts/ccp_machine#21';
   assert.deepEqual(await readFact({ type: 'CHECKS_PASSED', pr, sha: HEAD }, fetcher), { ref: `${pr}@${HEAD}:checks=success`, sha: HEAD });
-  assert.deepEqual(await readFact({ type: 'MERGED', pr }, fetcher), { ref: `${pr}:merged@${MERGE}` });
+  assert.deepEqual(await readFact({ type: 'MERGED', pr }, fetcher), { ref: `${pr}:merged@${MERGE}`, sha: HEAD });
   assert.ok(fetcher.calls.every((p) => p.startsWith('repos/suredesigntshirts/ccp_machine/')), `REST only: ${fetcher.calls}`);
   assert.deepEqual(fetcher.calls, [`repos/suredesigntshirts/ccp_machine/pulls/21`, `repos/suredesigntshirts/ccp_machine/commits/${HEAD}/check-runs?per_page=100`, `repos/suredesigntshirts/ccp_machine/pulls/21`, `repos/suredesigntshirts/ccp_machine/commits/${MERGE}`]);
   assert.equal(combined(recorded.runs.check_runs), 'success');
@@ -102,6 +103,7 @@ test('a failed check, then a green suite, then the merge drive the item to done;
   assert.equal(store.events().at(-1).source.ref, `${PR}@${OTHER}:checks=success`);
   assert.match(state(store), /merging/);
   assert.equal((await fromGithub(store, suite(OTHER), { fetcher: green })).result, 'duplicate');
+  verifyHead(store, 'item:x', { sha: OTHER });
   const merged = await fromGithub(store, merge, { fetcher: github({ head: OTHER }) });
   assert.deepEqual([merged.result, merged.id], ['sent', 'merge-pr7']);
   assert.deepEqual(store.events().at(-1).source, { kind: 'github-wake', ref: `${PR}:merged@${MERGE}` });
@@ -134,7 +136,14 @@ test('from-github applies MERGED only when GitHub says merged and the merge comm
   await refusedByGithub(store, merge, github({ mergeSha: 'f'.repeat(40) }), /merge commit f{7}.*(not found|404)/i);
   await refusedByGithub(store, merge, github({ down: 'HTTP 502' }), /cannot reach GitHub/);
   assert.equal(store.pending().filter((e) => e.name === 'mergePullRequest').length, 1, 'the merge is still to do');
+  // GitHub merged the head, but the item's verifier has not passed it: the machine does not take the merge.
+  const unverified = await fromGithub(store, merge, { fetcher: github() });
+  assert.deepEqual([unverified.result, unverified.why], ['refused', 'refused: MERGED in active.merging (unverifiedHead)']);
+  verifyHead(store, 'item:x', { sha: OTHER });
+  assert.equal((await fromGithub(store, merge, { fetcher: github() })).result, 'refused', 'a PASS on another head');
+  verifyHead(store, 'item:x', { sha: HEAD });
   assert.equal((await fromGithub(store, merge, { fetcher: github() })).result, 'sent');
+  assert.equal(store.events().at(-1).event.sha, HEAD, 'MERGED names the head GitHub merged');
   assert.equal(state(store), 'done');
 });
 
@@ -148,6 +157,7 @@ test('a wake\'s current-time is stamped on the event as observedAt', async () =>
 
 test('a file with three wakes applies all three in order and reports each', async () => {
   const { store } = storeAtVerify();
+  verifyHead(store, 'item:x', { sha: HEAD }); // the verifier passed the head before CI and the merge came in
   const text = [suite(), 'notification header text between wakes', merge, wake('check_suite.completed', { head_sha: '3', pr: 'o/r#99' })].join('\n');
   assert.deepEqual((await fromGithubText(store, text, { fetcher: github() })).map((r) => r.result), ['sent', 'sent', 'unknown']);
   assert.equal(state(store), 'done');
@@ -190,6 +200,6 @@ test('harness from-github refuses a wake without a full head sha before reading 
 // Opt-in: reads the real PR #21 from GitHub. HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness
 test('live: GitHub says suredesigntshirts/ccp_machine#21 merged at its merge commit, with green checks', { skip: !process.env.HARNESS_LIVE_GITHUB && 'set HARNESS_LIVE_GITHUB=1 to read GitHub' }, async () => {
   const pr = 'suredesigntshirts/ccp_machine#21';
-  assert.deepEqual(await readFact({ type: 'MERGED', pr }), { ref: `${pr}:merged@${MERGE}` });
+  assert.deepEqual(await readFact({ type: 'MERGED', pr }), { ref: `${pr}:merged@${MERGE}`, sha: HEAD });
   assert.deepEqual(await readFact({ type: 'CHECKS_PASSED', pr, sha: HEAD }), { ref: `${pr}@${HEAD}:checks=success`, sha: HEAD });
 });

@@ -51,6 +51,16 @@ const reviewer = { actor: { kind: 'session', id: 'reviewer' }, source: { kind: '
 const triaged = (tier, criteria = ['a works']) => ({ type: 'TRIAGED', tier, criteria, ...triager });
 const met = (criterion = 'a works', by = reviewer) => ({ type: 'CRITERION_CHECKED', criterion, verdict: 'met', evidence: 'test a', ...by });
 
+const HEAD = 'a'.repeat(40);
+const BRIEF = 'b'.repeat(64);
+const AT = '2026-10-27T12:00:00.000Z'; // the runtime stamps receivedAt; spawns are bound by it
+const verifierAgent = { actor: { kind: 'agent', id: 'orchestrator/v' }, source: { kind: 'cli', ref: 'harness verdict' } };
+const verified = [
+  { type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF, ...orchestrator },
+  { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: BRIEF, agentType: 'harness:verifier', receivedAt: AT, ...orchestrator },
+  { type: 'WORKER_STARTED', agent: 'orchestrator/v', agentType: 'harness:verifier', receivedAt: AT, ...orchestrator },
+  { type: 'VERDICT_GIVEN', verdict: 'PASS', sha: HEAD, review: 1, text: `PASS\n\nBrief-Sha256: ${BRIEF}`, receivedAt: AT, ...verifierAgent }
+];
 const itemEvents = (tier) => [
   { type: 'START' },
   triaged(tier),
@@ -65,14 +75,17 @@ const itemEvents = (tier) => [
   { type: 'DECISION_MADE', choice: 'reject' },
   { type: 'BLOCK' },
   { type: 'UNBLOCKED' },
-  { type: 'MERGED', ...github },
+  // The verifier (spec workItem, Workers): the brief fixed, its spawn bound to an agent, its PASS on the head merged.
+  ...verified,
+  { type: 'MERGED', sha: HEAD, ...github },
   { type: 'MERGE_FAILED' },
   { type: 'CANCEL' }
 ];
 
 // Graph states are the state value plus the retry count (bounded by the retriesLeft guard); the run
 // counter grows without bound and would make the graph infinite.
-const byValue = (s) => JSON.stringify([s.value, s.context.retries]);
+const byValue = (s) => JSON.stringify([s.value, s.context.retries, s.context.verifierBrief != null, s.context.spawns.map((x) => Boolean(x.agent)).slice(0, 2), s.context.verdicts[HEAD]?.verdict ?? null]);
+// The verifier's progress is part of a graph state too, as booleans, so a merge is reachable once the head is passed.
 const walkItem = (input, tier) =>
   getShortestPaths(machines.workItem, { input, events: itemEvents(tier), serializeState: byValue, limit: 5000 });
 
@@ -201,7 +214,8 @@ test('a tier-0 item runs to merge with no decision, emitting its effects as data
     triaged(0),
     { type: 'RUN_SUCCEEDED', ...worker },
     { type: 'CHECKS_PASSED', ...github },
-    { type: 'MERGED', ...github }
+    ...verified,
+    { type: 'MERGED', sha: HEAD, ...github }
   ]);
   assert.equal(s.value, 'done');
   assert.ok(!effects.includes('openDecision'));
