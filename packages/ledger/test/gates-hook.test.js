@@ -265,7 +265,11 @@ test('#64: the word merge in arguments, strings, jq filters or heredoc text is n
     // Round 2 (review 5683080803): a bare argument that is just the word, and an endpoint named outside gh api's path.
     'gh pr comment 7 --body merge', 'gh pr list --search merge', 'gh pr view 7 --json merge', 'gh issue comment 7 --body "endpoint is /merge"',
     // A word the shell expands only after a literal start, in quotes, stays one word that cannot be a flag.
-    `gh api repos/o/r/commits/"$SHA"/check-runs`, 'gh pr view 7 --json files --jq ".files[] | {path}"', 'gh api "repos/o/r/pulls/$N" --jq .merged'
+    `gh api repos/o/r/commits/"$SHA"/check-runs`, 'gh pr view 7 --json files --jq ".files[] | {path}"', 'gh api "repos/o/r/pulls/$N" --jq .merged',
+    // Round 4: comments the reader models. A # at the start of a word ends the line; a # inside a word, or after a
+    // non-blank such as   (only space and tab separate words), is a literal, so its quote spans the lines and
+    // nothing on them runs.
+    '# PR 72 is merged once the verifier passes\ngh pr view 72 --json mergedAt # merged yet?', "echo x #'\ngh pr merge 7\n#'"
   ]) {
     const o = hook(s, bashInput(c), enforce);
     assert.equal(o, null, `${c}: ${JSON.stringify(o)}`);
@@ -297,7 +301,21 @@ test('#64: the word merge in arguments, strings, jq filters or heredoc text is n
     // later or through git (config, repo clone), is not data: its text falls to the word rule.
     'gh codespace ssh -c x -- gh pr merge 7', "gh codespace ssh -c x -- 'gh pr merge 7 --repo o/r'", 'gh codespace ssh -c x "gh pr merge 7"',
     "gh codespace ssh -c x -- sh -c 'gh pr merge 7'", "gh config set editor 'gh pr merge 7 --repo o/r #'",
-    "gh repo clone o/r -- -c core.sshCommand='gh pr merge 7'", 'gh cs ssh -- gh pr merge 7'
+    "gh repo clone o/r -- -c core.sshCommand='gh pr merge 7'", 'gh cs ssh -- gh pr merge 7',
+    // Round 4 (review 5683727241): a comment hides a quote. # at the start of a word comments to the end of the line,
+    // so the next line runs.
+    `echo #'\ngh pr merge 7 --repo o/r ${pin}\n#'`, `echo x #'\ngh api -X PUT repos/o/r/pulls/7/merge\n#'`, "cat #'\ngh pr merge 7\n#'",
+    "gh pr view 7 #'\ngh pr merge 7\n#'", 'echo #"\ngh pr merge 7\n#"',
+    // One form per construct the reader models with care, or marks unreadable so the word rule decides it.
+    "echo $'\\'' #'\ngh pr merge 7\n#'", // ANSI-C quoting: \' does not close it (modelled)
+    "echo x >#'\ngh pr merge 7\n#'", // # right after a redirect operator (unreadable)
+    'echo "${x#\'}" #\'\ngh pr merge 7\n#\'', // a quote inside ${...} (unreadable)
+    "echo $(true #)\n) 'gh pr merge 7'", // a comment inside $(...) (unreadable)
+    "echo $(case x in x) true;; esac) 'gh pr merge 7'", // case inside $(...) (unreadable)
+    "echo `printf \\x` 'gh pr merge 7'", // a backslash inside backticks (unreadable)
+    "gh pr view 7 'gh pr merge 7", // an unterminated quote (unreadable)
+    "cat <<'EOF'\ngh pr merge 7", // a heredoc with no closing line (unreadable)
+    "echo 'gh pr merge 7'\u0000" // a NUL, where bash stops reading (unreadable)
   ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c);
 });
 
