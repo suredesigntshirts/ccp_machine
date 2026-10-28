@@ -59,9 +59,12 @@ test('a fresh lock refuses a second writer', () => {
   assert.equal(status(store).items.length, 0);
 });
 
-// A writer process: it applies n events as session writer-<tag>, sending each one again while the store refuses
-// it because another writer holds the lock. It writes a line for each refusal, so a test can count them, with a
-// blocking write: a reader that falls behind slows the writer, instead of lines queueing in a loop that never yields.
+// A writer process: it applies n events as session writer-<tag>, sending each one again for as long as the store
+// refuses it because another writer holds the lock, and no longer: how long a holder keeps the lock depends on
+// the machine, so a writer that gives up after a fixed number of tries fails on a slow one. A lock left behind is
+// cleared after 60s (STALE_LOCK_MS). Any other error ends the writer: under the lock a compare-and-set refusal
+// (state changed) means two writers held it at once. It writes a line for each refusal, so a test can count them,
+// with a blocking write: a reader that falls behind slows the writer, instead of lines queueing in a loop that never yields.
 const runtime = new URL('../src/index.js', import.meta.url).href;
 const writer = (store, tag, { n = 8, onRefused = () => {} } = {}) =>
   new Promise((resolve, reject) => {
@@ -70,9 +73,9 @@ const writer = (store, tag, { n = 8, onRefused = () => {} } = {}) =>
       const { openStore, apply } = await import(${JSON.stringify(runtime)});
       const store = openStore(${JSON.stringify(store.dir)});
       for (let i = 0; i < ${n}; i++) {
-        for (let tries = 0; ; tries++) {
+        for (;;) {
           try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i }, actor: { kind: 'session', id: 'writer-${tag}' }, source: { kind: 'cli', ref: 'test' } }, { id: 'req-${tag}' + i }); break; }
-          catch (e) { if (tries > 2000 || !/another writer|state changed/.test(e.message)) throw e; writeSync(1, 'refused\\n'); }
+          catch (e) { if (!/^another writer holds /.test(e.message)) throw e; writeSync(1, 'refused\\n'); }
         }
       }`;
     const p = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
