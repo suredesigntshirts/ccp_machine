@@ -55,6 +55,10 @@ const DATA = new Set(['gh', 'echo', 'printf', 'cat', 'jq', 'harness']);
 // The gh commands whose words are data: none runs an argument as a command, now or later (codespace ssh does; config
 // sets an editor, pager or browser gh runs; repo clone passes options to git; alias and extension run their own).
 // Any other gh command, one gh adds later included, is text the gate cannot read.
+// The variables an assignment word may set and leave the call readable: the harness CLI's store paths, which gh, git
+// and the harness CLI only read and write as directories and never run. Any other assignment (GH_BROWSER, GH_EDITOR,
+// GH_PAGER, PAGER, PATH, GIT_*, BASH_ENV, ...) changes what a program runs, so the call is text the gate cannot read.
+const ENV_DATA = new Set(['HARNESS_DIR', 'HARNESS_LIBRARY_DIR']);
 const GH_DATA = new Set(['api', 'issue', 'label', 'pr', 'release', 'run', 'search', 'status', 'help', 'version', '--version', '--help', '-h']);
 // Percent-escapes decoded until none is left, so an escaped word reads as itself.
 const decodePct = (t) => { let prev; do { prev = t; t = t.replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))); } while (t !== prev); return t; };
@@ -303,6 +307,27 @@ function commands(text, depth = 0) {
     return p;
   };
   const unread = (why) => nested.push({ prog: null, word: null, dyn: true, args: [], unread: why });
+  // A redirect operator, a word of its own: [n]< [n]> [n]>> &> &>> [n]>&n [n]<&n [n]>&-, its target the next word.
+  // A named descriptor ({fd}>), >| , <>, >& with a word, and a process substitution are not modelled.
+  const redirect = (j) => {
+    let fd = '';
+    if (w && !w.dyn && /^\d+$/.test(w.text)) { fd = w.text; w = null; }
+    else if (w && /^\{[^}]*\}$/.test(w.text)) unread('a named file descriptor');
+    push();
+    let op = '';
+    if (text[j] === '&') op += text[j++];
+    op += text[j++];
+    if (op.endsWith('>') && text[j] === '>') op += text[j++];
+    if (text[j] === '|' || (op === '<' && text[j] === '>')) { unread(`the redirect ${op}${text[j]}`); op += text[j++]; }
+    if (text[j] === '(') unread('a process substitution');
+    else if (text[j] === '&' && !op.startsWith('&')) {
+      op += text[j++];
+      const m = /^(?:\d+|-)(?=[ \t\n;&|<>()]|$)/.exec(text.slice(j));
+      if (m) { op += m[0]; j += m[0].length; } else unread(`${op} with a word`);
+    }
+    words.push({ text: fd + op, dyn: false, lead: false });
+    return j;
+  };
   if (text.includes('\0')) unread('a NUL, where bash stops reading');
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -359,17 +384,21 @@ function commands(text, depth = 0) {
     }
     if (c === '$') { add(c, q ? 'one' : 'split'); continue; }
     if (!q && c === '#') { // a comment from the start of a word to the end of the line; inside a word a literal
-      if (!w) { const nl = text.indexOf('\n', i); i = (nl < 0 ? text.length : nl) - 1; continue; }
-      if (/[<>]$/.test(w.text)) unread('a # after a redirect operator');
+      if (!w) {
+        if (/^\d*&?[<>]{1,3}$/.test(words.at(-1)?.text ?? '')) unread('a # after a redirect operator');
+        const nl = text.indexOf('\n', i);
+        i = (nl < 0 ? text.length : nl) - 1;
+        continue;
+      }
       add(c);
       continue;
     }
     if (!q && /[{*?[~]/.test(c)) { add(c, 'split'); continue; } // brace, glob, tilde: bash rewrites the word
     if (!q && c === '(' && w) { add(c, 'split'); end(); continue; } // a word glued to ( is an extglob or a function
-    if (!q && text.startsWith('<<<', i)) { add('<<<'); i += 2; continue; } // a here-string: its word is input
+    if (!q && text.startsWith('<<<', i)) { push(); words.push({ text: '<<<', dyn: false, lead: false }); i += 2; continue; } // a here-string: its word is input
     if (!q && c === '<' && text[i + 1] === '<') { i = heredoc(i + 2) - 1; continue; }
     if (!q && c === '\n' && docs.length) { end(); i = bodies(i + 1) - 1; continue; }
-    if (!q && c === '&' && /[<>]/.test(text[i - 1] + text[i + 1])) { add(c); continue; } // 2>&1, &>file: a redirect, not a list
+    if (!q && (c === '<' || c === '>' || (c === '&' && text[i + 1] === '>'))) { i = redirect(i) - 1; continue; }
     if (!q && /[;&|\n()]/.test(c)) { end(); continue; }
     if (!q && (c === ' ' || c === '\t')) { push(); continue; } // only space and tab separate words
     add(c);
@@ -388,7 +417,10 @@ function run(ws, depth) {
   const out = (r) => [...seen.map((prog) => ({ prog, word: null, dyn: false, args: [] })), ...r];
   const skipFlags = (valued = new Set()) => { while (i < ws.length && /^-/.test(ws[i].text)) { if (valued.has(ws[i].text)) i++; i++; } };
   for (;;) {
-    while (i < ws.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[i].text)) i++;
+    for (; i < ws.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(ws[i].text); i++) { // the environment the program runs with
+      const name = ws[i].text.split(/\+?=/)[0];
+      if (!ENV_DATA.has(name)) seen.push(`${name}= (an environment assignment)`);
+    }
     const p = ws[i]?.text.split('/').pop();
     if (p === undefined) return out([]);
     if (ws[i].dyn) return out([{ prog: null, dyn: true, args: ws.slice(i + 1) }]);
