@@ -82,6 +82,9 @@ export function renderSpec() {
     const actors = Object.entries(config.meta?.actors ?? {});
     if (actors.length)
       out.push('Actors:', '', ...actors.map(([kind, a]) => `- \`${kind}\`${a.id ? ` (id \`${a.id}\`)` : ''}${a.roles ? ', holds roles' : ''}: ${a.description}`), '', config.meta.roles ?? '', '');
+    // Where an event may come from (meta.sources): the envelope reads the kinds from here.
+    const sources = Object.entries(config.meta?.sources ?? {});
+    if (sources.length) out.push('Sources:', '', ...sources.map(([kind, d]) => `- \`${kind}\`: ${d}`), '');
     // What an agent actor may send, by its role on the item (meta.agentEvents): runtime.apply refuses the rest.
     const ae = config.meta?.agentEvents;
     if (ae)
