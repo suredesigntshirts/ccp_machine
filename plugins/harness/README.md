@@ -75,7 +75,7 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   (SendMessage to one that ran) fires SubagentStart again: its record keeps its first `at` and `bind`, the new
   start time is added to `resumes`, and nothing is bound. Without `HARNESS_ENFORCE=1` the marker is
   read only for a command that would be changed or denied, so other Bash calls pay nothing.
-- **Gates** (`scripts/gates.js`, PreToolUse on Agent, Bash and `mcp__github__merge_pull_request`): the spec
+- **Gates** (`scripts/gates.js`, PreToolUse on Agent and `mcp__github__merge_pull_request`): the spec
   decides (spec workItem, Workers; harness `meta.invariants`), asked through the harness CLI
   (`$HARNESS_BIN`, else `packages/harness/bin/harness.js` of the checkout the plugin sits in, with the
   session's `HARNESS_DIR`). The **spawn gate** reads the brief's one line `Harness-Role: <role> item:<id>`;
@@ -90,16 +90,11 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   the bind window (5 minutes). Hooks of one message run at once, so a CLI run that finds the store's lock held
   is run again. A spawn with no role line is allowed and recorded nowhere: its agent can
   send nothing, since an agent sends only what its role on the item allows (harness `meta.agentEvents`). The
-  **merge gate** sees the MCP merge tool and does not parse shell to find a merge: a Bash call whose text names
-  `merge` with `gh`, `curl`, `wget`, `api` or `graphql` (quotes removed, escapes decoded, any case) is denied
-  (`readableGitHubWrite`, the reason naming the gated forms) unless the whole command is exactly one simple
-  command, `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT
-  repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`, with only the listed merge options beside it. Other
-  Bash calls are read for a GitHub write the gate cannot read, which is denied too: a `gh` command,
-  subcommand, method or path built from a variable, a `gh` alias or extension, a GraphQL mutation or document
-  it cannot read, a `curl` or `wget` write built from a variable or to GraphQL. Literal reads and other literal
-  writes pass. A gated form, and the MCP tool, ask `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
-  (`expectedHeadSha`, `--match-head-commit` or `sha`: `pinnedHead`), the item's machine taking `MERGED` of
+  **merge gate** judges the GitHub MCP merge tool, the one route for a landing, and reads no Bash command: a
+  command's text cannot say what bash will do, so any word may appear in one. A landing by another route is
+  not blocked; `harness doctor` lists it afterwards (every PR landed on main without the verifier's PASS on
+  its head). The MCP tool asks `harness merge-gate`: the PR bound to an item (`mergeBound`), the head pinned
+  (`expectedHeadSha`: `pinnedHead`), the item's machine taking `MERGED` of
   that head, which needs its verifier's PASS (`machine`), and that PASS on GitHub as a review on the sha
   (`reviewOnHead`). Under `HARNESS_ENFORCE=1` both deny, the reason starting `harness (<rule>): `, and a gate
   that cannot reach the store or the CLI denies (`storeReachable`); without it they only record and never

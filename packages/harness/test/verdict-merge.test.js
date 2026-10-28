@@ -47,6 +47,7 @@ function github({ merged = false, head = HEAD } = {}) {
   const fetcher = async (path) => {
     if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return reviews;
     if (path === 'repos/o/r/pulls/7') return { number: 7, merged, head: { sha: head } };
+    if (path === 'repos/o/r/pulls?state=closed&base=main&per_page=100&page=1') return merged ? [{ number: 7, head: { sha: head }, merged_at: '2026-10-28T12:00:00Z' }] : [];
     throw new Error(`HTTP 404 ${path}`);
   };
   return { post, fetcher, reviews };
@@ -193,6 +194,7 @@ function passedReal(review) {
   const fetcher = async (path) => {
     if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return [review];
     if (path === 'repos/o/r/pulls/7') return { number: 7, merged: true, head: { sha: v.sha } };
+    if (path === 'repos/o/r/pulls?state=closed&base=main&per_page=100&page=1') return [{ number: 7, head: { sha: v.sha }, merged_at: '2026-10-28T12:00:00Z' }];
     throw new Error(`HTTP 404 ${path}`);
   };
   return { gate: () => mergeGate(store, { pr: PR, sha: v.sha }, { fetcher }), audit: async () => (await verifyMerges(store, { fetcher }))[0] };

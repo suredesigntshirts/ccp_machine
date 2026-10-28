@@ -92,24 +92,59 @@ export async function mergeGate(store, { pr, sha }, { fetcher = restFetcher } = 
   return { allow: true, item, why: `item ${item}'s verifier passed ${sha.slice(0, 7)}, and review ${on.id} carries it on that sha` };
 }
 
+/** The repositories the store names (owner/repo, lowercased): its bound PRs' and its requests' issues'. */
+const reposOf = (events, bound) => [
+  ...new Set([
+    ...Object.keys(bound).map((k) => k.split('#')[0]),
+    ...events.map((e) => /github\.com\/([\w.-]+\/[\w.-]+)\/issues\/\d/.exec(e.event?.request?.url ?? '')?.[1]?.toLowerCase()).filter(Boolean)
+  ])
+];
+
+/** Every PR GitHub says landed on main in `repo`, as {key: landed head}, read from REST pages of 100. */
+async function landedOnMain(repo, fetcher) {
+  const heads = {};
+  for (let page = 1; ; page++) {
+    const prs = [].concat(await fetcher(`repos/${repo}/pulls?state=closed&base=main&per_page=100&page=${page}`));
+    for (const p of prs) if (p?.merged_at) heads[`${repo}#${p.number}`] = String(p.head?.sha ?? '');
+    if (prs.length < 100) return heads;
+  }
+}
+
 /**
- * Doctor's audit: every PR bound to an item that GitHub says is merged needs the item's latest verdict on its merge
- * head to be PASS in the store, and GitHub to carry it as a review on that sha, compared as the merge gate does, unless an
- * OUT_OF_BAND row records that landing. [{result: ok|problem|outOfBand|unreachable, pr, item, why?, row?}]
+ * Doctor's audit: every PR GitHub says landed on main, in each repository the store names, and every landed PR bound
+ * to an item, needs its item's latest verdict on its landed head to be PASS in the store, and GitHub to carry it as a
+ * review on that sha, compared as the merge gate does, unless an OUT_OF_BAND row records that landing. A PR bound to no
+ * item has no verdict, so its landing is a problem. [{result: ok|problem|outOfBand|unreachable, pr, item, why?, row?}]
  */
 export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   const events = store.events();
+  const bound = prMap(events);
   const out = [];
-  for (const [key, item] of Object.entries(prMap(events))) {
+  const landed = {};
+  for (const repo of reposOf(events, bound)) {
     try {
-      const p = await fetcher(pullPath(key));
-      if (p?.merged !== true) continue;
-      const head = String(p.head?.sha ?? '');
+      Object.assign(landed, await landedOnMain(repo, fetcher));
+    } catch (e) {
+      out.push({ result: 'unreachable', pr: repo, why: `cannot list the PRs landed on main: ${e.message}` });
+    }
+  }
+  for (const key of new Set([...Object.keys(landed), ...Object.keys(bound)])) {
+    const item = bound[key] ?? null;
+    try {
+      let head = landed[key];
+      if (head === undefined) {
+        const p = await fetcher(pullPath(key));
+        if (p?.merged !== true) continue;
+        head = String(p.head?.sha ?? '');
+      }
       const why = [];
-      const row = verdictRow(events, item, head);
-      if (row?.event.verdict !== 'PASS') why.push(`the store holds no verifier PASS for its merge head ${head.slice(0, 7)}`);
-      const reviews = [].concat(await fetcher(`${pullPath(key)}/reviews?per_page=100`));
-      if (!reviews.some((r) => carries(r, row, head))) why.push(`GitHub has no PASS review on ${head.slice(0, 7)} carrying the verdict the store holds`);
+      const row = item && verdictRow(events, item, head);
+      if (!item) why.push(`bound to no item: the store holds no verifier PASS for its landed head ${head.slice(0, 7)}`);
+      else {
+        if (row?.event.verdict !== 'PASS') why.push(`the store holds no verifier PASS for its merge head ${head.slice(0, 7)}`);
+        const reviews = [].concat(await fetcher(`${pullPath(key)}/reviews?per_page=100`));
+        if (!reviews.some((r) => carries(r, row, head))) why.push(`GitHub has no PASS review on ${head.slice(0, 7)} carrying the verdict the store holds`);
+      }
       // A landing an OUT_OF_BAND row of the history records is listed by doctor, not a problem (meta.invariants reviewOnHead).
       const oob = why.length && events.find((e) => e.event?.type === 'OUT_OF_BAND' && prKey(e.event.pr ?? '') === key && (!e.event.sha || e.event.sha === head));
       if (oob) {
@@ -124,4 +159,4 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   return out;
 }
 
-export const verifyMergesText = (rows) => rows.map((r) => `${r.result} ${r.pr} item:${r.item}${r.why ? `: ${r.why}` : ''}`).join('\n');
+export const verifyMergesText = (rows) => rows.map((r) => `${r.result} ${r.pr}${!('item' in r) ? '' : r.item ? ` item:${r.item}` : ' no item'}${r.why ? `: ${r.why}` : ''}`).join('\n');
