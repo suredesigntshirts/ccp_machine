@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { specs, referencedNames } from '../src/machines.js';
 
-const names = new Set(['machine', ...Object.keys(specs.harness.meta.invariants ?? {})]);
+const names = new Set(['machine', ...Object.keys(specs.harness.meta.invariants ?? {}), ...(specs.harness.meta.agentEvents ? ['agentEvents'] : [])]);
 for (const config of Object.values(specs)) for (const g of referencedNames(config).guards) names.add(g);
 
 const files = (dir) => readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => [`${dir.pathname ?? dir}${f}`, readFileSync(new URL(f, dir), 'utf8').split('\n')]);

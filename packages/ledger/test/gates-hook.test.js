@@ -132,7 +132,7 @@ test('spawn gate: role lines, agent types, other items and edited verifier brief
   hook(s, startInput('x1', 'general-purpose'), {}, 'agent-actor.js');
   const r = asAgent(s, 'x1', 'general-purpose', ['send', '{"type":"CRITERION_CHECKED","criterion":"a works","verdict":"met","evidence":"e"}', '--to', 'item:a']);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /unspawnedAgent/);
+  assert.match(r.stdout + r.stderr, /agentEvents/);
 });
 
 test('merge gate: each route is denied without a verdict, without a pinned head, or for a PR bound to no item; the rule is named', () => {
@@ -144,7 +144,7 @@ test('merge gate: each route is denied without a verdict, without a pinned head,
   const routes = (sha) => [
     mcpInput({ owner: 'o', repo: 'r', pullNumber: 7, ...(sha && { expectedHeadSha: sha }) }),
     bashInput(`gh pr merge 7 --repo o/r --squash${sha ? ` --match-head-commit ${sha}` : ''}`),
-    bashInput(`gh pr merge https://github.com/o/r/pull/7${sha ? ` --match-head-commit=${sha}` : ''}`),
+    bashInput(`gh pr merge 7 --repo=o/r${sha ? ` --match-head-commit=${sha}` : ''} --delete-branch`),
     bashInput(`gh api -X PUT repos/o/r/pulls/7/merge -f merge_method=squash${sha ? ` -f sha=${sha}` : ''}`)
   ];
   for (const input of routes(null)) denied(hook(s, input, enforce), 'pinnedHead', /pins no full head sha/, JSON.stringify(input.tool_input));
@@ -157,28 +157,40 @@ test('merge gate: each route is denied without a verdict, without a pinned head,
   for (const c of ['gh pr view 7', 'git merge main', 'echo pr merge']) assert.equal(hook(s, bashInput(c), enforce), null, c);
 });
 
-test('merge gate (second review): every spelling of a merge path reduces to one form and is judged as a merge, or is denied', () => {
+test('merge gate (third review): a command naming a merge and gh, curl, wget, api or graphql is denied unless it is exactly a gated form', () => {
   const s = scratch();
   assert.equal(s.cli(['send', JSON.stringify({ type: 'VERIFIER_BRIEF_FIXED', sha256: sha256(VERIFIER_BRIEF) }), '--to', 'item:a']).status, 0);
   hook(s, spawnInput(BUILDER_BRIEF), enforce);
   hook(s, startInput('b1', 'harness:builder'), {}, 'agent-actor.js');
   assert.equal(asAgent(s, 'b1', 'harness:builder', ['send', '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/7"}', '--to', 'item:a', '--actor', `agent:${SID}/b1`, '--source', 'cli:run']).status, 0);
-  // Reduced to repos/o/r/pulls/7/merge: judged, and the machine refuses MERGED without the verifier's PASS.
-  for (const path of [
-    'repos/o/r/pulls/7/merge?x=1', "'repos/o/r/pulls/7/merge#x'", 'repos/o/r/pulls/7/mer%67e', 'repos/o/r//pulls/7/merge',
-    'repos/o/r/pulls/../pulls/7/merge', '/repos/o/r/./pulls/7/merge/', 'REPOS/o/r/PULLS/7/MERGE', 'https://api.github.com/repos/o/r/pulls/7/merge?x=1'
-  ]) denied(hook(s, bashInput(`gh api -X PUT ${path} -f sha=${HEAD}`), enforce), 'machine', /MERGED in active\.verifying/, path);
-  denied(hook(s, bashInput('gh api -X PUT repos/o/r/pulls/7/merge?x=1'), enforce), 'pinnedHead', null, 'a query string does not hide a missing pin');
-  // Not reducible, another route to the endpoint, or more than the endpoint: denied.
-  for (const path of [
-    'repositories/123/pulls/7/merge', 'repos/o/r/pulls/7/mer%2567e', 'repos/o/r/pulls%2F7/merge', 'repos/o/r/pulls/7/merge%3Fx',
-    'repos/o/r/pulls/7/mer%zze', 'repos/o/r/pulls/7/merge/x', '../../repos/o/r/pulls/7/merge', 'repos/o/r/pulls/x7/merge', 'repos/o/pulls/7/merge'
-  ]) denied(hook(s, bashInput(`gh api -X PUT ${path} -f sha=${HEAD}`), enforce), 'readableGitHubWrite', null, path);
-  for (const url of ['https://api.github.com/repos/o/r/pulls/7/merge?x=1', 'https://140.82.112.6/repos/o/r/pulls/7/mer%67e', 'https://api.github.com//graphql'])
-    denied(hook(s, bashInput(`curl -X PUT ${url} -d '{"sha":"${HEAD}"}'`), enforce), 'readableGitHubWrite', null, url);
-  denied(hook(s, bashInput("gh api /graphq%6c?x=1 -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'"), enforce), 'readableGitHubWrite', /mutation/, 'graphql spelled otherwise');
-  // Still not merges: reads of the endpoint, and other writes.
-  for (const c of ['gh api repos/o/r/pulls/7/merge?x=1', 'gh api -X POST repos/o/r/issues/7/comments?x=1 -f body=hi', 'gh api -X PATCH repos/o/r/pulls/7 -f title=t'])
+  const pin = `--match-head-commit ${HEAD}`;
+  const merge = `gh pr merge 7 --repo o/r ${pin}`;
+  const notGated = [
+    // The third review: compound shell, prefixes and reordered words.
+    `{ ${merge}; }`, `if true; then ${merge}; fi`, `for i in 1; do ${merge}; done`, `while true; do ${merge}; break; done`, `! ${merge}`,
+    `f(){ ${merge}; }; f`, `echo "${merge}" | bash`, `bash -c -- '${merge}'`, `setsid ${merge}`, `stdbuf -oL ${merge}`, `flock /tmp/l ${merge}`,
+    `ionice -c3 ${merge}`, `find . -maxdepth 0 -exec ${merge} \\;`, `gh pr --repo o/r merge 7 ${pin}`, `${merge} && echo done`, `${merge}\necho done`,
+    `bash -c "${merge}"`, `echo $(${merge})`, `env GH_DEBUG=1 command ${merge}`, 'echo 7 | xargs gh pr merge --repo o/r', `g""h pr merge 7 --repo o/r ${pin}`,
+    `gh pr merge 7 --repo o/r ${pin} --auto`, `gh pr merge 7 --repo o/r ${pin} --admin`, `gh pr merge https://github.com/o/r/pull/7 ${pin}`, `gh pr merge 7 ${pin}`,
+    // The second review: other spellings of the merge path.
+    ...['repos/o/r/pulls/7/merge?x=1', "'repos/o/r/pulls/7/merge#x'", 'repos/o/r/pulls/7/mer%67e', 'repos/o/r//pulls/7/merge', 'repos/o/r/pulls/../pulls/7/merge',
+      '/repos/o/r/pulls/7/merge', 'REPOS/o/r/PULLS/7/MERGE', 'https://api.github.com/repos/o/r/pulls/7/merge', 'repositories/123/pulls/7/merge', 'repos/{owner}/{repo}/pulls/7/merge']
+      .map((p) => `gh api -X PUT ${p} -f sha=${HEAD}`),
+    `gh api --method PUT repos/o/r/pulls/7/merge -f sha=${HEAD}`, `gh api -X PUT repos/o/r/pulls/7/merge -f sha=${HEAD} --input body.json`,
+    `curl -X PUT https://api.github.com/repos/o/r/pulls/7/merge -d '{"sha":"${HEAD}"}'`, `wget --method=PUT https://api.github.com/repos/o/r/pulls/7/mer%67e`,
+    "gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'", 'gh api repos/o/r/pulls/7/merge', 'gh pr view 7 --json mergeable'
+  ];
+  for (const c of notGated) {
+    const o = hook(s, bashInput(c), enforce);
+    denied(o, 'readableGitHubWrite', /gh pr merge <number> --repo <owner>\/<repo> --match-head-commit <sha>/, c);
+    assert.match(o.permissionDecisionReason, /gh api -X PUT repos\/<owner>\/<repo>\/pulls\/<number>\/merge -f sha=<sha>/, c);
+  }
+  // Exactly a gated form: judged, and the machine refuses MERGED without the verifier's PASS.
+  for (const c of [merge, `gh pr merge 7 --squash --repo o/r ${pin} --subject 'Merge it' --delete-branch`, `gh api -X PUT repos/o/r/pulls/7/merge -f sha=${HEAD} -f merge_method=squash`])
+    denied(hook(s, bashInput(c), enforce), 'machine', /MERGED in active\.verifying/, c);
+  denied(hook(s, bashInput('gh pr merge 7 --repo o/r --squash'), enforce), 'pinnedHead', null, 'a gated form without its pin');
+  // Commands that name no merge with a GitHub tool are left to the rest of the gate.
+  for (const c of ['git merge main', 'echo pr merge', 'gh pr view 7', 'gh api -X POST repos/o/r/issues/7/comments -f body=hi', 'gh --version'])
     assert.equal(hook(s, bashInput(c), enforce), null, c);
 });
 
@@ -206,7 +218,7 @@ test('#36 review: a no-role agent cannot forge its spawn and start as the lead a
     }
   const run = agentBash(s, 'x1', 'general-purpose', `"$N" "$B" send '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/7"}' --to item:a`);
   assert.equal(run.status, 1);
-  assert.match(run.stdout + run.stderr, /unspawnedAgent/);
+  assert.match(run.stdout + run.stderr, /agentEvents/);
   assert.equal(events(s).length, before, 'the store took none of it');
   assert.equal(JSON.parse(s.cli(['status']).stdout).items.find((i) => i.id === 'a').state, 'active.building');
 });
@@ -229,11 +241,11 @@ test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite);
     'echo $(gh pr merge 7 --repo o/r)',
     'cd /w && env GH_DEBUG=1 command gh pr merge 7 --repo o/r',
     'echo 7 | xargs gh pr merge --repo o/r'
-  ]) denied(hook(s, bashInput(c), enforce), 'mergeBound', null, c); // read as a merge, and judged: no item holds o/r#7
+  ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c); // not a gated form
   for (const c of [
     'gh pr view $N', 'gh api repos/o/r/pulls/$N', 'gh api graphql -f query=\'query { viewer { login } }\'',
     'gh pr create --title x --body y', 'gh api -X POST repos/o/r/issues/7/comments -f body=hi', 'curl -s https://api.github.com/repos/o/r',
-    'gh api repos/o/r/pulls/7/merge', 'git merge main', 'echo pr merge', 'gh --version'
+    'git merge main', 'echo pr merge', 'gh --version'
   ]) assert.equal(hook(s, bashInput(c), enforce), null, c);
 });
 

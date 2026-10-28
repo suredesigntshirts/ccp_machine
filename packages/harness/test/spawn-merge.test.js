@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { openStore, init } from '../src/index.js';
-import { specs } from '../src/machines.js';
+import { specs, eventsWhere } from '../src/machines.js';
 import { apply, start, decide } from './send.js';
 import { tempDir } from './tmp.js';
 
@@ -63,10 +63,13 @@ test('the spec holds the gates: new events, guards and context, shown in SPEC.md
   const w = specs.workItem;
   assert.deepEqual([w.context.verifierBrief, w.context.spawns, w.context.verdicts], [null, [], {}]);
   const md = readFileSync(new URL('../spec/SPEC.md', import.meta.url), 'utf8');
-  for (const g of ['noVerifierBrief', 'briefDiffers', 'unspawnedAgent', 'unverifiedHead', 'agentTypeIsNot', 'noSpawnToBind', 'verdictOverreaches'])
+  for (const g of ['noVerifierBrief', 'briefDiffers', 'unverifiedHead', 'agentTypeIsNot', 'noSpawnToBind', 'verdictOverreaches'])
     assert.match(md, new RegExp('when `' + g + '`'), `SPEC.md lists the ${g} refusal`);
   for (const k of ['hookSawCall', 'roleLine', 'storeReachable', 'pinnedHead', 'reviewOnHead', 'mergeBound', 'setsHarnessAgent'])
     assert.match(md, new RegExp('^- `' + k + '`: ', 'm'), `SPEC.md names the host invariant ${k}`);
+  assert.doesNotMatch(md, /unspawnedAgent/, 'one allow-list replaces the per-event agent refusals');
+  assert.match(md, /^Agent events \(`agentEvents`\): /m);
+  assert.match(md, /^- builder: `RUN_SUCCEEDED`, `RUN_FAILED`$/m);
 });
 
 test('a builder spawn is refused until the verifier brief is fixed; then it is taken and recorded, and SubagentStart binds its agent', () => {
@@ -116,7 +119,7 @@ test('an agent sends item events only for the role it was spawned for: a roleles
   taken(store, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/1', ...builder }, 'item:a', 'the spawned builder reports');
   refused(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'x', ...agent('roleless') }, 'item:a', 'a roleless agent checks');
   const r = refused(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'x', ...builder }, 'item:a', 'the builder checks');
-  assert.match(r.why, /checkedByParty|unspawnedAgent/);
+  assert.match(r.why, /checkedByParty|agentEvents/);
   const verifier = worker(store, 'verifier', 'v1');
   taken(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a', ...verifier }, 'item:a', 'the spawned verifier checks');
   // Sessions are not spawns: a reviewer session still checks.
@@ -162,4 +165,41 @@ test('MERGED is taken only for a head whose latest verdict is the verifier PASS'
   refused(store, merge(undefined), 'item:a', 'no head named');
   taken(store, merge(SHA('a')));
   assert.match(stateOf(store), /done/);
+});
+
+// #36, third review: what an agent may send is one allow-list by its role on the addressed item (harness
+// meta.agentEvents), not a refusal per event. Every event type any machine takes is tried from a roleless agent, from
+// a builder bound on item a sending to item b, and from the bound builder for each type its role does not list.
+test('an agent sends only the events its role on the addressed item allows: every other event type, on any item, is refused (agentEvents)', () => {
+  const allow = specs.harness.meta.agentEvents.roles;
+  assert.deepEqual(allow, { triager: ['TRIAGED'], builder: ['RUN_SUCCEEDED', 'RUN_FAILED'], verifier: ['CRITERION_CHECKED', 'VERDICT_GIVEN'], 'stand-in': ['STAND_IN_ANSWERED'] });
+  const all = [...eventsWhere(() => true)].sort();
+  assert.ok(all.length > 25 && all.includes('BLOCK') && all.includes('CANCEL'), all.join(' '));
+  const store = building();
+  taken(store, { type: 'REQUEST_RECEIVED', request: { id: 'b' }, ...lead }, 'harness');
+  taken(store, { type: 'VERIFIER_BRIEF_FIXED', sha256: BRIEF, ...lead });
+  const builder = worker(store, 'builder', 'b1');
+  const tries = [];
+  for (const type of all) {
+    tries.push([agent('roleless'), type, 'item:a'], [agent('roleless'), type, 'harness'], [builder, type, 'item:b']);
+    if (!allow.builder.includes(type)) tries.push([builder, type, 'item:a']);
+  }
+  for (const [by, type, to] of tries) {
+    const r = refused(store, { type, pr: 'https://github.com/o/r/pull/1', ...by }, to, `${type} from ${by.actor.id} to ${to}`);
+    assert.match(r.why, /\(agentEvents\)/, `${type} from ${by.actor.id} to ${to}: ${r.why}`);
+  }
+  taken(store, { type: 'RUN_SUCCEEDED', pr: 'https://github.com/o/r/pull/1', ...builder }, 'item:a', 'its own role\'s event');
+  assert.equal(JSON.parse(stateOf(store)).active, 'verifying');
+  assert.match(stateOf(store, 'b'), /triaging/, 'item b is untouched');
+});
+
+test('a stand-in agent is spawned while a decision is open and answers only that item\'s decisions', () => {
+  const store = building(1); // tier 1: the plan decision is open
+  const d = `item:a/${ctx(store).decisionId}`;
+  const answer = { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.9 } };
+  refused(store, { ...answer, ...agent('s1') }, d, 'an unspawned agent answers');
+  refused(store, spawned('builder'), 'item:a', 'a builder while the plan decision is open');
+  const standIn = worker(store, 'stand-in', 's1', { agentType: 'general-purpose' });
+  refused(store, { type: 'BLOCK', ...standIn }, 'item:a', 'the stand-in blocks');
+  taken(store, { ...answer, ...standIn }, d, 'the spawned stand-in answers');
 });

@@ -82,6 +82,10 @@ export function renderSpec() {
     const actors = Object.entries(config.meta?.actors ?? {});
     if (actors.length)
       out.push('Actors:', '', ...actors.map(([kind, a]) => `- \`${kind}\`${a.id ? ` (id \`${a.id}\`)` : ''}${a.roles ? ', holds roles' : ''}: ${a.description}`), '', config.meta.roles ?? '', '');
+    // What an agent actor may send, by its role on the item (meta.agentEvents): runtime.apply refuses the rest.
+    const ae = config.meta?.agentEvents;
+    if (ae)
+      out.push(`Agent events (\`agentEvents\`): ${ae.description}`, '', ...Object.entries(ae.roles).map(([role, types]) => `- ${role}: ${types.map((t) => `\`${t}\``).join(', ')}`), '');
     // The refusals that live in host code: each one's name is what its refusal or deny site cites (test/rules.test.js).
     const invariants = Object.entries(config.meta?.invariants ?? {});
     if (invariants.length)

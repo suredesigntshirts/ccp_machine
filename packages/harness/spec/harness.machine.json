@@ -25,6 +25,25 @@
       }
     },
     "roles": "Actors marked roles (session and agent) are recorded in an item's roles and compared there by the whole actor, kind and id: the id patterns are disjoint, so the recorded id names one actor. An event whose actor is not one of these kinds, or whose id does not match its kind's pattern, is refused before any machine sees it.",
+    "agentEvents": {
+      "description": "An agent actor (harness meta.actors) sends only the events its role on the addressed item allows, and nothing else, to any actor: its role is the role of a spawn of that item it is bound to (spec workItem, Workers: WORKER_SPAWNED, then WORKER_STARTED). The item is the one the event is addressed to, item:<id> or one of its decisions item:<id>/<decision>. An agent bound to no spawn of that item, an agent sending to the harness root, and an event its role does not list are refused before any machine sees the event. Sessions, the person, GitHub and timers are not agents and are not judged here.",
+      "roles": {
+        "triager": [
+          "TRIAGED"
+        ],
+        "builder": [
+          "RUN_SUCCEEDED",
+          "RUN_FAILED"
+        ],
+        "verifier": [
+          "CRITERION_CHECKED",
+          "VERDICT_GIVEN"
+        ],
+        "stand-in": [
+          "STAND_IN_ANSWERED"
+        ]
+      }
+    },
     "invariants": {
       "envelope": "runtime.apply refuses an event without an actor of a kind in meta.actors (its id of that form) and a source, or one carrying \"person\", before any machine sees it.",
       "prBinding": "runtime.apply refuses an event naming a PR bound to another item, or naming another PR than its item is bound to: one PR binds to one item, once (src/pr-binding.js).",
@@ -36,7 +55,7 @@
       "mergeBound": "Under HARNESS_ENFORCE=1 the merge gate denies a merge of a PR it cannot name, or one bound to no item.",
       "pinnedHead": "Under HARNESS_ENFORCE=1 the merge gate denies a merge call that does not pin the head sha (expectedHeadSha, --match-head-commit or sha).",
       "reviewOnHead": "Under HARNESS_ENFORCE=1 the merge gate denies a merge unless the PR carries the item's PASS verdict, verbatim, as a review on the pinned head sha (commit_id), read from GitHub's REST API.",
-      "readableGitHubWrite": "Under HARNESS_ENFORCE=1 the merge gate reads every command a Bash call runs (lists, pipelines, $(...) and backticks, sh -c and eval strings, env, command and xargs wrappers). A gh, curl or wget command, or one run by a name the gate cannot read, is denied when it can write to GitHub and the gate cannot read the write: a gh command that is not literal or is not one of gh's own (an alias or extension), a gh api, curl or wget call whose method or URL is not literal and that is not a GET, a GraphQL document that is not literal or holds a mutation, or a merge by curl or wget. The path of every such write that is not a GET is reduced to one canonical form first: the scheme and host, the query and the fragment are dropped, percent-escapes are decoded once, empty and '.' segments are dropped and '..' segments resolved, and case is folded; a path that cannot be reduced (a bad or double escape, an escaped '?', '#', '/' or '\\', a '..' above the root) or that starts with repositories/ is denied. A reduced path that touches pulls/<n>/merge is a merge: exactly repos/<owner>/<repo>/pulls/<number>/merge from gh api is judged by the merge gate's other rules, and any other is denied. Other literal writes pass."
+      "readableGitHubWrite": "Under HARNESS_ENFORCE=1 the merge gate judges a Bash call by its text, not by parsing shell. The text is read with quotes and backslashes removed and percent-escapes decoded; when it holds 'merge' together with 'gh', 'curl', 'wget', 'api' or 'graphql' (any case), the call is denied unless the whole command is exactly one of the gated forms, one simple command with no compound syntax (no ; & | < > ( ) { } $ ` \\ or newline): `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`, with only the listed merge options beside them (gh pr merge: --squash, --merge, --rebase, --delete-branch, --subject, --body; gh api: -f merge_method, commit_title, commit_message). A gated form is judged by the merge gate's other rules; the deny names the gated forms. Any other Bash call that runs gh, curl or wget is denied when it can write to GitHub and the gate cannot read the write: a gh command, subcommand, method or path built from a variable, a gh alias or extension, a GraphQL document that is not literal or holds a mutation, or a curl or wget write to a URL or with a method built from a variable, or to GraphQL."
     },
     "store": {
       "schemaVersion": 1,

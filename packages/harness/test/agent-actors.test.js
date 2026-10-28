@@ -299,7 +299,7 @@ test('#36 review: a no-role agent cannot forge its spawn and start as the lead, 
     }
   const r = run(own(), 'send', '{"type":"RUN_SUCCEEDED","pr":"https://github.com/o/r/pull/7"}', '--to', 'item:a', '--dir', dir);
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stdout + r.stderr, /unspawnedAgent/);
+  assert.match(r.stdout + r.stderr, /agentEvents/);
   assert.equal(readFileSync(join(dir, 'events.jsonl'), 'utf8'), before, 'the store took none of it');
   assert.equal(state(), was);
 });
