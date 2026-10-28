@@ -3,7 +3,7 @@
 // stand-in effects that a real host replaces with machine.provide(). Keep it thin: if a rule matters
 // to the person, it belongs in the JSON where it is visible and checked.
 import { readFileSync } from 'node:fs';
-import { setup, assign, enqueueActions } from 'xstate';
+import { setup, assign, enqueueActions, and, or } from 'xstate';
 
 const load = (name) =>
   JSON.parse(readFileSync(new URL(`../spec/${name}.machine.json`, import.meta.url), 'utf8'));
@@ -34,6 +34,41 @@ const withInput = (config) => ({
   ...config,
   context: ({ input }) => ({ ...config.context, ...(input ?? {}) })
 });
+
+// An admission rule (harness meta.store.facts): a transition with a guard and no target and no actions, which takes an
+// event by doing nothing, so the runtime refuses it. A guarded transition that does something is a route.
+const admits = (t) => typeof t === 'object' && t?.guard != null && t.target === undefined && !(t.actions ?? []).length;
+const routes = (t) => typeof t === 'object' && t?.guard != null && !admits(t);
+// Every transition list of a machine (its on.<event> and always lists), with a key naming where it sits.
+const lists = (node, at, out = []) => {
+  for (const [ev, on] of Object.entries(node.on ?? {})) out.push([`${at}:on.${ev}`, on, (n, v) => ({ ...n, on: { ...n.on, [ev]: v } })]);
+  if (node.always) out.push([`${at}:always`, node.always, (n, v) => ({ ...n, always: v })]);
+  return out;
+};
+/** The keys of every route an event of `type` can take in any machine: its on.<type> routes and every always route. */
+export const routeKeys = (type) => {
+  const keys = [];
+  const walk = (node, at) => {
+    for (const [key, list] of lists(node, at)) if (key.endsWith(':always') || key.endsWith(`:on.${type}`)) [list].flat().forEach((t, i) => routes(t) && keys.push(`${key}.${i}`));
+    for (const [k, v] of Object.entries(node.states ?? {})) walk(v, `${at}.${k}`);
+  };
+  for (const [name, config] of Object.entries(specs)) walk(config, name);
+  return keys;
+};
+// The spec for one fact (a logged event applied again): each admission rule passes over it, and each route named in
+// `route` is taken (true) or passed over (false) for it whatever its guard says. Events the machines send each other keep every rule.
+const asFact = (node, { event, route = {} }, at) => {
+  const isFact = ({ event: e }) => e === event;
+  const notFact = ({ event: e }) => e !== event;
+  let out = { ...node };
+  for (const [key, list, put] of lists(node, at))
+    out = put(out, [list].flat().map((t, i) => {
+      const forced = route[`${key}.${i}`];
+      return admits(t) || forced === false ? { ...t, guard: and([notFact, t.guard]) } : forced === true && routes(t) ? { ...t, guard: or([isFact, t.guard]) } : t;
+    }));
+  if (node.states) out.states = Object.fromEntries(Object.entries(node.states).map(([k, v]) => [k, asFact(v, { event, route }, `${at}.${k}`)]));
+  return out;
+};
 
 // Effects that leave the machine (posts, GitHub writes, starting threads). Each one is handed to
 // the sink as data ({ name, actor, params, subject, detail }); the host's outbox carries it out
@@ -197,7 +232,8 @@ const provenance = {
 };
 
 // One set per sink, so a host collects the effects it applies; rung(class): the ladder's autonomy as a decision opens.
-export function createMachines(sink = () => {}, { rung } = {}) {
+export function createMachines(sink = () => {}, { rung, fact } = {}) {
+  const spec = (name) => withInput(fact ? asFact(specs[name], fact, name) : specs[name]);
   const budgetMachine = setup({
     guards: {
       // Judge an old reading by the work since it: an idle harness spends almost nothing, so its last
@@ -238,7 +274,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       applyConfig: assign(({ event }) => event.config ?? {}),
       reportMode: toParent((_, params) => ({ type: 'BUDGET_MODE', mode: params.mode }))
     }
-  }).createMachine(withInput(specs.budget));
+  }).createMachine(spec('budget'));
 
   const auditMachine = setup({
     guards: {
@@ -251,7 +287,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       recordAuditAnswer: assign({ option: ({ event }) => event.option }),
       ...external(sink, 'postAuditCard')
     }
-  }).createMachine(withInput(specs.audit));
+  }).createMachine(spec('audit'));
 
   const grantMachine = setup({
     guards: {
@@ -266,7 +302,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       reportGrant: toParent(({ context, event }) => ({ type: 'GRANT_GIVEN', grant: { card: context.card, ...grantOf(context.options, event.picks), at: event.receivedAt ?? null } })),
       ...external(sink, 'postGrantCard')
     }
-  }).createMachine(withInput(specs.grant));
+  }).createMachine(spec('grant'));
 
   const decisionMachine = setup({
     guards: {
@@ -317,7 +353,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       }),
       ...external(sink, 'askStandIn', 'postDecisionCard', 'logPrecedent')
     }
-  }).createMachine(withInput(specs.decision));
+  }).createMachine(spec('decision'));
 
   const workItemMachine = setup({
     actors: { decision: decisionMachine },
@@ -387,7 +423,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       })),
       ...external(sink, 'dispatchRun', 'mergePullRequest', 'reportBlocked', 'checkpoint')
     }
-  }).createMachine(withInput(specs.workItem));
+  }).createMachine(spec('workItem'));
 
   const harnessMachine = setup({
     actors: { budget: budgetMachine, workItem: workItemMachine, audit: auditMachine, grant: grantMachine },
@@ -477,7 +513,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       }),
       ...external(sink, 'publishDigest')
     }
-  }).createMachine(withInput(specs.harness));
+  }).createMachine(spec('harness'));
 
   return { budget: budgetMachine, decision: decisionMachine, audit: auditMachine, grant: grantMachine, workItem: workItemMachine, harness: harnessMachine };
 }

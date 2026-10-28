@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
-import { createMachines, personEvents, specs } from './machines.js';
+import { createMachines, personEvents, routeKeys, specs } from './machines.js';
 import { bindingError } from './pr-binding.js';
 import { ladder, readDecisionLog } from './decision-log.js';
 
@@ -26,16 +26,36 @@ const envelopeError = ({ actor, source, relayedBy, ...event }) =>
   : !SOURCE_KINDS.includes(source.kind) || typeof source.ref !== 'string' ? `with source ${JSON.stringify(source)} (kind ${SOURCE_KINDS.join('|')} and a ref)`
   : ['tap', 'message'].includes(source.kind) && !relayedBy && process.env.CLAUDE_CODE_SESSION_ID ? `from a ${source.kind} without the session that relayed it (relayedBy)` : null;
 
-// The harness that applied an event, so a finding can be matched to the code that produced it.
+// The release that applied an event, so a finding can be matched to the code that produced it: the plugin's version
+// (plugins/harness/.claude-plugin/plugin.json, the one version the project raises) and the git commit, either null when unknown.
+const HERE = new URL('..', import.meta.url).pathname;
+const git = (...args) => execFileSync('git', ['-C', HERE, ...args], { encoding: 'utf8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 let applied;
 export function harnessVersion() {
   if (applied) return applied;
-  const dir = new URL('..', import.meta.url).pathname;
-  let commit = null;
-  try {
-    commit = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
-  } catch {}
-  return (applied = { version: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, commit });
+  let version = null, commit = null;
+  try { version = JSON.parse(readFileSync(new URL('../../../plugins/harness/.claude-plugin/plugin.json', import.meta.url), 'utf8')).version ?? null; } catch {}
+  try { commit = git('rev-parse', 'HEAD') || null; } catch {}
+  return (applied = { version, commit });
+}
+
+const release = (r) => `${r?.version ?? 'no version'}${r?.commit ? `@${r.commit.slice(0, 7)}` : ''}`;
+const parts = (v) => (/^\d+\.\d+\.\d+$/.test(v ?? '') ? v.split('.').map(Number) : null);
+const isAncestor = (a, b) => { try { git('merge-base', '--is-ancestor', a, b); return true; } catch { return false; } };
+/**
+ * Why `writer` may not write a store that `stored` wrote last (harness meta.invariants writerNotOlder), or null. A store
+ * that records no release takes any writer. A writer with no version, or an older one, is refused; at the same version a
+ * writer on another commit is refused unless the stored commit is an ancestor of its own (ancestor(stored, writer)).
+ */
+export function writerError(stored, writer, ancestor = isAncestor) {
+  const s = parts(stored?.version);
+  if (!s) return null;
+  const w = parts(writer?.version);
+  const order = w ? w.map((n, i) => n - s[i]).find((d) => d !== 0) ?? 0 : -1;
+  const last = `${release(stored)}, which last wrote this store: run the newer harness (writerNotOlder)`;
+  if (order < 0) return `from harness ${release(writer)}, older than ${last}`;
+  if (order > 0 || !stored.commit || stored.commit === writer.commit || (writer.commit && ancestor(stored.commit, writer.commit))) return null;
+  return `from harness ${release(writer)}, the same version on a commit not known to descend from ${last}`;
 }
 
 // Resolve an address: "harness" (the root), a system id ("item:a", "budget"), or a path of child
@@ -81,8 +101,8 @@ function waitingSpawnError(root, event) {
 // A decision opening now takes its class's rung from the store's decided decisions up to now; unreadable gives recommend.
 const rungAt = (store, now) => (cls) => { try { return ladder(readDecisionLog(store).filter((r) => r.at <= now), cls).autonomy; } catch { return 'recommend'; } };
 
-function restore(state, input, sink, rung) {
-  const { harness } = createMachines(sink, { rung });
+function restore(state, input, sink, rung, fact) {
+  const { harness } = createMachines(sink, { rung, fact });
   return createActor(harness, { systemId: 'harness', ...(state ? { snapshot: state.snapshot } : { input }) });
 }
 
@@ -107,7 +127,7 @@ export function init(store, input = {}, now = new Date().toISOString()) {
   return store.withLock(() => {
     if (store.read()) throw new Error(`a harness already exists in ${store.dir}`);
     const actor = restore(null, input, () => {}).start();
-    store.write({ version: 1, schemaVersion: SCHEMA_VERSION, snapshot: actor.getPersistedSnapshot(), appliedIds: [], updatedAt: now }, 0);
+    store.write({ version: 1, schemaVersion: SCHEMA_VERSION, writtenBy: harnessVersion(), snapshot: actor.getPersistedSnapshot(), appliedIds: [], updatedAt: now }, 0);
     actor.stop();
     return { version: 1 };
   });
@@ -122,11 +142,14 @@ export function init(store, input = {}, now = new Date().toISOString()) {
  * refused: nothing is written, and the result says `refused: <EVENT> in <state>`. So is an event naming a
  * PR (`pr`) that is bound to another item, or to an item already bound to another PR. With dryRun it writes
  * nothing and says whether it would take the event (wouldTake): the gates ask the machine this way.
+ * With fact ({matches?}), the event is a logged one applied again (replay): it was admitted when it was sent, so no
+ * admission rule runs (harness meta.store.facts), neither a host refusal nor a machine guard that only refuses; only its
+ * state change does, by the route whose effects fact.matches accepts (route, in the result, when not today's).
  * @returns {{version: number, duplicate?: boolean, refused?: boolean, why?: string, effects: object[]}}
  */
-export function apply(store, event, { to, id, now = new Date().toISOString(), dryRun = false } = {}) {
+export function apply(store, event, { to, id, now = new Date().toISOString(), dryRun = false, fact = null } = {}) {
   if (!event?.type) throw new Error('an event needs a type');
-  const bad = envelopeError(event);
+  const bad = !fact && envelopeError(event);
   if (bad) return { version: store.read()?.version ?? 0, refused: true, why: `refused: ${event.type} ${bad}`, effects: [] }; // rule: envelope
   event = { ...event, receivedAt: now }; // the machine reads the event's own time (AUDIT_PICKED's day), never the sender's
   return store.withLock(() => {
@@ -134,63 +157,84 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
     if (!state) throw new Error(`no harness in ${store.dir}; run init first`);
     const eventId = id ?? `e${state.version}`;
     if (state.appliedIds.includes(eventId)) return { version: state.version, duplicate: true, effects: [] };
+    // The harness restored, collecting the effects of the event it is sent; for a fact, with the routes taken or passed over.
+    const rung = rungAt(store, now);
+    const start = (route) => {
+      const run = { effects: [], collecting: false };
+      run.actor = restore(state, null, (e) => run.collecting && run.effects.push(e), rung, fact && { event, route });
+      if (route) run.actor.subscribe({ error: () => {} }); // a forced route can fail; it is then not the logged one
+      run.actor.start();
+      return run;
+    };
+    const send = (run) => {
+      const target = resolve(run.actor, to);
+      run.collecting = true;
+      target.send(event);
+      run.collecting = false;
+      const snapshot = run.actor.getPersistedSnapshot();
+      run.actor.stop();
+      return { effects: run.effects, snapshot };
+    };
+    const first = start();
+    const refused = !fact && admission(store, state, event, to, first.actor);
+    if (refused || dryRun) {
+      first.actor.stop();
+      return refused ? { version: state.version, refused: true, ...refused, effects: [] } : { version: state.version, wouldTake: true, effects: [] };
+    }
 
-    // A PR is bound to one item, once; the log holds every binding (see pr-binding.js).
-    const bound = event.pr != null && bindingError(store.events(), to, event.pr);
-    if (bound) return { version: state.version, refused: true, why: `refused: ${event.type} ${bound}`, effects: [] }; // rule: prBinding
-
-    const effects = [];
-    let collecting = false;
-    const actor = restore(state, null, (e) => collecting && effects.push(e), rungAt(store, now));
-    actor.start();
-    const target = resolve(actor, to);
-    // An agent actor sends only what its role on the addressed item allows (harness meta.agentEvents), whatever the event.
-    const notAllowed = agentEventsError(actor, event, to);
-    if (notAllowed) {
-      actor.stop();
-      return { version: state.version, refused: true, why: `refused: ${event.type} ${notAllowed}`, effects: [] }; // rule: agentEvents
-    }
-    const snap = target.getSnapshot();
-    // The machine is the only judge of what an event may do: one it would not take changes nothing. The reason
-    // names the guard of the refusing transition, when one refused it.
-    if (snap.status !== 'active' || !snap.can(event)) {
-      actor.stop();
-      const guard = snap.status === 'active' && refusingGuard(snap, event);
-      // rule: machine
-      return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}${guard ? ` (${guard})` : ''}`, effects: [] };
-    }
-    // One unbound spawn of an agent type per session (harness meta.invariants oneUnboundSpawn), across items.
-    const waiting = waitingSpawnError(actor, event);
-    if (waiting) {
-      actor.stop();
-      return { version: state.version, refused: true, rule: 'oneUnboundSpawn', why: `refused: ${event.type} ${waiting}`, effects: [] }; // rule: oneUnboundSpawn
-    }
-    // A person acts only by a tap on a card the machine asked for or, for a grant, a message, and a tap or a message is
-    // only ever the person's: an event a machine takes from the person (personEvents). Any other is refused.
-    if ((event.actor.kind === 'person' || ['tap', 'message'].includes(event.source.kind)) && !personEvents.has(event.type)) {
-      actor.stop();
-      // rule: tapOnly
-      return { version: state.version, refused: true, why: `refused: ${event.type} from ${event.actor.kind}:${event.actor.id} by ${event.source.kind}: a person acts only by a tap on a card the machine asked for, or a message for a grant (${[...personEvents].join(', ')})`, effects: [] };
-    }
-    if (dryRun) {
-      actor.stop();
-      return { version: state.version, wouldTake: true, effects: [] };
-    }
-    collecting = true;
-    target.send(event);
-    collecting = false;
-    const snapshot = actor.getPersistedSnapshot();
-    actor.stop();
+    // The state change. A fact whose effects differ from the logged ones (fact.matches) was routed otherwise when it was
+    // written: the route that gives the logged effects is taken, one route taken or passed over (harness meta.store.facts).
+    let ran = send(first);
+    let route = null;
+    if (fact?.matches && !fact.matches(ran.effects))
+      for (const key of routeKeys(event.type)) for (const taken of [true, false]) {
+        const r = !route && send(start({ [key]: taken }));
+        if (r && r.snapshot.status !== 'error' && fact.matches(r.effects)) [ran, route] = [r, { [key]: taken }];
+      }
+    const { effects, snapshot } = ran;
     if (snapshot.status === 'error') throw new Error(`event ${event.type} put the harness in error: ${snapshot.error}`);
 
     const version = state.version + 1;
     const queued = effects.map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
-    store.write({ version, schemaVersion: SCHEMA_VERSION, snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
+    store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: harnessVersion(), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
     const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
     store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, ...(relayedBy && { relayedBy }), harness: harnessVersion(), event: rest }]);
     store.appendOutbox(queued);
-    return { version, effects: queued };
+    return { version, effects: queued, ...(route && { route }) };
   });
+}
+
+// Admission: why a sent event is refused ({why, rule?}), or null. Every rule here decides only when an event is sent,
+// never when a logged one is applied again (harness meta.store.facts).
+function admission(store, state, event, to, actor) {
+  // No release older than the one that last wrote the store writes it (a store from before the field: its last event's).
+  const older = writerError(state.writtenBy ?? store.events().at(-1)?.harness, harnessVersion());
+  if (older) return { rule: 'writerNotOlder', why: `refused: ${event.type} ${older}` }; // rule: writerNotOlder
+  // A PR is bound to one item, once; the log holds every binding (see pr-binding.js).
+  const bound = event.pr != null && bindingError(store.events(), to, event.pr);
+  if (bound) return { why: `refused: ${event.type} ${bound}` }; // rule: prBinding
+
+  const target = resolve(actor, to);
+  // An agent actor sends only what its role on the addressed item allows (harness meta.agentEvents), whatever the event.
+  const notAllowed = agentEventsError(actor, event, to);
+  if (notAllowed) return { why: `refused: ${event.type} ${notAllowed}` }; // rule: agentEvents
+  const snap = target.getSnapshot();
+  // The machine is the only judge of what an event may do: one it would not take changes nothing. The reason
+  // names the guard of the refusing transition, when one refused it.
+  if (snap.status !== 'active' || !snap.can(event)) {
+    const guard = snap.status === 'active' && refusingGuard(snap, event);
+    // rule: machine
+    return { why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}${guard ? ` (${guard})` : ''}` };
+  }
+  // One unbound spawn of an agent type per session (harness meta.invariants oneUnboundSpawn), across items.
+  const waiting = waitingSpawnError(actor, event);
+  if (waiting) return { rule: 'oneUnboundSpawn', why: `refused: ${event.type} ${waiting}` }; // rule: oneUnboundSpawn
+  // A person acts only by a tap on a card the machine asked for or, for a grant, a message, and a tap or a message is
+  // only ever the person's: an event a machine takes from the person (personEvents). Any other is refused.
+  if ((event.actor.kind === 'person' || ['tap', 'message'].includes(event.source.kind)) && !personEvents.has(event.type))
+    // rule: tapOnly
+    return { why: `refused: ${event.type} from ${event.actor.kind}:${event.actor.id} by ${event.source.kind}: a person acts only by a tap on a card the machine asked for, or a message for a grant (${[...personEvents].join(', ')})` };
+  return null;
 }
 
 // Effects that ask the host to post a card, and where the card's decision, audit or grant checklist lives.

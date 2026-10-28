@@ -2,8 +2,8 @@
 // M1 (epic #59): joins candidate histories (JSONL files of history rows, such as extract-store.mjs writes) into one.
 // Every row must pass validate() (C2); one row is kept per fact (dedupe, C4) and the rows are numbered from 1 in time
 // order. --out becomes a store: events.jsonl is the history, state.json and outbox.jsonl come from replaying it with
-// the current code (as harness replay does), and report.json lists the dropped rows, the conflicts and the rows the
-// current code refuses. It reads its inputs only and writes nothing outside --out, which must not exist yet.
+// the current code (as harness replay does, each row a fact), and report.json lists the dropped rows, the conflicts and
+// the rows that could not be applied. It reads its inputs only and writes nothing outside --out, which must not exist yet.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -30,12 +30,12 @@ if (!history.length) fail('no rows, nothing written');
 // Replay the history into --out the way harness replay does, then put the history in place of the log apply wrote.
 const store = openStore(o.out);
 init(store, {}, history[0].at);
+// Each row is a fact, admitted when it was written: it is applied without the admission rules (harness meta.store.facts),
+// so no row is refused for a rule that changed since. A row that cannot be applied at all is listed as refused.
 const refused = [];
 for (const r of history) {
   try {
-    const relayedBy = r.relayedBy ?? (['tap', 'message'].includes(r.source?.kind) ? 'unrecorded' : undefined);
-    const res = apply(store, { ...r.event, actor: r.actor, source: r.source, relayedBy }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at });
-    if (res.refused) refused.push(`${r.id}: ${res.why}`);
+    apply(store, { ...r.event, actor: r.actor, source: r.source, ...(r.relayedBy && { relayedBy: r.relayedBy }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact: {} });
   } catch (e) {
     refused.push(`${r.id}: ${e.message}`);
   }
