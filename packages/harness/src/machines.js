@@ -12,6 +12,7 @@ export const specs = {
   budget: load('budget'),
   decision: load('decision'),
   audit: load('audit'),
+  grant: load('grant'),
   workItem: load('workItem'),
   harness: load('harness')
 };

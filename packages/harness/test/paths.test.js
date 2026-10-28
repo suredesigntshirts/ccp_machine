@@ -1,4 +1,4 @@
-// Generated paths: for each of the five machines, xstate/graph walks the machine definition to every
+// Generated paths: for each of the six machines, xstate/graph walks the machine definition to every
 // state (shortest paths), and each path's events are replayed through runtime.apply() on a scratch store.
 // After every step the stored actor must be in the state the machine reaches on the same events (pure
 // transition(); the graph keeps one snapshot per state value, so its own snapshots can carry another
@@ -63,6 +63,12 @@ const homes = {
     ],
     read: (snap) => child(snap, 'w', decisionAt.split('/')[1])
   },
+  // A grant checklist, opened by the harness when a session asks; its options are generated from the ask's own time.
+  grant: {
+    to: 'grant:1',
+    setup: (input) => [started, [{ type: 'GRANT_ASKED', receivedAt: input.askedAt, ...orchestrator }]],
+    read: (snap) => child(snap, 'grant:1')
+  },
   // The day's audit, opened by the harness when a session picks it.
   audit: {
     to: 'audit:2026-10-26',
@@ -85,7 +91,7 @@ const offer = (events) => () =>
 // Graph states are the state value, plus the retry count for a work item (bounded by retriesLeft) and, for
 // a decision or an audit, whether its card is posted (a tap is taken only after).
 const serializeState = (name) => (s) =>
-  JSON.stringify(name === 'workItem' ? [s.value, s.context.retries] : ['decision', 'audit'].includes(name) ? [s.value, s.context.card != null] : s.value);
+  JSON.stringify(name === 'workItem' ? [s.value, s.context.retries] : ['decision', 'audit', 'grant'].includes(name) ? [s.value, s.context.card != null] : s.value);
 
 // DECISION_MADE comes only from the item's own decision, so a step that makes one is delivered there:
 // the stand-in fails, the host posts the card and the person taps it. With no decision open it goes to the item, which refuses it.
@@ -125,7 +131,7 @@ function assertSame(name, store, expected, where) {
   assert.deepEqual(got.value, expected.value, where);
 }
 
-for (const name of ['harness', 'budget', 'workItem', 'decision', 'audit']) {
+for (const name of ['harness', 'budget', 'workItem', 'decision', 'audit', 'grant']) {
   test(`generated paths through the ${name} machine replay through apply()`, () => {
     const { inputs, events } = fixtures[name];
     const home = homes[name];

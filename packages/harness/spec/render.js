@@ -86,6 +86,10 @@ export function renderSpec() {
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
     if (config.meta?.pages)
       out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
+    // The decision classes with their doors (meta.classes) and the grant checklist the machine generates (meta.checklist).
+    if (config.meta?.classes)
+      out.push('Decision classes:', '', ...Object.entries(config.meta.classes).map(([k, c]) => `- \`${k}\`: ${c.door} door. ${c.description}`), '', config.meta.doors ?? '', '');
+    if (config.meta?.checklist) out.push(`Checklist: end times ${config.meta.checklist.endsAfterHours.join(', ')} hours after the ask. ${config.meta.checklist.description}`, '');
     out.push('```mermaid', diagram(config), '```', '');
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');

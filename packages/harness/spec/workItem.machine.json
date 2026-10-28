@@ -624,7 +624,7 @@
           ]
         },
         "awaitingMergeDecision": {
-          "description": "Merge to main: the person decides, the stand-in recommends.",
+          "description": "Merge to main, a one-way door: the person decides and the stand-in recommends, unless the person's live grant names merge and has the one-way-door box (spec decision, grantCovers).",
           "tags": [
             "gated"
           ],
