@@ -85,6 +85,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
   and `report.json` lists the dropped rows, the conflicts and the rows the current code refuses. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
+  An OUT_OF_BAND row is history only (no machine takes it), so the replay counts it among the refused rows.
+  `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
+  `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
+  GitHub record. Join it with dogfood2's extracted rows.
   Point them at a copy of a store, never the live one. `test/history-tracer.test.js` runs both on the golden
   history and, when `HARNESS_DOGFOOD2_DIR` names a store, on a copy of it.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":
@@ -125,7 +129,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   verifier PASS in the store or no PASS review on GitHub on that sha (`src/gates.js` `verifyMerges`), and
   exits 1 on a problem: a mismatch, a merge without its PASS, or a session's missing ledger for
   an event 10 minutes old or more. What cannot be checked yet (GitHub unreachable, a ledger not filed for a
-  session that acted under 10 minutes ago) is listed as `unverifiable`, exit 0.
+  session that acted under 10 minutes ago) is listed as `unverifiable`, exit 0. Every OUT_OF_BAND row of the
+  history (work done outside the gates) is listed as `outOfBand`: who ordered it, what, its PR and head, the gates it
+  skipped. A merged PR whose landing such a row records (its `pr`, and its `sha` when it names one) is listed
+  there, not counted as a problem. A landing that no row records is still a problem (harness `meta.invariants`
+  `reviewOnHead`).
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing

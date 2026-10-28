@@ -134,15 +134,16 @@
       "OUT_OF_BAND": {
         "v": 1,
         "required": ["orderedBy", "message", "what", "skipped"],
-        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. harness doctor lists every one.",
+        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. A landing names its PR (pr) and the head that landed (sha). harness doctor lists every one, and does not count a landing one records as a problem (harness meta.invariants reviewOnHead). An order given by no chat message (a button pressed on GitHub) holds a legacy placeholder in message.",
         "schema": {
           "type": "object",
           "properties": {
             "orderedBy": { "$ref": "#/$defs/actor" },
-            "message": { "type": "string", "pattern": "^cmsg_" },
+            "message": { "anyOf": [{ "type": "string", "pattern": "^cmsg_" }, { "$ref": "#/$defs/legacy" }] },
             "what": { "type": "string", "minLength": 1 },
             "skipped": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
-            "pr": { "type": "string" }
+            "pr": { "type": "string" },
+            "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
           }
         }
       }

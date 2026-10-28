@@ -81,7 +81,7 @@ export function placeholders(rows) {
 }
 
 /** The out-of-band rows, for doctor to list: who ordered what, by which message, skipping which gates. */
-export const outOfBand = (rows) => rows.filter((r) => r.event.type === 'OUT_OF_BAND').map((r) => ({ id: r.id, at: r.at, ...r.event }));
+export const outOfBand = (rows) => rows.filter((r) => r.event.type === 'OUT_OF_BAND').map((r) => ({ id: r.id, at: r.at, to: r.to, ...r.event }));
 
 /** The fact a row describes, as the first identity rule for its type keys it. */
 export function factKey(row) {
