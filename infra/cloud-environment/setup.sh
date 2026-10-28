@@ -12,10 +12,12 @@
 # 4. Installs the repo's npm workspaces (npm ci) for the harness and ledger CLIs, if it has a lockfile.
 # 5. Audits the environment into /tmp/ccp-machine-env.txt (env var NAMES only, never values).
 # Log: /tmp/ccp-machine-setup.log. Never logs a value of an environment variable or setting.
-log=/tmp/ccp-machine-setup.log
-audit=/tmp/ccp-machine-env.txt
+# The repo is the clone this file sits in; CCP_SETUP_DIR (tests only) moves the log and audit off /tmp.
+out="${CCP_SETUP_DIR:-/tmp}"
+log="$out/ccp-machine-setup.log"
+audit="$out/ccp-machine-env.txt"
 H="${HOME:-/root}"
-repo=/home/user/ccp_machine
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 
 {
   echo "== setup start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
