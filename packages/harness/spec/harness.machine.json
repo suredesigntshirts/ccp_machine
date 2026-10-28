@@ -1,7 +1,7 @@
 {
   "id": "harness",
   "version": "0.1.0",
-  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit). It holds the person's grant to the stand-in (context.grant, spec grant): GRANT_ASKED from a session opens a checklist card (a child grant actor, one open at a time: a new ask withdraws the unanswered one), and only the person sets or replaces the grant, by one of two sources for the same PERSON_GRANTED {picks}: a tap on that card, reported up as GRANT_GIVEN, or a chat message of theirs, named by its message id (source message:<cmsg id>) and sent to the harness itself, whose picks the relaying session reads from the person's words (\"stop asking\" is every kind and one-way, with no end time). harness verify-taps lists both, so another session can check each against its card or message. Every decision the stand-in makes under a grant reports itself (DECIDED_UNDER_GRANT), and the harness keeps it in context.granted, one compact row each ({address, item, decisionClass, door, choice, confidence, reason, card, at}), so mission control and the daily audit list every one with its reason for the person to reverse.",
+  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit). It holds the person's grant to the stand-in (context.grant, spec grant): GRANT_ASKED from a session opens a checklist card (a child grant actor, one open at a time: a new ask withdraws the unanswered one), and only the person sets or replaces the grant, by one of two sources for the same PERSON_GRANTED {picks}: a tap on that card, reported up as GRANT_GIVEN, or a chat message of theirs, named by its message id (source message:<cmsg id>) and sent to the harness itself, whose picks the relaying session reads from the person's words (\"stop asking\" is every kind and one-way, with no end time). harness verify-taps lists both, so another session can check each against its card or message. Every decision the stand-in makes under a grant reports itself (DECIDED_UNDER_GRANT), and the harness keeps it in context.granted, one compact row each ({address, item, decisionClass, door, choice, confidence, reason, card, at}), so mission control and the daily audit list every one with its reason for the person to reverse. A decision waiting on the person (in the inbox) whose class and door the live grant covers at the event's own time can be sent back to the stand-in for a fresh answer: REASK_UNDER_GRANT {decision: <decision id>} from the orchestrator takes it out of the inbox and passes it to the decision through its item, so a decision stuck before a grant, or before the grant decided whatever the confidence, moves on without a tap.",
   "meta": {
     "actors": {
       "person": {
@@ -211,6 +211,27 @@
         "actions": [
           {
             "type": "recordGrantDecision"
+          }
+        ]
+      }
+    ],
+    "REASK_UNDER_GRANT": [
+      {
+        "guard": {
+          "type": "notFromOrchestrator"
+        },
+        "description": "Refused unless the orchestrator's own session sends it: it routes the work, so it alone re-asks."
+      },
+      {
+        "guard": {
+          "type": "grantMissesDecision"
+        },
+        "description": "Refused unless the decision named is in the person's inbox (waiting on the person) and the harness's live grant covers it at the event's own time (receivedAt): not ended, naming the decision's class, and for a one-way door with the one-way-door box (decision grantCovers). A decision the grant does not cover stays with the person."
+      },
+      {
+        "actions": [
+          {
+            "type": "reaskDecision"
           }
         ]
       }

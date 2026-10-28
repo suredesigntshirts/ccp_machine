@@ -1,7 +1,7 @@
 {
   "id": "decision",
   "version": "0.1.0",
-  "description": "One decision. The stand-in answers first; it decides alone only where the person's live grant covers the decision (grantCovers, spec grant) or its autonomy for this decision class is earned (standInMayDecide, the ladder), otherwise the person decides on a card with its recommendation. Every decision says its door (meta.classes): a two-way door is cheaply reversible, a one-way door is not. Each input of standInMayDecide has one supplier, and none of them is the stand-in's caller: tier is the item's, set by triage (TRIAGED), never by the request; expectationsMet is the item's, from its acceptGate, for an accept decision; autonomy is the ladder's rung for the class over the store's own decided decisions (its logPrecedent effects and the AUDIT_ANSWERED events dated at or before the spawn; no file kept by hand), which the harness reads when it spawns the decision (recommend if they cannot be read, so the person decides); threshold is the constant in this machine's context; confidence is the stand-in's, the only number its answer carries. Only a person's tap decides for the person, and only on the card the machine asked for: postDecisionCard asks the host to post the card (its detail carries the decision's item and address, item:<item>/<id>, where the ack and the tap go), the host's ack of that effect names the card's message id (CARD_POSTED, which the decision records once), and PERSON_DECIDED is taken only from the person with source tap:<that id> and a choice among the card's options. A tap on no card, an unposted card or another decision's card is refused; that the tap is real is checked afterwards against the platform (harness verify-taps, by another session, which names the session that relayed each tap: relayedBy on the log row). The item passes in its roles when it opens the decision (requester, triagers, workers, checkers, answerers; spec workItem, Roles), and a stand-in answer from a session holding another of them is refused; the answering session is reported to the item (STAND_IN_RECORDED), which records it as an answerer.",
+  "description": "One decision. The stand-in answers first; it decides alone only where the person's live grant covers the decision (grantCovers, spec grant), whatever its confidence, or its autonomy for this decision class is earned and its confidence reaches the threshold (standInMayDecide, the ladder), otherwise the person decides on a card with its recommendation. A decision waiting on the person goes back to the stand-in when the person's live grant covers it (REASK_UNDER_GRANT, spec harness). Every decision says its door (meta.classes): a two-way door is cheaply reversible, a one-way door is not. Each input of standInMayDecide has one supplier, and none of them is the stand-in's caller: tier is the item's, set by triage (TRIAGED), never by the request; expectationsMet is the item's, from its acceptGate, for an accept decision; autonomy is the ladder's rung for the class over the store's own decided decisions (its logPrecedent effects and the AUDIT_ANSWERED events dated at or before the spawn; no file kept by hand), which the harness reads when it spawns the decision (recommend if they cannot be read, so the person decides); threshold is the constant in this machine's context; confidence is the stand-in's, the only number its answer carries. Only a person's tap decides for the person, and only on the card the machine asked for: postDecisionCard asks the host to post the card (its detail carries the decision's item and address, item:<item>/<id>, where the ack and the tap go), the host's ack of that effect names the card's message id (CARD_POSTED, which the decision records once), and PERSON_DECIDED is taken only from the person with source tap:<that id> and a choice among the card's options. A tap on no card, an unposted card or another decision's card is refused; that the tap is real is checked afterwards against the platform (harness verify-taps, by another session, which names the session that relayed each tap: relayedBy on the log row). The item passes in its roles when it opens the decision (requester, triagers, workers, checkers, answerers; spec workItem, Roles), and a stand-in answer from a session holding another of them is refused; the answering session is reported to the item (STAND_IN_RECORDED), which records it as an answerer.",
   "meta": {
     "classes": {
       "plan": {
@@ -116,7 +116,10 @@
       "always": [
         {
           "guard": {
-            "type": "grantCovers"
+            "type": "grantCovers",
+            "params": {
+              "thresholdBefore": "2026-10-28T09:00:00.000Z"
+            }
           },
           "target": "decided",
           "actions": [
@@ -149,10 +152,10 @@
           "target": "awaitingPerson"
         }
       ],
-      "description": "The stand-in decides alone under the person's grant (grantCovers) when the harness's grant, read as the answer arrived (readLiveGrant: the one grant the harness holds, so a replaced grant is gone), has not ended by the answer's own time (receivedAt, before until), names this decision's class, and, for a one-way door, has the one-way-door box; the answer carries a reason, its confidence is at or above the machine's threshold, and for an accept decision the item's expectationsMet was true when it opened. Tier and autonomy do not matter there. Otherwise, as before the grant (the ladder rule, standInMayDecide), it decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides. Which rule decided is recorded (authority: grant or ladder) and logged with the precedent. A decision made under the grant also reports itself to the harness (DECIDED_UNDER_GRANT, reportGrantDecision) with its choice, confidence, reason and the grant's card, and the harness keeps the row in context.granted, the one list mission control and the daily audit show the person."
+      "description": "The stand-in decides alone under the person's grant (grantCovers) when the harness's grant, read as the answer arrived (readLiveGrant: the one grant the harness holds, so a replaced grant is gone), has not ended by the answer's own time (receivedAt, before until), names this decision's class, and, for a one-way door, has the one-way-door box; the answer carries a reason, and for an accept decision the item's expectationsMet was true when it opened. Its confidence does not matter there: under a grant the person has said they trust the stand-in's judgement, so an answer honest about doubt decides like a sure one, and its confidence goes on the granted row for the person to see and reverse. Only an answer received before thresholdBefore (when this rule was loosened, issue #58) also needs its confidence at or above the machine's threshold, the rule it was logged under, so replay routes an older log as it was routed. Tier and autonomy do not matter there. Otherwise, as before the grant (the ladder rule, standInMayDecide), it decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides. Which rule decided is recorded (authority: grant or ladder) and logged with the precedent. A decision made under the grant also reports itself to the harness (DECIDED_UNDER_GRANT, reportGrantDecision) with its choice, confidence, reason and the grant's card, and the harness keeps the row in context.granted, the one list mission control and the daily audit show the person."
     },
     "awaitingPerson": {
-      "description": "A decision card is in front of the person, with the stand-in's recommendation. The card is the one the machine asked for (postDecisionCard); its message id arrives with the ack (CARD_POSTED), and only a tap on it decides.",
+      "description": "A decision card is in front of the person, with the stand-in's recommendation. The card is the one the machine asked for (postDecisionCard); its message id arrives with the ack (CARD_POSTED), and only a tap on it decides. While it waits, the orchestrator can send it back to the stand-in for a fresh answer, but only while the person's live grant covers it (REASK_UNDER_GRANT to the harness, which checks the grant and passes it down through the item): the card is cleared, so a tap on it decides nothing, and if the fresh answer comes back here a new card is asked for.",
       "tags": [
         "needs-human"
       ],
@@ -217,6 +220,22 @@
             "actions": [
               {
                 "type": "recordPersonChoice"
+              }
+            ]
+          }
+        ],
+        "REASK_UNDER_GRANT": [
+          {
+            "guard": {
+              "type": "fromOutside"
+            },
+            "description": "Sent by the decision's item, passing on the harness's REASK_UNDER_GRANT (spec harness), which takes it only from the orchestrator and only while the person's live grant covers this decision; the same event from outside (any event with an actor) is refused."
+          },
+          {
+            "target": "askingStandIn",
+            "actions": [
+              {
+                "type": "clearCard"
               }
             ]
           }
