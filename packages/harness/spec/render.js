@@ -93,6 +93,8 @@ export function renderSpec() {
     const invariants = Object.entries(config.meta?.invariants ?? {});
     if (invariants.length)
       out.push('Host invariants (refused or denied outside the machines; every such site in the code names one of these or a guard):', '', ...invariants.map(([k, v]) => `- \`${k}\`: ${v}`), '');
+    // The host footer the merge gate and doctor tolerate after a verdict review (meta.reviewFooter).
+    if (config.meta?.reviewFooter) out.push(`Review footer (\`reviewFooter\`): ${JSON.stringify(config.meta.reviewFooter.text)}. ${config.meta.reviewFooter.description}`, '');
     // The store layout pages read (meta.store) and how pages refresh (meta.pages).
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
     if (config.meta?.pages)
