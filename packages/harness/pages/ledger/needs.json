@@ -1,0 +1,13 @@
+{
+  "page": "ledger",
+  "title": "Ledger report",
+  "description": "Who did the work on each item, as which role and on which model: spawns, starts, runs and usage samples from the one history (spec/history.schema.json). Each era's placeholders are counted in a corner, never shown as values. Replaces the per-session ledger files as its source (#48, V1).",
+  "reads": { "file": "events.jsonl", "historySchema": { "min": 1, "max": 1 } },
+  "events": {
+    "WORKER_SPAWNED": ["at", "to", "actor", "event.role", "event.agentType", "event.model"],
+    "WORKER_STARTED": ["at", "to", "actor", "event.agentType"],
+    "RUN_SUCCEEDED": ["at", "to", "actor", "event.pr"],
+    "USAGE_SAMPLED": ["at", "event.sevenDay", "event.fiveHour"],
+    "*": ["provenance.origin", "provenance.from.ref"]
+  }
+}

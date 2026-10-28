@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/suredesigntshirts/ccp_machine/packages/harness/spec/history.schema.json",
+  "title": "Harness history event",
+  "description": "One row of the one history (epic #59): today's event envelope plus where the row came from (provenance). Every row from every era (main, dogfood, dogfood2, sessions, GitHub, the live runtime) has this shape. A field that could not be recovered holds a legacy placeholder, never an invented value, and provenance.placeholders lists its path. Rows are never edited: a format change adds an event version and a declared conversion. src/history.js reads this file; nothing restates it.",
+  "schemaVersion": 1,
+  "type": "object",
+  "required": ["id", "version", "at", "to", "actor", "source", "harness", "event", "provenance"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "description": "The event id as its source wrote it. Ids are unique within one source, not across sources (dogfood and dogfood2 share orchestrator ids)." },
+    "version": { "type": "integer", "minimum": 1, "description": "The row's position in the one history, counted from 1 in time order." },
+    "at": { "$ref": "#/$defs/time" },
+    "to": { "type": "string", "description": "The machine address the event went to (harness, budget, item:<id>, item:<id>/decision:<...>)." },
+    "actor": { "anyOf": [{ "$ref": "#/$defs/actor" }, { "$ref": "#/$defs/legacy" }] },
+    "source": { "anyOf": [{ "$ref": "#/$defs/source" }, { "$ref": "#/$defs/legacy" }] },
+    "relayedBy": { "type": "string", "minLength": 1, "description": "The session that relayed a tap or message (harness meta.sources)." },
+    "harness": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["version"],
+          "additionalProperties": false,
+          "properties": { "version": { "type": "string", "minLength": 1 }, "commit": { "type": ["string", "null"] } }
+        },
+        { "$ref": "#/$defs/legacy" }
+      ],
+      "description": "The harness that applied (or, for a recovered row, would have applied) the event."
+    },
+    "event": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "pattern": "^[A-Z][A-Z_]*$" },
+        "v": { "type": "integer", "minimum": 1, "description": "The event type's version (events below). Absent means 1." }
+      }
+    },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "$defs": {
+    "time": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$" },
+    "legacy": {
+      "type": "object",
+      "required": ["legacy"],
+      "additionalProperties": false,
+      "properties": { "legacy": { "type": "string", "minLength": 1, "description": "Why the value is missing, e.g. 'main predates the envelope (M1)'." } },
+      "description": "A placeholder for a value that could not be recovered."
+    },
+    "actor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": { "kind": { "type": "string" }, "id": { "type": "string", "minLength": 1 } },
+      "description": "Who sent the event. The kinds and id forms are harness meta.actors."
+    },
+    "source": {
+      "type": "object",
+      "required": ["kind", "ref"],
+      "properties": { "kind": { "type": "string" }, "ref": { "type": "string" } },
+      "description": "Where the event came from. The kinds are harness meta.sources."
+    },
+    "from": {
+      "type": "object",
+      "required": ["source", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "enum": ["store", "session", "github", "library", "artifact"] },
+        "ref": { "type": "string", "minLength": 1, "description": "A path under harness/archive/ (or the live store's name), as C1 lays it out." },
+        "line": { "type": "integer", "minimum": 1, "description": "The line (JSONL) or event index the row was read from." }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["origin", "from"],
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "enum": ["live", "migrated", "recovered"],
+          "description": "live: the runtime wrote it into this history. migrated: copied from an older store, upcast. recovered: reconstructed from a session transcript, GitHub or the Library, where no store recorded it."
+        },
+        "from": { "$ref": "#/$defs/from" },
+        "also": { "type": "array", "items": { "$ref": "#/$defs/from" }, "description": "Other sources that described the same fact (identity below); the merger keeps them here." },
+        "placeholders": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Paths in this row (actor, harness, event.sha, ...) that hold a legacy placeholder. Exactly those, no more and no fewer." },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Only on a recovered row where reading the source took judgement; the from line points at the evidence." }
+      }
+    }
+  },
+  "events": {
+    "description": "Every event type the history holds, with its current version and the payload fields it needs to mean anything (a weak schema: the rest are optional, because eras differ). Every type the machines take is here, and OUT_OF_BAND records work done outside the gates. A version above 1 needs a declared conversion from each earlier one.",
+    "types": {
+      "AUDIT_ANSWERED": { "v": 1 },
+      "AUDIT_PICKED": { "v": 1 },
+      "BLOCK": { "v": 1 },
+      "BUDGET_MODE": { "v": 1 },
+      "CANCEL": { "v": 1 },
+      "CARD_POSTED": { "v": 1, "required": ["card"] },
+      "CHECKS_FAILED": { "v": 1, "required": ["pr"] },
+      "CHECKS_PASSED": { "v": 1, "required": ["pr"] },
+      "CONFIGURE": { "v": 1 },
+      "CRITERION_CHECKED": { "v": 1, "required": ["criterion", "verdict"] },
+      "DAY_STARTED": { "v": 1 },
+      "DECIDED_UNDER_GRANT": { "v": 1 },
+      "DECISION_CLOSED": { "v": 1 },
+      "DECISION_MADE": { "v": 1 },
+      "DECISION_PENDING": { "v": 1 },
+      "DIGEST_DUE": { "v": 1 },
+      "GRANT_ASKED": { "v": 1 },
+      "GRANT_GIVEN": { "v": 1 },
+      "ITEM_FINISHED": { "v": 1 },
+      "ITEM_PARKED": { "v": 1 },
+      "MERGED": { "v": 1, "required": ["pr"] },
+      "MERGE_FAILED": { "v": 1 },
+      "ORCHESTRATOR_STARTED": { "v": 1 },
+      "PERSON_DECIDED": { "v": 1, "required": ["choice"] },
+      "PERSON_GRANTED": { "v": 1 },
+      "REASK_UNDER_GRANT": { "v": 1, "required": ["decision"] },
+      "REQUEST_RECEIVED": { "v": 1, "required": ["request"] },
+      "RUN_FAILED": { "v": 1 },
+      "RUN_SUCCEEDED": { "v": 1 },
+      "STAND_IN_ANSWERED": { "v": 1, "required": ["answer"] },
+      "STAND_IN_FAILED": { "v": 1 },
+      "STAND_IN_RECORDED": { "v": 1 },
+      "SPAWN_CLOSED": { "v": 1, "required": ["toolUseId"] },
+      "START": { "v": 1 },
+      "TICK": { "v": 1 },
+      "TRIAGED": { "v": 1, "required": ["tier"] },
+      "UNBLOCKED": { "v": 1 },
+      "USAGE_SAMPLED": { "v": 1 },
+      "VERDICT_GIVEN": { "v": 1 },
+      "VERIFIER_BRIEF_FIXED": { "v": 1, "required": ["sha256"] },
+      "WIP_SET": { "v": 1, "required": ["limit"] },
+      "WORKER_SPAWNED": { "v": 1, "required": ["role"] },
+      "WORKER_STARTED": { "v": 1 },
+      "WRAP_UP": { "v": 1 },
+      "OUT_OF_BAND": {
+        "v": 1,
+        "required": ["orderedBy", "message", "what", "skipped"],
+        "description": "Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. harness doctor lists every one.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "orderedBy": { "$ref": "#/$defs/actor" },
+            "message": { "type": "string", "pattern": "^cmsg_" },
+            "what": { "type": "string", "minLength": 1 },
+            "skipped": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+            "pr": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "identity": {
+    "description": "How the merger knows two rows describe one fact (C4). The first rule whose types include the row's type gives its key: the values at the listed paths, joined. A row missing any key path keeps a key of its own and is never merged. Of rows with one key, the one whose provenance.from.source is the rule's owner is kept (else the earliest), and the others' from go to its provenance.also. Rows with one key that disagree on a payload field both have are a conflict the merger reports, never merges silently.",
+    "rules": [
+      { "fact": "merge", "types": ["MERGED"], "key": ["event.pr"], "owner": "github", "why": "A PR merges once; GitHub owns that fact." },
+      { "fact": "checks", "types": ["CHECKS_PASSED", "CHECKS_FAILED"], "key": ["event.type", "event.pr", "event.sha"], "owner": "github", "why": "CI on one head of one PR; GitHub owns it." },
+      { "fact": "request", "types": ["REQUEST_RECEIVED"], "key": ["event.request.id"], "owner": "store", "why": "An item id is filed once." },
+      { "fact": "decision", "types": ["STAND_IN_ANSWERED", "CARD_POSTED", "PERSON_DECIDED"], "key": ["event.type", "to"], "owner": "store", "why": "The decision address is item + class + attempt; the store owns machine decisions." },
+      { "fact": "spawn", "types": ["WORKER_SPAWNED"], "key": ["event.toolUseId"], "owner": "store", "why": "One Agent tool call is one spawn." },
+      { "fact": "out-of-band", "types": ["OUT_OF_BAND"], "key": ["event.message", "event.what"], "owner": "session", "why": "The order is a message the session read." }
+    ],
+    "otherwise": { "key": ["provenance.from.ref", "id"], "why": "Any other row is its own fact within its source." }
+  }
+}
