@@ -244,6 +244,48 @@ test('two writers that find the same stale claim, the second first: only one tak
   assert.equal(status(store).items.length, 1, 'the next writer takes the lock as usual');
 });
 
+test('a writer that found a stale lock and stalls past 60s: a fresh lock taken meanwhile is not removed under its holder', () => {
+  const store = fresh();
+  const lock = join(store.dir, 'lock');
+  closeSync(openSync(lock, 'w'));
+  const old = () => (Date.now() - 120_000) / 1000;
+  utimesSync(lock, old(), old());
+  // D stats the lock and finds it stale, then stalls. B breaks it through its claim, takes the lock and lets go.
+  const found = statSync(lock);
+  const B = openStore(store.dir);
+  const D = openStore(store.dir);
+  B.withLock(() => {});
+  // Over 60s on, every claim is stale, and E takes a fresh lock. D resumes with its old stat of the lock: only its
+  // first stat is the stale one, every later call sees the store as it is.
+  for (const n of fs.readdirSync(store.dir)) if (n.startsWith('lock.')) utimesSync(join(store.dir, n), old(), old());
+  let both = false;
+  let dRefused = false;
+  let eHolds;
+  store.withLock(() => {
+    let first = true;
+    withFs('statSync', (real) => (path, ...rest) => {
+      if (path === lock && first) {
+        first = false;
+        return found;
+      }
+      return real(path, ...rest);
+    }, () => {
+      try {
+        D.withLock(() => (both = true));
+      } catch (e) {
+        if (!/another writer holds/.test(e.message)) throw e;
+        dRefused = true;
+      }
+    });
+    eHolds = existsSync(lock);
+  });
+  assert.equal(both, false, 'D took the lock while E held a fresh one');
+  assert.equal(eHolds, true, "E's lock was removed under it");
+  assert.equal(dRefused, true, 'D is refused');
+  apply(store, req('a'));
+  assert.equal(status(store).items.length, 1, 'the next writer takes the lock as usual');
+});
+
 // A writer process: it applies n events as session writer-<tag>, sending each one again for as long as the store
 // refuses it because another writer holds the lock, and no longer: how long a holder keeps the lock depends on
 // the machine, so a writer that gives up after a fixed number of tries fails on a slow one. A lock left behind is
