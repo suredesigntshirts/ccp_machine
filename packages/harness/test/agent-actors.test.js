@@ -353,3 +353,24 @@ test('verify-actors checks each agent actor against the SubagentStart records: o
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /^ok agent:lead\/a1 \(1 event\)$/m);
 });
+
+// #79: a resume fires SubagentStart again. A record written before the hook kept the first start holds the resume's
+// time, so the window starts at the earliest start a hook recorded: that record, or the bind's start-<agent> call.
+test('verify-actors starts an agent\'s window at the earliest start a hook recorded: its record or its start call', () => {
+  const lib = tempDir('harness-lib-');
+  const dir = tempDir('harness-agents-');
+  sessionLedger(lib, 'lead', '2026-10-27T10:00:00.000Z', '2026-10-27T12:00:00.000Z');
+  for (const aid of ['r1', 'r2', 'r3']) agentRecord(lib, 'lead', aid, '2026-10-27T11:00:00.000Z'); // each rewritten at its resume
+  const calls = join(lib, 'ledger', 'sessions', 'lead', 'calls');
+  mkdirSync(calls, { recursive: true });
+  const startCall = (aid, record) => writeFileSync(join(calls, `start-${aid}.json`), JSON.stringify({ sessionId: 'lead', toolUseId: `start-${aid}`, at: '2026-10-27T10:10:00.000Z', kind: 'start', agentId: null, agentType: null, item: 'a', agent: `lead/${aid}`, ...record }));
+  startCall('r1');
+  startCall('r2', { agent: 'lead/r9' }); // another agent's start call
+  startCall('r3', { kind: 'bash' }); // not a start
+  writeFileSync(join(dir, 'events.jsonl'), ['r1', 'r2', 'r3'].map((aid) => JSON.stringify(event('agent', `lead/${aid}`, '2026-10-27T10:30:00.000Z', 'general-purpose'))).join('\n') + '\n');
+  const r = run({ HARNESS_LIBRARY_DIR: lib, ...parent }, 'verify-actors', '--store', dir);
+  const lines = r.stdout.trim().split('\n');
+  assert.match(lines[0], /^ok agent:lead\/r1 \(1 event\)$/, r.stdout);
+  assert.match(lines[1], /^outside window agent:lead\/r2: .* is not in 2026-10-27T11:00:00.000Z\.\./);
+  assert.match(lines[2], /^outside window agent:lead\/r3: .* is not in 2026-10-27T11:00:00.000Z\.\./);
+});

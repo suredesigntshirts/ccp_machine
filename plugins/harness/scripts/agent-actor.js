@@ -14,7 +14,8 @@
 //   $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json, which harness verify-actors checks, and binds
 //   the agent to the newest spawn of its agent type that the spawn gate recorded for this session and the store took,
 //   when that spawn is unbound (WORKER_STARTED; spec workItem, Workers; harness meta.invariants oneUnboundSpawn). The
-//   bind's result is added to the agent's record as bind { item, spawn, result }.
+//   bind's result is added to the agent's record as bind { item, spawn, result }. A resumed agent starts again: its
+//   record keeps its first at and bind, the new start time is added to resumes, and nothing is bound.
 // It does nothing unless the project has installed the harness (host.js), and on its own failure it prints
 // nothing and exits 0.
 import { createHash } from 'node:crypto';
@@ -35,15 +36,22 @@ try {
       const dir = join(libraryDir(), 'ledger', 'sessions', session, 'agents');
       mkdirSync(dir, { recursive: true });
       const agentType = String(input.agent_type ?? '');
-      const record = { sessionId: session, agentId: agent, agentType, at: new Date().toISOString() };
+      const at = new Date().toISOString();
       const file = (r) => {
         const tmp = join(dir, `.${agent}.${process.pid}.tmp`);
         writeFileSync(tmp, JSON.stringify(r));
         renameSync(tmp, join(dir, `${agent}.json`));
       };
-      file(record);
-      const bound = bind(session, agent, agentType, input.cwd);
-      if (bound) file({ ...record, bind: bound });
+      let prior = null;
+      try { prior = JSON.parse(readFileSync(join(dir, `${agent}.json`), 'utf8')); } catch {}
+      // A resume (SendMessage to an agent that ran) starts it again: its first start and bind stand.
+      if (prior?.sessionId === session && prior.agentId === agent && Date.parse(prior.at)) file({ ...prior, resumes: [...(prior.resumes ?? []), at] });
+      else {
+        const record = { sessionId: session, agentId: agent, agentType, at };
+        file(record);
+        const bound = bind(session, agent, agentType, input.cwd);
+        if (bound) file({ ...record, bind: bound });
+      }
     }
   } else if (input.hook_event_name === 'PreToolUse' && input.tool_name === 'Bash' && typeof command === 'string') {
     const sets = SETS.test(command);

@@ -29,7 +29,9 @@ const within = (rows, start, end, toleranceMs, base) => {
  * One result per session or agent actor, in order of first appearance:
  * [{result: 'ok'|'no ledger'|'no record'|'outside window', kind, id, events, why?}]. An agent (<session_id>/<agent_id>)
  * is checked against the SubagentStart hook's record, <dir>/<session_id>/agents/<agent_id>.json: its window runs
- * from the agent's start to its session's last filed turn, and its agent_type must be the recorded one.
+ * from the agent's earliest recorded start (that record's, or its bind's start call <dir>/<session_id>/calls/
+ * start-<agent_id>.json, whichever is earlier) to its session's last filed turn, and its agent_type must be the
+ * recorded one.
  */
 export function verifyActors(store, { dir = ledgerDir(), toleranceMs = WINDOW_TOLERANCE_MS } = {}) {
   const byActor = new Map();
@@ -50,7 +52,10 @@ export function verifyActors(store, { dir = ledgerDir(), toleranceMs = WINDOW_TO
       if (other) return no(`${file} records a ${record.agentType} subagent, not a ${other.actor.type} (${other.id})`);
       const session = readJson(join(dir, `${sid}.json`))?.session;
       if (session?.sessionId !== sid || !(Date.parse(session.end) >= Date.parse(session.start))) return no(`no ${join(dir, `${sid}.json`)} holding its session's window`);
-      return within(rows, record.at, session.end, toleranceMs, base);
+      // The bind's start call (plugin agent-actor.js) is the other hook record of this agent's start.
+      const call = readJson(join(dir, sid, 'calls', `start-${aid}.json`));
+      const started = call?.kind === 'start' && call.sessionId === sid && call.agent === `${sid}/${aid}` && Date.parse(call.at) < Date.parse(record.at) ? call.at : record.at;
+      return within(rows, started, session.end, toleranceMs, base);
     }
     if (!SAFE.test(String(id))) return { ...base, result: 'no ledger', why: 'the id cannot name a ledger file' };
     const file = join(dir, `${id}.json`);
