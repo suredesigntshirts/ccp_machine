@@ -5,12 +5,12 @@ import { apply, ack, status } from './runtime.js';
 import { logPrecedents } from './decision-log.js';
 
 /**
- * @param {{choice: 'approve'|'reject', reason: string, confidence: number}} answer by is the sender, {actor, source}.
- *   The decision machine holds autonomy and threshold and refuses an answer without a confidence.
+ * @param {{choice: string, reason: string, confidence: number}} answer by is the sender, {actor, source}.
+ *   The decision machine holds the choices a stand-in may give (its options), autonomy and threshold, and refuses
+ *   an answer with another choice or without a confidence.
  * @returns {{subject: string, id: string, duplicate: boolean, acked: string[], effects: string[], note?: string}}
  */
 export function standinAnswer(store, item, { choice, reason, confidence, by }) {
-  if (!['approve', 'reject'].includes(choice)) throw new Error('standin needs --approve or --reject');
   if (!reason) throw new Error('standin needs --reason: why the stand-in may decide this');
   // The ask of a decision the item holds now (a store from before #84 can still hold asks of stopped ones), else one
   // whose answer is already recorded, so a retried call is reported as the duplicate it is.

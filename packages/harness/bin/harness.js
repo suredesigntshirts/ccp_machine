@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
-import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody, renderLivePage, loadNeeds, formatOf, checklistFor } from '../src/index.js';
+import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, specs, requestFromIssue, issueBody, renderLivePage, loadNeeds, formatOf, checklistFor } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -80,8 +80,11 @@ const HELP = `harness <command> [options]
                                  words (kind:<class>..., one-way, at most one until:<ISO time>; none is no end
                                  time). "Stop asking" is every kind:<class> and one-way. It replaces any earlier
                                  grant; verify-taps lists it with its message id
-  answer <item> --approve|--reject --reason TEXT --confidence N
-                                 answer the pending stand-in question of the item's live decision (never an
+  answer <item> --approve|--revise|--reject --reason TEXT --confidence N
+                                 one flag per option of the decision (spec decision, context.options): approve
+                                 moves the item on; revise sends it back to building (from the plan gate, to
+                                 triage), as a person's revise tap does; reject cancels the item.
+                                 Answer the pending stand-in question of the item's live decision (never an
                                  ask left by a stopped one): send STAND_IN_ANSWERED to that decision (id
                                  standin-<ask's effect id>, so a re-ask's answer is new and a retried call a
                                  duplicate, which acks nothing), ack the ask and log the precedent. Autonomy
@@ -225,8 +228,8 @@ try {
       refreshes: { type: 'string' },
       out: { type: 'string' },
       now: { type: 'string' },
-      approve: { type: 'boolean', default: false },
-      reject: { type: 'boolean', default: false },
+      // One flag per choice a stand-in may give: the decision machine's options, the only list of them.
+      ...Object.fromEntries(specs.decision.context.options.map((c) => [c, { type: 'boolean', default: false }])),
       reason: { type: 'string' },
       confidence: { type: 'string' },
       actor: { type: 'string' },
@@ -394,17 +397,19 @@ try {
     case 'ack':
       print(ack(store, args, { outcome: o.outcome, note: o.note, card: o.card, ...((flagged.actor || platform) && { by: by('ack') }) }));
       break;
-    case 'answer':
-      if (!args[0] || o.approve === o.reject) throw new Error('answer needs an item and one of --approve or --reject');
+    case 'answer': {
+      const choices = specs.decision.context.options.filter((c) => o[c]);
+      if (!args[0] || choices.length !== 1) throw new Error(`answer needs an item and one of ${specs.decision.context.options.map((c) => `--${c}`).join(', ')}`);
       print(
         standinAnswer(store, args[0], {
-          choice: o.approve ? 'approve' : 'reject',
+          choice: choices[0],
           reason: o.reason,
           confidence: o.confidence && Number(o.confidence),
           by: by('answer')
         })
       );
       break;
+    }
     case 'decisions':
       print(logPrecedents(store));
       break;

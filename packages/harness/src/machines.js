@@ -277,7 +277,8 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       unattested: provenance.unattested,
       fromOutside: provenance.fromOutside,
       ...cards,
-      choiceNotOffered: ({ context, event }) => !context.options.includes(event.choice),
+      // The person's tap carries its choice; the stand-in's answer carries it inside the answer.
+      choiceNotOffered: ({ context, event }) => !context.options.includes(event.type === 'STAND_IN_ANSWERED' ? event.answer.choice : event.choice),
       holdsAnotherRole,
       answeredByOrchestratorOrWorker: ({ context, event }) => event.actor?.id === context.orchestrator || (context.workers ?? []).includes(event.actor?.id),
       answerOverreaches: ({ event: { answer: a } }) =>
