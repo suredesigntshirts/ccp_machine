@@ -249,6 +249,29 @@ test('merge gate: a GitHub write it cannot read is denied (readableGitHubWrite);
   ]) assert.equal(hook(s, bashInput(c), enforce), null, c);
 });
 
+// #92: the gate no longer reads Bash text. The three commands #64 saw denied, main's former Bash landing forms and
+// hidden ones all reach bash unjudged; a landing by any route but the MCP tool is doctor's to list afterwards.
+test('#92: no Bash call is judged by its text: the #64 commands and the former landing forms are not denied or recorded', () => {
+  const { hooks } = JSON.parse(readFileSync(join(repo, 'plugins/harness/hooks/hooks.json'), 'utf8'));
+  assert.ok(!hooks.PreToolUse.find((h) => h.matcher === 'Bash').hooks.some((h) => h.args[0].endsWith('/scripts/gates.js')), 'gates.js does not run before Bash');
+  const s = scratch();
+  for (const c of [
+    // #64, as observed on 28 Oct.
+    "gh api repos/suredesigntshirts/ccp_machine/pulls/60 --jq '{merged,merged_at}'",
+    "cat > test/fixtures/gh-pr.js <<'EOF'\n// what gh api says once the PR is merged\nexport const pr = { merged: true };\nEOF",
+    'harness answer --reason "Approve: the stand-in goes through once #62 is merged"',
+    // main's former gated forms and what it denied as unreadable.
+    `gh pr merge 7 --repo o/r --match-head-commit ${HEAD}`,
+    `gh api -X PUT repos/o/r/pulls/7/merge -f sha=${HEAD}`,
+    `N=7; gh api -X PUT repos/o/r/pulls/$N/merge -f sha=${HEAD}`,
+    'bash -c "gh pr merge 7 --repo o/r"'
+  ]) {
+    const input = bashInput(c);
+    assert.equal(hook(s, input, enforce), null, c);
+    assert.throws(() => callRecord(s, `gate-${input.tool_use_id}`), /ENOENT/, `no gate record: ${c}`);
+  }
+});
+
 test('without HARNESS_ENFORCE nothing is denied: the gates only record', () => {
   const s = scratch();
   const spawn = spawnInput(BUILDER_BRIEF);

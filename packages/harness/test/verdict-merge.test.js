@@ -127,6 +127,28 @@ test('doctor lists a merged PR whose merge head has no verifier PASS in the stor
   assert.ok(down.unverifiable.some((l) => /^merges: unreachable o\/r#7/.test(l)));
 });
 
+// #92: doctor reads every PR GitHub says landed on main, in each repository the store names, through REST pages; a
+// landing bound to no item has no verifier PASS in the store, so it is listed. GitHub is a fixture: no network.
+test('#92: doctor lists a PR landed on main that is bound to no item and has no verifier PASS on its landed head', async () => {
+  const store = merging(); // o/r#7 is item x's, still open
+  const UNBOUND = 'd'.repeat(40);
+  const paths = [];
+  const fetcher = async (path) => {
+    paths.push(path);
+    if (path === 'repos/o/r/pulls?state=closed&base=main&per_page=100&page=1')
+      return [{ number: 9, head: { sha: UNBOUND }, base: { ref: 'main' }, merged_at: '2026-10-28T12:00:00Z' }, { number: 8, head: { sha: OLD }, base: { ref: 'main' }, merged_at: null }];
+    if (path === 'repos/o/r/pulls/7') return { number: 7, merged: false, head: { sha: HEAD } };
+    if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return [];
+    throw new Error(`HTTP 404 ${path}`);
+  };
+  const rows = await verifyMerges(store, { fetcher });
+  assert.deepEqual(rows.map((r) => [r.result, r.pr, r.item]), [['problem', 'o/r#9', null]], 'the closed-unlanded #8 and the open #7 are not listed');
+  assert.match(rows[0].why, /bound to no item: the store holds no verifier PASS for its landed head d{7}/);
+  const report = await doctor(store, { ledgers: tempDir('harness-ledgers-'), fetcher });
+  assert.ok(report.problems.includes(`merges: problem o/r#9 no item: ${rows[0].why}`), report.problems.join('\n'));
+  assert.ok(paths.every((p) => !/graphql/i.test(p)), 'REST only');
+});
+
 // #65: a joined store holds history rows (spec/history.schema.json); an OUT_OF_BAND row records a landing outside the
 // gates. The row goes in as join.mjs writes it, numbered after the log, with state.json at its version.
 function landedOutOfBand(store, sha) {
