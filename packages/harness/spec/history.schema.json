@@ -112,6 +112,7 @@
       "ORCHESTRATOR_STARTED": { "v": 1 },
       "PERSON_DECIDED": { "v": 1, "required": ["choice"] },
       "PERSON_GRANTED": { "v": 1 },
+      "REASK_UNDER_GRANT": { "v": 1, "required": ["decision"] },
       "REQUEST_RECEIVED": { "v": 1, "required": ["request"] },
       "RUN_FAILED": { "v": 1 },
       "RUN_SUCCEEDED": { "v": 1 },

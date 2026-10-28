@@ -427,6 +427,7 @@ Events: Every event type the history holds, with its current version and the pay
 - `CRITERION_CHECKED` v1, needs `criterion`, `verdict`
 - `MERGED` v1, needs `pr`
 - `PERSON_DECIDED` v1, needs `choice`
+- `REASK_UNDER_GRANT` v1, needs `decision`
 - `REQUEST_RECEIVED` v1, needs `request`
 - `STAND_IN_ANSWERED` v1, needs `answer`
 - `TRIAGED` v1, needs `tier`
