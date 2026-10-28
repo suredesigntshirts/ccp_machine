@@ -64,6 +64,20 @@ function agentEventsError(root, event, to) {
   return `from agent ${event.actor.id}: ${why} (agentEvents)`;
 }
 
+// A session has at most one unbound spawn of an agent type at a time, across all items (harness meta.invariants
+// oneUnboundSpawn): SubagentStart cannot tell two apart. A spawn waits while it is unbound, not closed and inside the
+// bind window (the workItem noSpawnToBind withinMs). Null when none waits.
+const BIND_WINDOW_MS = [specs.workItem.states.active.on.WORKER_STARTED].flat().find((t) => t.guard?.type === 'noSpawnToBind').guard.params.withinMs;
+function waitingSpawnError(root, event) {
+  if (event.type !== 'WORKER_SPAWNED') return null;
+  for (const child of Object.values(root.getSnapshot().children)) {
+    const c = child.getSnapshot().context;
+    const s = (c?.spawns ?? []).find((x) => !x.agent && !x.closed && x.by === event.actor.id && x.agentType === event.agentType && Date.parse(event.receivedAt) - Date.parse(x.at) <= BIND_WINDOW_MS);
+    if (s) return `from ${event.actor.id}: its ${s.agentType} spawn ${s.toolUseId ?? '(no tool use id)'} on item:${c.id} (${s.role}, ${s.at}) is not bound yet, and a new agent of the type cannot be told apart from it. Wait for that agent to start (WORKER_STARTED); if it never will, close it: harness send '{"type":"SPAWN_CLOSED","toolUseId":"${s.toolUseId}"}' --to item:${c.id} (oneUnboundSpawn)`;
+  }
+  return null;
+}
+
 // A decision opening now takes its class's rung from the store's decided decisions up to now; unreadable gives recommend.
 const rungAt = (store, now) => (cls) => { try { return ladder(readDecisionLog(store).filter((r) => r.at <= now), cls).autonomy; } catch { return 'recommend'; } };
 
@@ -144,6 +158,12 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
       const guard = snap.status === 'active' && refusingGuard(snap, event);
       // rule: machine
       return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}${guard ? ` (${guard})` : ''}`, effects: [] };
+    }
+    // One unbound spawn of an agent type per session (harness meta.invariants oneUnboundSpawn), across items.
+    const waiting = waitingSpawnError(actor, event);
+    if (waiting) {
+      actor.stop();
+      return { version: state.version, refused: true, rule: 'oneUnboundSpawn', why: `refused: ${event.type} ${waiting}`, effects: [] }; // rule: oneUnboundSpawn
     }
     // A person acts only by a tap on a card the machine asked for or, for a grant, a message, and a tap or a message is
     // only ever the person's: an event a machine takes from the person (personEvents). Any other is refused.

@@ -88,9 +88,12 @@ export const expectationsMet = ({ context: c }) =>
 const HEX = (n) => new RegExp(`^[0-9a-f]{${n}}$`);
 const SPAWN_ROLES = ['builder', 'verifier', 'triager', 'stand-in'];
 const VERDICT_KINDS = ['PASS', 'FAIL'];
-// The unbound spawn a starting agent belongs to: the sender's oldest of that agent type, at most withinMs old.
+// The unbound spawn a starting agent belongs to: the sender's oldest of that agent type, not closed, at most withinMs old.
 const spawnToBind = ({ context: c, event: e }, withinMs) =>
-  (c.spawns ?? []).find((s) => !s.agent && s.by === e.actor?.id && s.agentType === e.agentType && Date.parse(e.receivedAt) - Date.parse(s.at) <= withinMs);
+  (c.spawns ?? []).find((s) => !s.agent && !s.closed && s.by === e.actor?.id && s.agentType === e.agentType && Date.parse(e.receivedAt) - Date.parse(s.at) <= withinMs);
+// The sender's unbound, unclosed spawn with the event's toolUseId (SPAWN_CLOSED).
+const spawnToClose = ({ context: c, event: e }) =>
+  e.toolUseId ? (c.spawns ?? []).find((s) => !s.agent && !s.closed && s.by === e.actor?.id && s.toolUseId === e.toolUseId) : undefined;
 const workers = {
   briefOverreaches: ({ context, event }) => context.verifierBrief != null || !HEX(64).test(String(event.sha256 ?? '')),
   spawnOverreaches: ({ event: e }) => !SPAWN_ROLES.includes(e.role) || !HEX(64).test(String(e.briefSha256 ?? '')) || !isText(e.agentType) || (e.model != null && typeof e.model !== 'string'),
@@ -103,6 +106,7 @@ const workers = {
     const [sid, aid, ...more] = String(e.agent ?? '').split('/');
     return sid !== e.actor?.id || !aid || more.length || (c.spawns ?? []).some((s) => s.agent === e.agent) || !spawnToBind(args, withinMs);
   },
+  noSpawnToClose: (args) => !spawnToClose(args),
   verdictOverreaches: ({ context, event: e }) =>
     !VERDICT_KINDS.includes(e.verdict) || !HEX(40).test(String(e.sha ?? '')) || !Number.isInteger(e.review) || !isText(e.text) || context.verifierBrief == null || !e.text.trimEnd().endsWith(context.verifierBrief),
   unverifiedHead: ({ context, event }) => context.verdicts?.[event.sha]?.verdict !== 'PASS'
@@ -119,6 +123,12 @@ const workerActions = {
     spawns: (args, { withinMs }) => {
       const s = spawnToBind(args, withinMs);
       return args.context.spawns.map((x) => (x === s ? { ...x, agent: args.event.agent } : x));
+    }
+  }),
+  closeSpawn: assign({
+    spawns: (args) => {
+      const s = spawnToClose(args);
+      return args.context.spawns.map((x) => (x === s ? { ...x, closed: args.event.receivedAt } : x));
     }
   }),
   recordVerdict: assign({ verdicts: ({ context, event: e }) => ({ ...context.verdicts, [e.sha]: { verdict: e.verdict, review: e.review, by: e.actor.id, at: e.receivedAt } }) })

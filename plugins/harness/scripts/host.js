@@ -207,16 +207,22 @@ export const harnessBin = () => process.env.HARNESS_BIN ?? join(pluginRoot(), '.
 
 /**
  * Run the harness CLI as `session` (or its subagent `agent`), in the call the hook recorded (`call`, as writeCall
- * stamped it), from `cwd` (HARNESS_DIR as the session has it, else the CLI's default). Returns { status, out (stdout
- * as JSON, or null), err }.
+ * stamped it), from `cwd` (HARNESS_DIR as the session has it, else the CLI's default). The hooks of one message run at
+ * once, so a run that found the store's lock held (it wrote nothing) is run again until `ms` is spent. Returns
+ * { status, out (stdout as JSON, or null), err }.
  */
 export function runHarness(args, { session, call, cwd, agent = null, ms = 20000 }) {
   const env = { ...process.env, CLAUDE_CODE_SESSION_ID: safeId(session), HARNESS_CALL: String(call).replace(/[^A-Za-z0-9_:-]/g, '') };
   // The CLI acts as whoever made the call: the session, or the subagent (agent: <agent_id>:<agent_type>).
   if (agent) env.HARNESS_AGENT = agent;
   else delete env.HARNESS_AGENT;
-  const r = spawnSync(process.execPath, [harnessBin(), ...args], { cwd: cwd && existsSync(cwd) ? cwd : undefined, env, encoding: 'utf8', timeout: ms });
-  let out = null;
-  try { out = JSON.parse(r.stdout); } catch {}
-  return { status: r.status, out, err: String(r.stderr || r.error?.message || '').trim() };
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const r = spawnSync(process.execPath, [harnessBin(), ...args], { cwd: cwd && existsSync(cwd) ? cwd : undefined, env, encoding: 'utf8', timeout: Math.max(1, deadline - Date.now()) });
+    let out = null;
+    try { out = JSON.parse(r.stdout); } catch {}
+    const err = String(r.stderr || r.error?.message || '').trim();
+    if (!/another writer holds/.test(err) || Date.now() > deadline - 500) return { status: r.status, out, err };
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 + Math.floor(Math.random() * 100));
+  }
 }
