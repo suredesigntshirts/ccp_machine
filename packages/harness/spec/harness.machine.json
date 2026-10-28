@@ -64,6 +64,7 @@
       "pinnedHead": "Under HARNESS_ENFORCE=1 the merge gate denies a merge call that does not pin the head sha (expectedHeadSha, --match-head-commit or sha).",
       "reviewOnHead": "Under HARNESS_ENFORCE=1 the merge gate denies a merge unless the PR carries the item's PASS verdict as a review on the pinned head sha (commit_id), read from GitHub's REST API: the review id the store holds, in state COMMENTED, its body the stored verdict text verbatim or that text followed by exactly meta.reviewFooter (the body trimmed). harness doctor audits each merged PR's head by the same comparison, except a landing an OUT_OF_BAND row of the history records (history.schema.json: the row's pr is the PR, and its sha, when it names one, is the head that landed): doctor lists that landing out of band, with who ordered it and the gates it skipped, and does not count it as a problem. A landing no row records is still a problem.",
       "readableGitHubWrite": "Under HARNESS_ENFORCE=1 the merge gate judges a Bash call by its text, not by parsing shell. The text is read with quotes and backslashes removed and percent-escapes decoded; when it holds 'merge' together with 'gh', 'curl', 'wget', 'api' or 'graphql' (any case), the call is denied unless the whole command is exactly one of the gated forms, one simple command with no compound syntax (no ; & | < > ( ) { } $ ` \\ or newline): `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`, with only the listed merge options beside them (gh pr merge: --squash, --merge, --rebase, --delete-branch, --subject, --body; gh api: -f merge_method, commit_title, commit_message). A gated form is judged by the merge gate's other rules; the deny names the gated forms. Any other Bash call that runs gh, curl or wget is denied when it can write to GitHub and the gate cannot read the write: a gh command, subcommand, method or path built from a variable, a gh alias or extension, a GraphQL document that is not literal or holds a mutation, or a curl or wget write to a URL or with a method built from a variable, or to GraphQL.",
+      "writerNotOlder": "runtime.apply refuses an event from a release older than the one that last wrote the store (state.json writtenBy; a store from before the field: its last log row's harness): an older plugin version, or none, is refused, and at the same version a writer on another commit is refused unless the store's commit is an ancestor of its own (in the writer's git checkout). A store that records no version takes any writer; one whose version is not x.y.z takes none. The refusal names both releases (version@commit): older code would decide today's events by yesterday's rules. Replay applies facts and does not check the writer.",
       "personNotFromAgent": "The CLI refuses --actor person in a subagent's call (HARNESS_AGENT): a subagent records only as itself, so it cannot relay the person's tap or message."
     },
     "reviewFooter": {
@@ -73,7 +74,8 @@
     "store": {
       "schemaVersion": 1,
       "absentMeans": 1,
-      "description": "The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads."
+      "description": "The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot, and the release that wrote it (writtenBy: the plugin's version and the git commit; writerNotOlder); a state.json without schemaVersion was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads.",
+      "facts": "A logged event is a fact: it was admitted once, by the rules of the release that wrote it (each log row names that release: harness, the plugin's version and the git commit). Every guarded transition of the machines is marked as one of two kinds, never inferred from its shape: an admission rule (\"admission\": true), which has no target and no actions and takes the event by doing nothing, so runtime.apply refuses it; or a route (\"route\": <id>), which changes state or runs actions. A route id is stable: it names the route, is unique across the machines, and does not change when transitions are added, reordered or have their guard's params changed. Admission decides only when an event is sent: the host invariants runtime.apply refuses by (envelope, writerNotOlder, prBinding, agentEvents, oneUnboundSpawn, tapOnly) and the machines' admission rules. Each log row records the route the event took (route: the ids of the routes its transitions took, in every machine, in order; [] when none). Replay (harness replay, harness doctor, the history join) applies each logged event again without any admission: no host refusal and no admission rule for that event (events the machines send each other keep theirs), only its state change. A row with a route takes that route: each route is taken exactly when the row names it, whatever its guard says today; a row whose route cannot be taken again is a divergence. A row written before routes were recorded has none: it takes today's routes when they give the effects the log holds for it (outbox.jsonl), and otherwise the one route that, taken or passed over, gives them, found by search; only such rows are searched. So a rule tightened or loosened later replays an old event as the code that wrote it did, never by a cutoff time. Replay lists every event today's rules would refuse or route otherwise (admittedThen) with its id and the release that wrote it (and, for a searched row, that its route was found by its effects): the rules changed since it was written, which is not a problem. An event no route reproduces, a lost event or a rebuilt state that differs is one: the store is corrupt or lost an event."
     },
     "pages": {
       "refreshSlowMs": 3000,
@@ -110,6 +112,7 @@
             "actor": "session"
           }
         },
+        "admission": true,
         "description": "Refused unless the actor is a session. Its id becomes the orchestrator's, here and in every queued or in-flight item, so no run it reports itself is taken."
       },
       {
@@ -128,6 +131,7 @@
             "actor": "session"
           }
         },
+        "admission": true,
         "description": "Refused unless a session sends it: the session that read the decision log and picked (harness audit)."
       },
       {
@@ -137,6 +141,7 @@
             "max": 3
           }
         },
+        "admission": true,
         "description": "Refused unless its day is the UTC day of the event's own time (receivedAt: the at the runtime logs it with, never the sender's word), so a past or future day is refused and there is at most one audit per real day, a day not audited before, and it names 1 to max picks, each a logPrecedent effect id. The picks name decisions only; what each decided is read from the store's own outbox, never from the event."
       },
       {
@@ -155,6 +160,7 @@
             "actor": "session"
           }
         },
+        "admission": true,
         "description": "Refused unless a session sends it: the session the person asked, to put the grant checklist in front of the person. Asking grants nothing: the card's options are the machine's (spec grant), and only the person's tap on it records a grant."
       },
       {
@@ -174,12 +180,14 @@
             "source": "message"
           }
         },
+        "admission": true,
         "description": "Refused unless the actor is a person and the source a message: a session, an agent, the lead, a timer or an event with no source cannot grant. A grant from the person's words names the message they are in (message:<cmsg id>); the tap on a checklist goes to its grant actor instead."
       },
       {
         "guard": {
           "type": "messageGrantOverreaches"
         },
+        "admission": true,
         "description": "Refused unless the message ref is one message id (cmsg_...) and picks is a list, each at most once, of kind:<class> for classes in spec decision meta.classes, one-way, and at most one until:<ISO time> after the event's own time (receivedAt). No until is no end time: the grant lasts until the person replaces it. Picks with no kind end the live grant."
       },
       {
@@ -195,6 +203,7 @@
         "guard": {
           "type": "fromOutside"
         },
+        "admission": true,
         "description": "Sent by a grant actor when the person taps its checklist card; the same event from outside (any event with an actor) is refused. Nothing but the person's tap or message (PERSON_GRANTED) creates, widens or extends a grant."
       },
       {
@@ -210,6 +219,7 @@
         "guard": {
           "type": "fromOutside"
         },
+        "admission": true,
         "description": "Sent by a decision the stand-in decided under the person's grant; the same event from outside (any event with an actor) is refused, so no row is written for a decision the grant did not make."
       },
       {
@@ -225,12 +235,14 @@
         "guard": {
           "type": "notFromOrchestrator"
         },
+        "admission": true,
         "description": "Refused unless the orchestrator's own session sends it: it routes the work, so it alone re-asks."
       },
       {
         "guard": {
           "type": "grantMissesDecision"
         },
+        "admission": true,
         "description": "Refused unless the decision named is in the person's inbox (waiting on the person) and the harness's live grant covers it at the event's own time (receivedAt): not ended, naming the decision's class, and for a one-way door with the one-way-door box (decision grantCovers). A decision the grant does not cover stays with the person."
       },
       {
@@ -253,6 +265,7 @@
                 "guard": {
                   "type": "requestOverreaches"
                 },
+                "admission": true,
                 "description": "Refused when the request has no id, or sets a field the work item's machine holds (tier, criteria, checks, workers, orchestrator, requester and the rest of its context, all but id and project). The filer names the work; triage sets the tier and the criteria. The requester is the event's actor, recorded by the item."
               },
               {
@@ -283,6 +296,7 @@
             "guard": {
               "type": "fromOutside"
             },
+            "admission": true,
             "description": "Sent by the budget actor when its mode changes inside the harness; the same event from outside (any event with an actor) is refused."
           },
           {
@@ -292,6 +306,7 @@
                 "mode": "paused"
               }
             },
+            "route": "schedulerHalts",
             "target": ".halted",
             "actions": [
               {
@@ -306,6 +321,7 @@
                 "mode": "wrappingUp"
               }
             },
+            "route": "schedulerDrains",
             "target": ".draining",
             "actions": [
               {
@@ -327,6 +343,7 @@
             "guard": {
               "type": "fromOutside"
             },
+            "admission": true,
             "description": "Sent by an item when it enters needsCriteria: it waits on the person and gives up its slot. The same event from outside (any event with an actor) is refused."
           },
           {
@@ -342,6 +359,7 @@
             "guard": {
               "type": "notFromOrchestrator"
             },
+            "admission": true,
             "description": "Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once."
           },
           {
@@ -352,6 +370,7 @@
                 "max": 4
               }
             },
+            "admission": true,
             "description": "Refused unless limit is an integer from min to max."
           },
           {
@@ -377,6 +396,7 @@
                 "guard": {
                   "type": "requestOverreaches"
                 },
+                "admission": true,
                 "description": "Refused when the request has no id, or sets a field the work item's machine holds (tier, criteria, checks, workers, orchestrator, requester and the rest of its context, all but id and project). The filer names the work; triage sets the tier and the criteria. The requester is the event's actor, recorded by the item."
               },
               {
@@ -402,6 +422,7 @@
                 "guard": {
                   "type": "fromOutside"
                 },
+                "admission": true,
                 "description": "Sent by an item when it enters needsCriteria: it waits on the person and gives up its slot. The same event from outside (any event with an actor) is refused."
               },
               {
@@ -420,6 +441,7 @@
                 "guard": {
                   "type": "notFromOrchestrator"
                 },
+                "admission": true,
                 "description": "Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once."
               },
               {
@@ -430,6 +452,7 @@
                     "max": 4
                   }
                 },
+                "admission": true,
                 "description": "Refused unless limit is an integer from min to max."
               },
               {
@@ -494,6 +517,7 @@
               "guard": {
                 "type": "inboxEmpty"
               },
+              "route": "attentionQuiet",
               "target": "quiet"
             }
           ],

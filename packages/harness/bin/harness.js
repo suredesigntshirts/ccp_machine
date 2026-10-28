@@ -138,14 +138,19 @@ const HELP = `harness <command> [options]
   digest [--day YYYY-MM-DD]      send DIGEST_DUE once per UTC day, write digests/<day>.md in the store
                                  and ack publishDigest; the host posts the text
   replay                         rebuild the harness from events.jsonl on a scratch copy and compare state
-                                 and effects with the store; exits 1 on a difference. It re-applies github
-                                 refs as logged without reading GitHub: verify-facts re-checks them
+                                 and effects with the store; exits 1 on a difference. Each event is applied as
+                                 a fact, without admission rules, by the route its row records (a row from
+                                 before routes were recorded: the route its logged effects took); the ones
+                                 today's rules would refuse or route otherwise are listed (admittedThen).
+                                 It re-applies github refs as logged without reading GitHub: verify-facts
+                                 re-checks them
   doctor [--refreshes PATH]      check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore), verify-actors,
                                  verify-facts, and every merged PR of an item: the store's verifier PASS on
                                  its merge head and a PASS review on GitHub on that sha; exits 1 on a problem.
                                  GitHub unreachable or a ledger not filed for a session's event under 10
-                                 minutes old is listed as unverifiable, exit 0.
+                                 minutes old is listed as unverifiable, exit 0. An event the rules changed
+                                 for since it was written is listed as admittedThen, with its release, exit 0.
                                  --refreshes: a page's refresh rows (ArtifactData out_dir or list text);
                                  each one slower than the spec's refreshSlowMs is a warning
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also

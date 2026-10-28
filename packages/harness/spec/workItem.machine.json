@@ -35,6 +35,7 @@
         "guard": {
           "type": "fromOutside"
         },
+        "admission": true,
         "description": "Sent by the harness when an orchestrator starts inside the harness; the same event from outside (any event with an actor) is refused."
       },
       {
@@ -50,6 +51,7 @@
         "guard": {
           "type": "fromOutside"
         },
+        "admission": true,
         "description": "Sent by the item's own decision when the stand-in's answer is recorded, naming the answering session; the same event from outside (any event with an actor) is refused."
       },
       {
@@ -65,6 +67,7 @@
         "guard": {
           "type": "fromOutside"
         },
+        "admission": true,
         "description": "Sent by the harness, passing on the orchestrator's REASK_UNDER_GRANT once the person's live grant covers the decision; the same event from outside (any event with an actor) is refused. The item passes it to its open decision when that is the one named (forwardReask)."
       },
       {
@@ -100,12 +103,14 @@
                 ]
               }
             },
+            "admission": true,
             "description": "Refused unless a session sends it: the lead fixes the verifier's brief; a subagent cannot."
           },
           {
             "guard": {
               "type": "briefOverreaches"
             },
+            "admission": true,
             "description": "Refused unless sha256 is 64 lowercase hex characters and the item has no verifier brief yet: the hash is fixed once, so a later brief cannot replace it."
           },
           {
@@ -126,6 +131,7 @@
                 ]
               }
             },
+            "admission": true,
             "description": "Refused unless a session sends it: the plugin's SubagentStart hook binds the agent as the session that spawned it."
           },
           {
@@ -135,6 +141,7 @@
                 "withinMs": 300000
               }
             },
+            "admission": true,
             "description": "Refused unless agent is <session_id>/<agent_id> of the sending session, bound to no spawn of this item yet, and the sender recorded a spawn of agentType here that is unbound, not closed and at most withinMs old; the oldest such spawn is bound."
           },
           {
@@ -158,12 +165,14 @@
                 ]
               }
             },
+            "admission": true,
             "description": "Refused unless a session sends it: the session that spawned the agent closes its spawn."
           },
           {
             "guard": {
               "type": "noSpawnToClose"
             },
+            "admission": true,
             "description": "Refused unless the sender recorded a spawn here with this toolUseId that is unbound and not closed: a bound spawn keeps its agent, and a closed one stays closed."
           },
           {
@@ -200,6 +209,7 @@
                 "guard": {
                   "type": "triagedByParty"
                 },
+                "admission": true,
                 "description": "Refused from the requester's actor, the orchestrator (or while none is known), every worker on the item and an event with no actor: the tier and the criteria are not set by the party that asked for the work, routes it or does it. The machine compares the ids it is given; who the sessions are is checked afterwards."
               },
               {
@@ -209,24 +219,28 @@
                     "role": "triager"
                   }
                 },
+                "admission": true,
                 "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on this item (requester, worker, criterion checker or stand-in answerer): the triager plays no other part. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
               },
               {
                 "guard": {
                   "type": "triageOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless tier is 0, 1 or 2, and criteria, when given, is a list of non-empty strings. A missing criteria list is no criteria."
               },
               {
                 "guard": {
                   "type": "tierLowered"
                 },
+                "admission": true,
                 "description": "Refused when the item already has a tier and this TRIAGED gives a lower one (or none). A revise sends the plan back to triage, which runs again and may keep or raise the tier but never lower it, so a second triage cannot skip a gate the first one set. The guard reads the previous tier from context, which a revise keeps; an equal or higher tier is taken."
               },
               {
                 "guard": {
                   "type": "noCriteria"
                 },
+                "route": "triagedWithoutCriteria",
                 "target": "needsCriteria",
                 "actions": [
                   {
@@ -251,6 +265,7 @@
                 "guard": {
                   "type": "reportedByOrchestrator"
                 },
+                "admission": true,
                 "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
               },
               {
@@ -260,6 +275,7 @@
                     "role": "worker"
                   }
                 },
+                "admission": true,
                 "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on this item (requester, triager, criterion checker or stand-in answerer): the triager, a checker or the stand-in cannot build. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
               },
               {
@@ -269,6 +285,7 @@
                     "max": 2
                   }
                 },
+                "route": "triageRetries",
                 "target": "triaging",
                 "reenter": true,
                 "actions": [
@@ -299,12 +316,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -316,6 +335,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is triager: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
               },
               {
@@ -326,6 +346,7 @@
                     "verifier": "harness:verifier"
                   }
                 },
+                "admission": true,
                 "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
               },
               {
@@ -377,6 +398,7 @@
                   "tier": 1
                 }
               },
+              "route": "planGateSkipped",
               "target": "building"
             },
             {
@@ -402,6 +424,7 @@
                 "guard": {
                   "type": "fromOutside"
                 },
+                "admission": true,
                 "description": "Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused."
               },
               {
@@ -411,6 +434,7 @@
                     "choice": "approve"
                   }
                 },
+                "route": "planApproved",
                 "target": "building",
                 "actions": [
                   {
@@ -425,6 +449,7 @@
                     "choice": "revise"
                   }
                 },
+                "route": "planRevised",
                 "target": "triaging",
                 "actions": [
                   {
@@ -451,12 +476,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -468,6 +495,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is stand-in: while the plan decision is open, only the stand-in that answers it is spawned."
               },
               {
@@ -504,6 +532,7 @@
                 "guard": {
                   "type": "reportedByOrchestrator"
                 },
+                "admission": true,
                 "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
               },
               {
@@ -513,6 +542,7 @@
                     "role": "worker"
                   }
                 },
+                "admission": true,
                 "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on this item (requester, triager, criterion checker or stand-in answerer): the triager, a checker or the stand-in cannot build. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
               },
               {
@@ -532,6 +562,7 @@
                 "guard": {
                   "type": "reportedByOrchestrator"
                 },
+                "admission": true,
                 "description": "Refused when the orchestrator reports the run itself, or no orchestrator is known yet: a run result comes from a worker, an actor other than the orchestrator. The machine compares the ids it is given; that the worker really ran is checked afterwards."
               },
               {
@@ -541,6 +572,7 @@
                     "role": "worker"
                   }
                 },
+                "admission": true,
                 "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on this item (requester, triager, criterion checker or stand-in answerer): the triager, a checker or the stand-in cannot build. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
               },
               {
@@ -550,6 +582,7 @@
                     "max": 2
                   }
                 },
+                "route": "buildRetries",
                 "target": "building",
                 "reenter": true,
                 "actions": [
@@ -580,12 +613,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -597,6 +632,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is builder: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
               },
               {
@@ -607,12 +643,14 @@
                     "verifier": "harness:verifier"
                   }
                 },
+                "admission": true,
                 "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
               },
               {
                 "guard": {
                   "type": "noVerifierBrief"
                 },
+                "admission": true,
                 "description": "Refused while the item has no verifier brief hash (VERIFIER_BRIEF_FIXED): the verifier's brief is fixed before any builder is spawned, so it cannot be written after reading the builder's report."
               },
               {
@@ -645,12 +683,14 @@
                     "source": "github-wake"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
                 "guard": {
                   "type": "awaitsVerdict"
                 },
+                "route": "checksPassedBeforeVerdict",
                 "actions": [
                   {
                     "type": "recordChecksPassed"
@@ -670,6 +710,7 @@
                     "source": "github-wake"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
@@ -679,6 +720,7 @@
                     "max": 2
                   }
                 },
+                "route": "checksFailedRebuild",
                 "target": "building",
                 "actions": [
                   {
@@ -695,6 +737,7 @@
                 "guard": {
                   "type": "checkedByParty"
                 },
+                "admission": true,
                 "description": "Refused from the orchestrator (or while none is known), every worker on the item and an event with no actor: a criterion is checked by someone who did not do or route the work. The machine compares the ids it is given; who the sessions are is checked afterwards."
               },
               {
@@ -704,12 +747,14 @@
                     "role": "checker"
                   }
                 },
+                "admission": true,
                 "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on this item (requester, triager, worker or stand-in answerer): the triager or the stand-in cannot check a criterion. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
               },
               {
                 "guard": {
                   "type": "checkOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless criterion is one of the item's criteria, verdict is met, unmet or unclear, and a met verdict carries evidence (a non-empty string)."
               },
               {
@@ -730,12 +775,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -747,6 +794,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is verifier: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
               },
               {
@@ -757,12 +805,14 @@
                     "verifier": "harness:verifier"
                   }
                 },
+                "admission": true,
                 "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
               },
               {
                 "guard": {
                   "type": "briefDiffers"
                 },
+                "admission": true,
                 "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
               },
               {
@@ -781,12 +831,14 @@
                     "actor": "agent"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
               },
               {
                 "guard": {
                   "type": "verdictOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
               },
               {
@@ -796,6 +848,7 @@
                     "verdict": "FAIL"
                   }
                 },
+                "route": "verdictFailRebuilds",
                 "target": "building",
                 "actions": [
                   {
@@ -807,6 +860,7 @@
                 "guard": {
                   "type": "awaitsChecks"
                 },
+                "route": "verdictBeforeChecks",
                 "actions": [
                   {
                     "type": "recordVerdict"
@@ -833,12 +887,14 @@
                   "tier": 1
                 }
               },
+              "route": "acceptGateSkipped",
               "target": "integrationGate"
             },
             {
               "guard": {
                 "type": "expectationsMet"
               },
+              "route": "expectationsMet",
               "target": "awaitingAcceptance",
               "actions": [
                 {
@@ -882,6 +938,7 @@
                 "guard": {
                   "type": "fromOutside"
                 },
+                "admission": true,
                 "description": "Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused."
               },
               {
@@ -891,6 +948,7 @@
                     "choice": "approve"
                   }
                 },
+                "route": "acceptApproved",
                 "target": "integrationGate",
                 "actions": [
                   {
@@ -905,6 +963,7 @@
                     "choice": "revise"
                   }
                 },
+                "route": "acceptRevised",
                 "target": "building",
                 "actions": [
                   {
@@ -926,6 +985,7 @@
                 "guard": {
                   "type": "checkedByParty"
                 },
+                "admission": true,
                 "description": "Refused from the orchestrator (or while none is known), every worker on the item and an event with no actor: a criterion is checked by someone who did not do or route the work. The machine compares the ids it is given; who the sessions are is checked afterwards."
               },
               {
@@ -935,12 +995,14 @@
                     "role": "checker"
                   }
                 },
+                "admission": true,
                 "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on this item (requester, triager, worker or stand-in answerer): the triager or the stand-in cannot check a criterion. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
               },
               {
                 "guard": {
                   "type": "checkOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless criterion is one of the item's criteria, verdict is met, unmet or unclear, and a met verdict carries evidence (a non-empty string)."
               },
               {
@@ -962,12 +1024,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -980,6 +1044,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is verifier or stand-in: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built, and a stand-in while a decision of the item is open."
               },
               {
@@ -990,12 +1055,14 @@
                     "verifier": "harness:verifier"
                   }
                 },
+                "admission": true,
                 "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
               },
               {
                 "guard": {
                   "type": "briefDiffers"
                 },
+                "admission": true,
                 "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
               },
               {
@@ -1014,12 +1081,14 @@
                     "actor": "agent"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
               },
               {
                 "guard": {
                   "type": "verdictOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
               },
               {
@@ -1046,6 +1115,7 @@
                   "tier": 2
                 }
               },
+              "route": "integrationGateSkipped",
               "target": "merging"
             },
             {
@@ -1072,6 +1142,7 @@
                 "guard": {
                   "type": "fromOutside"
                 },
+                "admission": true,
                 "description": "Sent by the item's own decision when it is decided inside the harness; the same event from outside (any event with an actor) is refused."
               },
               {
@@ -1081,6 +1152,7 @@
                     "choice": "approve"
                   }
                 },
+                "route": "mergeApproved",
                 "target": "merging",
                 "actions": [
                   {
@@ -1095,6 +1167,7 @@
                     "choice": "revise"
                   }
                 },
+                "route": "mergeRevised",
                 "target": "building",
                 "actions": [
                   {
@@ -1121,12 +1194,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -1139,6 +1214,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is verifier or stand-in: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built, and a stand-in while a decision of the item is open."
               },
               {
@@ -1149,12 +1225,14 @@
                     "verifier": "harness:verifier"
                   }
                 },
+                "admission": true,
                 "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
               },
               {
                 "guard": {
                   "type": "briefDiffers"
                 },
+                "admission": true,
                 "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
               },
               {
@@ -1173,12 +1251,14 @@
                     "actor": "agent"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
               },
               {
                 "guard": {
                   "type": "verdictOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
               },
               {
@@ -1212,12 +1292,14 @@
                     "source": "github-wake"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a merge comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
               },
               {
                 "guard": {
                   "type": "unverifiedHead"
                 },
+                "admission": true,
                 "description": "Refused unless sha is the head merged and the item's latest verdict for that sha is the verifier's PASS: no verdict, a FAIL, or a PASS on an older head is not taken. The merge gate asks this before a merge call runs; harness doctor lists a merged PR without it."
               },
               {
@@ -1237,12 +1319,14 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless a session sends it: the lead spawns workers, and the plugin's spawn gate records the spawn as that session before the Agent call runs."
               },
               {
                 "guard": {
                   "type": "spawnOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless role is builder, verifier, triager or stand-in, briefSha256 is the sha256 of the brief (64 lowercase hex), agentType is a non-empty string and model, when given, is a string."
               },
               {
@@ -1254,6 +1338,7 @@
                     ]
                   }
                 },
+                "admission": true,
                 "description": "Refused unless the role is verifier: a triager is spawned while the item is triaging, a builder while it is building, a verifier once it is built."
               },
               {
@@ -1264,12 +1349,14 @@
                     "verifier": "harness:verifier"
                   }
                 },
+                "admission": true,
                 "description": "Refused when a builder or verifier is spawned with another agent type than the plugin's standing definition for the role (plugins/harness/agents), whose rules do not drift per brief."
               },
               {
                 "guard": {
                   "type": "briefDiffers"
                 },
+                "admission": true,
                 "description": "Refused when a verifier is spawned with a brief whose sha256 is not the verifier brief hash fixed for the item: a verifier with an edited brief, or before any was fixed, is not taken. Other roles are not judged here."
               },
               {
@@ -1288,12 +1375,14 @@
                     "actor": "agent"
                   }
                 },
+                "admission": true,
                 "description": "Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict)."
               },
               {
                 "guard": {
                   "type": "verdictOverreaches"
                 },
+                "admission": true,
                 "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
               },
               {

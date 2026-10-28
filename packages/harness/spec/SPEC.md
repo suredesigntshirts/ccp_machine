@@ -30,6 +30,17 @@ States:
 - `wrappingUp`: Soft limit reached: start nothing new, bring work in flight to a checkpoint.
 - `paused` (tags: `budget-stop`): Daily allowance spent or the 5-hour window nearly full: no turns except to save state.
 
+Routes (the ids a log row records; replay takes them as logged):
+
+- `dayStartsPaused`: `DAY_STARTED` in any state, when `fiveHourExhausted`, to `.paused`
+- `normalPauses`: `USAGE_SAMPLED` in `normal`, when `mustPause`, to `paused`
+- `normalWrapsUp`: `USAGE_SAMPLED` in `normal`, when `mustWrapUp`, to `wrappingUp`
+- `staleWrapsUp`: `TICK` in `normal`, when `usageStale`, to `wrappingUp`
+- `wrappingUpPauses`: `USAGE_SAMPLED` in `wrappingUp`, when `mustPause`, to `paused`
+- `wrappingUpResumes`: `USAGE_SAMPLED` in `wrappingUp`, when `mayRun`, to `normal`
+- `pausedResumes`: `USAGE_SAMPLED` in `paused`, when `mayRun`, to `normal`
+- `pausedWrapsUp`: `USAGE_SAMPLED` in `paused`, when `mustWrapUp`, to `wrappingUp`
+
 Effects and context updates: `applyConfig`, `recordUsage`, `reportMode`, `startDay`
 
 Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`, `usageStale`
@@ -69,7 +80,7 @@ States:
 - `routing`: The stand-in decides alone under the person's grant (grantCovers) when the harness's grant, read as the answer arrived (readLiveGrant: the one grant the harness holds, so a replaced grant is gone), has not ended by the answer's own time (receivedAt, before until), names this decision's class, and, for a one-way door, has the one-way-door box; the answer carries a reason, and for an accept decision the item's expectationsMet was true when it opened. Its confidence does not matter there: under a grant the person has said they trust the stand-in's judgement, so an answer honest about doubt decides like a sure one, and its confidence goes on the granted row for the person to see and reverse. Only an answer received before thresholdBefore (when this rule was loosened: issue #58, live from the landing of PR #60) also needs its confidence at or above the machine's threshold, the rule it was logged under, so replay routes an older log as it was routed. Tier and autonomy do not matter there. Otherwise, as before the grant (the ladder rule, standInMayDecide), it decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides. Which rule decided is recorded (authority: grant or ladder) and logged with the precedent. A decision made under the grant also reports itself to the harness (DECIDED_UNDER_GRANT, reportGrantDecision) with its choice, confidence, reason and the grant's card, and the harness keeps the row in context.granted, the one list mission control and the daily audit show the person.
 - `awaitingPerson` (tags: `needs-human`): A decision card is in front of the person, with the stand-in's recommendation. The card is the one the machine asked for (postDecisionCard); its message id arrives with the ack (CARD_POSTED), and only a tap on it decides. While it waits, the orchestrator can send it back to the stand-in for a fresh answer, but only while the person's live grant covers it (REASK_UNDER_GRANT to the harness, which checks the grant and passes it down through the item): the card is cleared, so a tap on it decides nothing, and if the fresh answer comes back here a new card is asked for.
 
-Refused (nothing changes and nothing is written):
+Refused (admission rules: nothing changes and nothing is written):
 
 - `STAND_IN_ANSWERED` in `askingStandIn`, when `unattested` {"actor":["session","agent"]}: Refused unless a session or an agent sends it: the stand-in is a session or a subagent of one (harness meta.actors).
 - `STAND_IN_ANSWERED` in `askingStandIn`, when `answeredByOrchestratorOrWorker`: Refused from the orchestrator and from every worker that reported a run for this item (both recorded on the decision when it is spawned): only the stand-in answers, never the party whose work it judges or the one that routes it. The machine compares the ids it is given; who the sessions are is checked afterwards.
@@ -81,6 +92,11 @@ Refused (nothing changes and nothing is written):
 - `PERSON_DECIDED` in `awaitingPerson`, when `tapUnbound`: Refused unless the tap's ref is this decision's card: the message id CARD_POSTED recorded when the host acked this decision's postDecisionCard effect. A tap before the card is posted, on another decision's card or on no card at all changes nothing. Whether the tap happened is checked afterwards against the platform (harness verify-taps).
 - `PERSON_DECIDED` in `awaitingPerson`, when `choiceNotOffered`: Refused unless the choice is one of the card's options (the decision's options: approve, revise, reject).
 - `REASK_UNDER_GRANT` in `awaitingPerson`, when `fromOutside`: Sent by the decision's item, passing on the harness's REASK_UNDER_GRANT (spec harness), which takes it only from the orchestrator and only while the person's live grant covers this decision; the same event from outside (any event with an actor) is refused.
+
+Routes (the ids a log row records; replay takes them as logged):
+
+- `grantDecides`: `always` in `routing`, when `grantCovers` {"thresholdBefore":"2026-10-28T10:00:41.000Z"}, to `decided`
+- `standInDecides`: `always` in `routing`, when `standInMayDecide`, to `decided`
 
 Effects and context updates: `acceptStandInChoice`, `askStandIn`, `clearCard`, `logPrecedent`, `notifyInboxClosed`, `notifyInboxOpened`, `postDecisionCard`, `readLiveGrant`, `recordCard`, `recordPersonChoice`, `recordStandInAnswer`, `reportAnswerer`, `reportDecision`, `reportGrantDecision`
 
@@ -104,7 +120,7 @@ States:
 - `awaitingPerson` (tags: `needs-human`): The audit card is in front of the person. Its message id arrives with the ack of postAuditCard (CARD_POSTED), and only a tap on it answers.
 - `answered`: The person answered. The event log holds the answer; the decision log turns it into one person's decision per pick.
 
-Refused (nothing changes and nothing is written):
+Refused (admission rules: nothing changes and nothing is written):
 
 - `CARD_POSTED` in `awaitingPerson`, when `unattested` {"actor":"session"}: Refused unless a session sends it: the host session that posted the card acks the postAuditCard effect with the card's message id (harness ack <effect> --card <cmsg id>).
 - `CARD_POSTED` in `awaitingPerson`, when `cardOverreaches`: Refused unless it names one message id (cmsg_...) and this audit has no card yet.
@@ -136,7 +152,7 @@ States:
 - `awaitingPerson` (tags: `needs-human`): The checklist card is in front of the person. Its message id arrives with the ack of postGrantCard (CARD_POSTED), and only a tap on it grants.
 - `granted`: The person ticked the checklist. The harness holds the grant (GRANT_GIVEN) until its end time or the next tap on a checklist.
 
-Refused (nothing changes and nothing is written):
+Refused (admission rules: nothing changes and nothing is written):
 
 - `CARD_POSTED` in `awaitingPerson`, when `unattested` {"actor":"session"}: Refused unless a session sends it: the host session that posted the checklist acks the postGrantCard effect with the card's message id (harness ack <effect> --card <cmsg id>).
 - `CARD_POSTED` in `awaitingPerson`, when `cardOverreaches`: Refused unless it names one message id (cmsg_...) and this ask has no card yet.
@@ -233,7 +249,7 @@ States:
 - `active.awaitingMergeDecision` (tags: `gated`): Merge to main, a one-way door: the person decides and the stand-in recommends, unless the person's live grant names merge and has the one-way-door box (spec decision, grantCovers).
 - `blocked`: Waiting on something outside the item (a dependency, a conflict, a failing check). Resumes where it stopped.
 
-Refused (nothing changes and nothing is written):
+Refused (admission rules: nothing changes and nothing is written):
 
 - `ORCHESTRATOR_STARTED` in any state, when `fromOutside`: Sent by the harness when an orchestrator starts inside the harness; the same event from outside (any event with an actor) is refused.
 - `STAND_IN_RECORDED` in any state, when `fromOutside`: Sent by the item's own decision when the stand-in's answer is recorded, naming the answering session; the same event from outside (any event with an actor) is refused.
@@ -308,6 +324,26 @@ Refused (nothing changes and nothing is written):
 - `VERDICT_GIVEN` in `active.merging`, when `unattested` {"actor":"agent"}: Refused unless an agent sends it: the verdict is the verifier subagent's, from its own agent actor (harness verdict).
 - `VERDICT_GIVEN` in `active.merging`, when `verdictOverreaches`: Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256.
 
+Routes (the ids a log row records; replay takes them as logged):
+
+- `triagedWithoutCriteria`: `TRIAGED` in `active.triaging`, when `noCriteria`, to `needsCriteria`
+- `triageRetries`: `RUN_FAILED` in `active.triaging`, when `retriesLeft` {"max":2}, to `triaging`
+- `planGateSkipped`: `always` in `active.planGate`, when `tierBelow` {"tier":1}, to `building`
+- `planApproved`: `DECISION_MADE` in `active.awaitingPlanDecision`, when `choiceIs` {"choice":"approve"}, to `building`
+- `planRevised`: `DECISION_MADE` in `active.awaitingPlanDecision`, when `choiceIs` {"choice":"revise"}, to `triaging`
+- `buildRetries`: `RUN_FAILED` in `active.building`, when `retriesLeft` {"max":2}, to `building`
+- `checksPassedBeforeVerdict`: `CHECKS_PASSED` in `active.verifying`, when `awaitsVerdict`
+- `checksFailedRebuild`: `CHECKS_FAILED` in `active.verifying`, when `retriesLeft` {"max":2}, to `building`
+- `verdictFailRebuilds`: `VERDICT_GIVEN` in `active.verifying`, when `verdictIs` {"verdict":"FAIL"}, to `building`
+- `verdictBeforeChecks`: `VERDICT_GIVEN` in `active.verifying`, when `awaitsChecks`
+- `acceptGateSkipped`: `always` in `active.acceptGate`, when `tierBelow` {"tier":1}, to `integrationGate`
+- `expectationsMet`: `always` in `active.acceptGate`, when `expectationsMet`, to `awaitingAcceptance`
+- `acceptApproved`: `DECISION_MADE` in `active.awaitingAcceptance`, when `choiceIs` {"choice":"approve"}, to `integrationGate`
+- `acceptRevised`: `DECISION_MADE` in `active.awaitingAcceptance`, when `choiceIs` {"choice":"revise"}, to `building`
+- `integrationGateSkipped`: `always` in `active.integrationGate`, when `tierBelow` {"tier":2}, to `merging`
+- `mergeApproved`: `DECISION_MADE` in `active.awaitingMergeDecision`, when `choiceIs` {"choice":"approve"}, to `merging`
+- `mergeRevised`: `DECISION_MADE` in `active.awaitingMergeDecision`, when `choiceIs` {"choice":"revise"}, to `building`
+
 Effects and context updates: `bindSpawn`, `checkpoint`, `clearChecks`, `closeSpawn`, `countRetry`, `dispatchRun`, `forwardReask`, `giveUpSlot`, `mergePullRequest`, `notifyInboxClosed`, `notifyInboxOpened`, `openDecision`, `recordAnswerer`, `recordCheck`, `recordChecksPassed`, `recordChoice`, `recordExpectations`, `recordOrchestrator`, `recordRun`, `recordSpawn`, `recordTriage`, `recordVerdict`, `recordVerifierBrief`, `recordWorker`, `reportBlocked`, `reportFinished`, `withdrawDecision`
 
 Guards: `agentTypeIsNot`, `awaitsChecks`, `awaitsVerdict`, `briefDiffers`, `briefOverreaches`, `checkOverreaches`, `checkedByParty`, `choiceIs`, `expectationsMet`, `fromOutside`, `holdsAnotherRole`, `noCriteria`, `noSpawnToBind`, `noSpawnToClose`, `noVerifierBrief`, `reportedByOrchestrator`, `retriesLeft`, `roleNotHere`, `spawnOverreaches`, `tierBelow`, `tierLowered`, `triageOverreaches`, `triagedByParty`, `unattested`, `unverifiedHead`, `verdictIs`, `verdictOverreaches`
@@ -355,11 +391,14 @@ Host invariants (refused or denied outside the machines; every such site in the 
 - `pinnedHead`: Under HARNESS_ENFORCE=1 the merge gate denies a merge call that does not pin the head sha (expectedHeadSha, --match-head-commit or sha).
 - `reviewOnHead`: Under HARNESS_ENFORCE=1 the merge gate denies a merge unless the PR carries the item's PASS verdict as a review on the pinned head sha (commit_id), read from GitHub's REST API: the review id the store holds, in state COMMENTED, its body the stored verdict text verbatim or that text followed by exactly meta.reviewFooter (the body trimmed). harness doctor audits each merged PR's head by the same comparison, except a landing an OUT_OF_BAND row of the history records (history.schema.json: the row's pr is the PR, and its sha, when it names one, is the head that landed): doctor lists that landing out of band, with who ordered it and the gates it skipped, and does not count it as a problem. A landing no row records is still a problem.
 - `readableGitHubWrite`: Under HARNESS_ENFORCE=1 the merge gate judges a Bash call by its text, not by parsing shell. The text is read with quotes and backslashes removed and percent-escapes decoded; when it holds 'merge' together with 'gh', 'curl', 'wget', 'api' or 'graphql' (any case), the call is denied unless the whole command is exactly one of the gated forms, one simple command with no compound syntax (no ; & | < > ( ) { } $ ` \ or newline): `gh pr merge <number> --repo <owner>/<repo> --match-head-commit <sha>` or `gh api -X PUT repos/<owner>/<repo>/pulls/<number>/merge -f sha=<sha>`, with only the listed merge options beside them (gh pr merge: --squash, --merge, --rebase, --delete-branch, --subject, --body; gh api: -f merge_method, commit_title, commit_message). A gated form is judged by the merge gate's other rules; the deny names the gated forms. Any other Bash call that runs gh, curl or wget is denied when it can write to GitHub and the gate cannot read the write: a gh command, subcommand, method or path built from a variable, a gh alias or extension, a GraphQL document that is not literal or holds a mutation, or a curl or wget write to a URL or with a method built from a variable, or to GraphQL.
+- `writerNotOlder`: runtime.apply refuses an event from a release older than the one that last wrote the store (state.json writtenBy; a store from before the field: its last log row's harness): an older plugin version, or none, is refused, and at the same version a writer on another commit is refused unless the store's commit is an ancestor of its own (in the writer's git checkout). A store that records no version takes any writer; one whose version is not x.y.z takes none. The refusal names both releases (version@commit): older code would decide today's events by yesterday's rules. Replay applies facts and does not check the writer.
 - `personNotFromAgent`: The CLI refuses --actor person in a subagent's call (HARNESS_AGENT): a subagent records only as itself, so it cannot relay the person's tap or message.
 
 Review footer (`reviewFooter`): "\n\n---\n_Generated by [Claude Code](https://claude.ai/code)_". The attribution footer this host's GitHub proxy appends to every comment and review a session posts, so a verdict review GitHub holds is the stored verdict text followed by it. The merge gate (reviewOnHead) and doctor's audit tolerate exactly this footer and nothing else: any other change to the body, text after the footer included, still fails the comparison that stops a forged or edited review from passing.
 
-Store: `schemaVersion` 1. The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads.
+Store: `schemaVersion` 1. The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot, and the release that wrote it (writtenBy: the plugin's version and the git commit; writerNotOlder); a state.json without schemaVersion was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads.
+
+Facts (replay): A logged event is a fact: it was admitted once, by the rules of the release that wrote it (each log row names that release: harness, the plugin's version and the git commit). Every guarded transition of the machines is marked as one of two kinds, never inferred from its shape: an admission rule ("admission": true), which has no target and no actions and takes the event by doing nothing, so runtime.apply refuses it; or a route ("route": <id>), which changes state or runs actions. A route id is stable: it names the route, is unique across the machines, and does not change when transitions are added, reordered or have their guard's params changed. Admission decides only when an event is sent: the host invariants runtime.apply refuses by (envelope, writerNotOlder, prBinding, agentEvents, oneUnboundSpawn, tapOnly) and the machines' admission rules. Each log row records the route the event took (route: the ids of the routes its transitions took, in every machine, in order; [] when none). Replay (harness replay, harness doctor, the history join) applies each logged event again without any admission: no host refusal and no admission rule for that event (events the machines send each other keep theirs), only its state change. A row with a route takes that route: each route is taken exactly when the row names it, whatever its guard says today; a row whose route cannot be taken again is a divergence. A row written before routes were recorded has none: it takes today's routes when they give the effects the log holds for it (outbox.jsonl), and otherwise the one route that, taken or passed over, gives them, found by search; only such rows are searched. So a rule tightened or loosened later replays an old event as the code that wrote it did, never by a cutoff time. Replay lists every event today's rules would refuse or route otherwise (admittedThen) with its id and the release that wrote it (and, for a searched row, that its route was found by its effects): the rules changed since it was written, which is not a problem. An event no route reproduces, a lost event or a rebuilt state that differs is one: the store is corrupt or lost an event.
 
 Pages: a refresh slower than 3000 ms is flagged; rows go to `refreshes`. A page refreshes only when a viewer presses its refresh button: nothing refreshes on a schedule or without a viewer. Each refresh is timed from the press to the rendered page and recorded as one row in the Artifact db collection refreshCollection ({page, at, ms, storeVersion, schemaVersion, bytes, ok}); the page shows the recent rows, and harness doctor --refreshes flags a row slower than refreshSlowMs.
 
@@ -395,7 +434,7 @@ States:
 - `attention.quiet`: Nothing needs the person.
 - `attention.needsPerson` (tags: `needs-human`): The person's inbox is not empty: it holds every open decision and every item waiting in needsCriteria, and each leaves it when it closes (DECISION_CLOSED).
 
-Refused (nothing changes and nothing is written):
+Refused (admission rules: nothing changes and nothing is written):
 
 - `ORCHESTRATOR_STARTED` in any state, when `unattested` {"actor":"session"}: Refused unless the actor is a session. Its id becomes the orchestrator's, here and in every queued or in-flight item, so no run it reports itself is taken.
 - `AUDIT_PICKED` in any state, when `unattested` {"actor":"session"}: Refused unless a session sends it: the session that read the decision log and picked (harness audit).
@@ -416,6 +455,12 @@ Refused (nothing changes and nothing is written):
 - `ITEM_PARKED` in `scheduler.accepting`, when `fromOutside`: Sent by an item when it enters needsCriteria: it waits on the person and gives up its slot. The same event from outside (any event with an actor) is refused.
 - `WIP_SET` in `scheduler.accepting`, when `notFromOrchestrator`: Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once.
 - `WIP_SET` in `scheduler.accepting`, when `wipOutOfRange` {"min":1,"max":4}: Refused unless limit is an integer from min to max.
+
+Routes (the ids a log row records; replay takes them as logged):
+
+- `schedulerHalts`: `BUDGET_MODE` in `scheduler`, when `modeIs` {"mode":"paused"}, to `.halted`
+- `schedulerDrains`: `BUDGET_MODE` in `scheduler`, when `modeIs` {"mode":"wrappingUp"}, to `.draining`
+- `attentionQuiet`: `always` in `attention.needsPerson`, when `inboxEmpty`, to `quiet`
 
 Effects and context updates: `addToInbox`, `openAudit`, `openGrantAsk`, `publishDigest`, `reaskDecision`, `recordBudgetMode`, `recordGrant`, `recordGrantDecision`, `recordMessageGrant`, `recordOrchestrator`, `recordWipLimit`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
 

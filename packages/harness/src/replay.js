@@ -1,6 +1,9 @@
 // harness replay: rebuilds the harness from its event log on a scratch copy and compares it with the
-// store. A match shows the store is deterministic; a difference shows either a tampered store or a spec
-// change that no longer reproduces the state already stored.
+// store. Each logged event is a fact: it was admitted when it was sent, by the rules of the release that wrote it, so
+// it is applied again without its admission rules, by the route its log row recorded, or for a row from before routes
+// were recorded, by the route its logged effects took (runtime apply, fact; harness meta.store.facts). A match shows the
+// store is deterministic; a difference shows a tampered store, a lost event, or a state change no route reproduces. An event today's rules would refuse or route otherwise is listed (admittedThen),
+// with the release that wrote it: not a problem.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +12,7 @@ import { init, apply } from './runtime.js';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // The actor field can be an internal session id (x:0), so effects match on name, subject and params.
-const effectKey = (e) => JSON.stringify([e.name, e.subject ?? null, e.params ?? null]);
+export const effectKey = (e) => JSON.stringify([e.name, e.subject ?? null, e.params ?? null]);
 
 /** Compare two persisted snapshots: state values, each child's state value, and shared context keys. */
 function compare(stored, rebuilt, path = 'harness', out = { differences: [], notes: [] }) {
@@ -31,10 +34,10 @@ function compare(stored, rebuilt, path = 'harness', out = { differences: [], not
   return out;
 }
 
-/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], rebuilt: object}} rebuilt is the scratch state.json */
+/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], admittedThen: object[], rebuilt: object}} rebuilt is the scratch state.json */
 export function replay(store) {
   const state = store.read();
-  if (!state) return { ok: false, events: 0, firstDivergence: null, differences: ['no state.json'], notes: [] };
+  if (!state) return { ok: false, events: 0, firstDivergence: null, differences: ['no state.json'], notes: [], admittedThen: [] };
   const dir = mkdtempSync(join(tmpdir(), 'harness-replay-'));
   try {
     const scratch = openStore(dir);
@@ -43,14 +46,20 @@ export function replay(store) {
     for (const e of store.outbox()) outbox.set(e.eventId, [...(outbox.get(e.eventId) ?? []), effectKey(e)]);
     let firstDivergence = null;
     const notes = [];
+    const admittedThen = [];
     const events = store.events();
     for (const e of events) {
       let effects;
       try {
-        // A tap or a message logged without relayedBy (outside a session) replays as unrecorded, not refused.
-        const r = apply(scratch, { ...e.event, actor: e.actor, source: e.source, relayedBy: e.relayedBy ?? (['tap', 'message'].includes(e.source?.kind) ? 'unrecorded' : undefined) }, { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at });
-        // A log from before refusals can hold ignored events; one from before the envelope has no actor.
-        if (r.refused) notes.push(`${e.id}: ${r.why}`);
+        const sent = { ...e.event, actor: e.actor, source: e.source, ...(e.relayedBy && { relayedBy: e.relayedBy }) };
+        const at = { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at };
+        // Today's rules, asked without writing: a refusal now of an event admitted then is a rule that changed.
+        const today = apply(scratch, sent, { ...at, dryRun: true });
+        const logged = JSON.stringify(outbox.get(e.id) ?? []);
+        // A row records its route; one written before routes were recorded is matched to its logged effects.
+        const r = apply(scratch, sent, { ...at, fact: e.route ? { route: e.route } : { matches: (fx) => JSON.stringify(fx.map(effectKey)) === logged } });
+        // Today's rules would refuse it, or route it otherwise: it was admitted, and routed as logged, by the release that wrote it.
+        if (today.refused || r.rerouted) admittedThen.push({ id: e.id, type: e.event.type, release: e.harness ?? null, why: today.why ?? `routed otherwise today (${e.route ? '' : 'no route logged, found by its effects: '}${r.rerouted})` });
         ({ effects } = r);
       } catch (err) {
         firstDivergence ??= `${e.id}: ${err.message}`;
@@ -60,7 +69,7 @@ export function replay(store) {
     }
     const rebuilt = scratch.read();
     const { differences } = compare(state.snapshot, rebuilt.snapshot, 'harness', { differences: [], notes });
-    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, rebuilt };
+    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, admittedThen, rebuilt };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -31,15 +31,19 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   id forms are the spec's, `harness.machine.json` `meta.actors`; an agent is `<session_id>/<agent_id>`) and `source`
   {kind: tap|github-wake|cli|timer, ref}; one without them is refused, and so is one carrying `person`
   (no event marks itself as the person's). Each `events.jsonl` row is
-  `{id, version, at, to, actor, source, harness: {version, commit}, event}`, the last two naming the
-  harness code that applied it. Who may send what is in the machines, as guards that refuse an event
-  from the wrong party (SPEC.md lists them under Refused): `PERSON_DECIDED` only from a person's tap
+  `{id, version, at, to, actor, source, harness: {version, commit}, route, event}`, `harness` naming the release
+  that applied it: the plugin's version (`plugins/harness/.claude-plugin/plugin.json`) and the git commit; `route`
+  the ids of the routes its transitions took (below). Who may send what is in the machines, as admission rules
+  (`"admission": true` on a guarded transition with no target and no actions) that refuse an event from the wrong
+  party (SPEC.md lists them under Refused): `PERSON_DECIDED` only from a person's tap
   on the card the machine asked for (ref: the message id its decision recorded from the ack, see Cards
   below), a run result only from an actor other than the orchestrator (its id is
   in context, set by `ORCHESTRATOR_STARTED`), CI and merge results only from a GitHub wake (ref: the
   GitHub fact `harness from-github` read), and `DECISION_MADE` and `BUDGET_MODE` only from inside the
   harness. `TRIAGED` is refused from the requester, the orchestrator and every worker on the item, and
-  `CRITERION_CHECKED` from the orchestrator and every worker. The trust model is below.
+  `CRITERION_CHECKED` from the orchestrator and every worker. The trust model is below. Every other guarded
+  transition is a route with a stable id (`"route": <id>`, SPEC.md lists them under Routes); `test/spec.test.js`
+  fails a guarded transition marked as neither, so nothing is inferred from a transition's shape.
 - The stand-in's gate (`standInMayDecide`, the ladder rule; under the person's grant `grantCovers` decides first, see `spec/grant.machine.json` below): each input has one supplier, and the stand-in's caller supplies
   none of the rules. Tier is the item's, set by triage (`TRIAGED`), never by the request. For an accept
   decision, `expectationsMet` is the item's, worked out at its accept gate from the criteria checks. Autonomy is the
@@ -52,7 +56,12 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all six
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
-  compare-and-set on its version, and carries the spec's `schemaVersion` (harness `meta.store`); `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only.
+  compare-and-set on its version, and carries the spec's `schemaVersion` (harness `meta.store`) and `writtenBy`, the
+  release that last wrote it; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only. An older release
+  does not write a store a newer one has written (harness `meta.invariants` `writerNotOlder`): `apply` refuses an
+  event from an older plugin version or none, or from the same version on a commit the store's commit is not an
+  ancestor of, and the refusal names both (`version@commit`). A store with no `writtenBy` is judged by its last
+  log row's `harness`; one that records no version takes any writer, and one whose version is not x.y.z takes none.
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
 - `pages/<page>/needs.json`, `src/pages.js` and `src/live.js`: the page needs contract. A page declares in its needs
@@ -85,9 +94,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   and why. `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
-  and `report.json` lists the dropped rows, the conflicts and the rows the current code refuses. It writes
+  each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted; a
+  row takes the route it records, and with `--outbox <source outbox.jsonl>` a row from before routes were
+  recorded takes the route its logged effects took, as replay does),
+  and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
-  An OUT_OF_BAND row is history only (no machine takes it), so the replay counts it among the refused rows.
+  An OUT_OF_BAND row is history only (no machine takes it), so the replay lists it among the rows today's rules
+  refuse (`admittedThen`).
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
   `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
   GitHub record. Join it with dogfood2's extracted rows.
@@ -120,6 +133,14 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/replay.js`: `harness replay` rebuilds the harness from `events.jsonl` on a scratch copy and compares
   state values, children and shared context keys with `state.json`, and regenerated effects with the outbox;
   it names the first divergent event and exits 1. Context keys only one side has are notes (a spec change).
+  Each logged event is a fact (harness `meta.store.facts`): it was admitted by the release that wrote it, so it is
+  applied with `apply(..., {fact})`, which runs no admission rule (no host refusal, no machine admission rule) and
+  takes the route its row recorded (`route`): each route is taken exactly when the row names it, and a route that
+  cannot be taken again is a divergence. A row from before routes were recorded has none: it takes today's routes
+  when they give the effects the outbox logged for it, and otherwise the one route, taken or passed over, that
+  does (a search, for such rows only). A rule tightened (#55) or loosened (#67) since then changes nothing on
+  replay: every event today's rules would refuse or route otherwise is listed in `admittedThen` with its id and
+  the release that wrote it (a searched row says its route was found by its effects), and is not a difference.
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
@@ -135,7 +156,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   history (work done outside the gates) is listed as `outOfBand`: who ordered it, what, its PR and head, the gates it
   skipped. A merged PR whose landing such a row records (its `pr`, and its `sha` when it names one) is listed
   there, not counted as a problem. A landing that no row records is still a problem (harness `meta.invariants`
-  `reviewOnHead`).
+  `reviewOnHead`). Every event the rules have changed for since it was written (replay's `admittedThen`) is
+  listed as `admittedThen`, with its id and the release that wrote it (`version@commit`), and is not a problem; a
+  replay divergence or a rebuilt state that differs (a corrupt store or a lost event) still is.
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
@@ -208,8 +231,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   with the box; the answer still needs a reason and, for accept, `expectationsMet`, but not the confidence
   threshold: under a grant the person has said they trust the stand-in's judgement, so an answer honest about
   doubt decides like a sure one, and its confidence goes on the granted row. Only an answer received before the
-  guard's `thresholdBefore` (when #58's looser rule went live, as PR #60 landed) keeps the threshold it was logged under, so replay
-  routes an older log as it was routed. Outside the grant the ladder rule (`standInMayDecide`) applies as before,
+  guard's `thresholdBefore` (when #58's looser rule went live, as PR #60 landed) keeps the threshold it was logged under, so the
+  history join run without the source's outbox routes an older log as it was routed. Replay does not need the cutoff:
+  it takes each logged event's route from its row, or for an older row from its logged effects (harness
+  `meta.store.facts`), so an answer an older
+  release routed after the cutoff (#67) also replays as it was routed. Outside the grant the ladder rule (`standInMayDecide`) applies as before,
   threshold included. A decision already waiting on the person goes back to the stand-in for a fresh answer when
   the live grant covers it: the orchestrator sends `REASK_UNDER_GRANT {decision: <decision id>}` to the harness,
   which refuses it from anyone else and unless the decision is in the inbox and the grant covers its class and
