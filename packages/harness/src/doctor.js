@@ -13,6 +13,8 @@ import { verifyFacts, verifyFactsText } from './verify-facts.js';
 import { verifyMerges, verifyMergesText } from './gates.js';
 import { slowRefreshes, slowRefreshText } from './pages.js';
 import { specs } from './machines.js';
+import { outOfBand } from './history.js';
+import { prKey } from './pr-binding.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const STALE_LOCK_MS = 60_000;
@@ -90,6 +92,10 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   for (const r of facts.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`verify-facts: ${verifyFactsText([r])}`);
   // A merged PR of an item needs the verifier's PASS on its merge head, in the store and as a review on GitHub.
   const merges = verify ? await verifyMerges(store, fetcher ? { fetcher } : {}) : [];
-  for (const r of merges.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
-  return { ok: problems.length === 0, problems, unverifiable, warnings, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
+  for (const r of merges.filter((r) => !['ok', 'outOfBand'].includes(r.result))) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
+  // Work done outside the gates (history.schema.json OUT_OF_BAND): listed, never a problem by itself.
+  const outOfBandRows = outOfBand(events).map(
+    (o) => `${o.id}: ${o.what} (${[o.pr && prKey(o.pr), o.to, o.sha && `at ${o.sha.slice(0, 7)}`].filter(Boolean).join(' ')}), ordered by ${o.orderedBy.kind}:${o.orderedBy.id}, skipped ${o.skipped.join(', ')}`
+  );
+  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
 }

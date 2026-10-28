@@ -81,7 +81,7 @@ export function placeholders(rows) {
 }
 
 /** The out-of-band rows, for doctor to list: who ordered what, by which message, skipping which gates. */
-export const outOfBand = (rows) => rows.filter((r) => r.event.type === 'OUT_OF_BAND').map((r) => ({ id: r.id, at: r.at, ...r.event }));
+export const outOfBand = (rows) => rows.filter((r) => r.event.type === 'OUT_OF_BAND').map((r) => ({ id: r.id, at: r.at, to: r.to, ...r.event }));
 
 /** The fact a row describes, as the first identity rule for its type keys it. */
 export function factKey(row) {
@@ -93,12 +93,17 @@ export function factKey(row) {
 
 /**
  * One row per fact. Keeps the owner's row (else the earliest), moves the other sources to provenance.also, and
- * reports a conflict where two rows of one fact disagree on a payload field both carry.
+ * reports a conflict where two rows of one fact disagree on a payload field both carry. Two rows of one source are
+ * never one fact: the n-th row of a key in a source, in time order, is that key's n-th fact.
  */
 export function dedupe(rows) {
   const groups = new Map();
-  for (const r of rows) {
-    const k = factKey(r);
+  const seen = new Map();
+  for (const r of [...rows].sort((a, b) => a.at.localeCompare(b.at))) {
+    const fact = factKey(r);
+    const n = (seen.get(`${r.provenance.from.ref}\n${fact}`) ?? 0) + 1;
+    seen.set(`${r.provenance.from.ref}\n${fact}`, n);
+    const k = n > 1 ? `${fact}#${n}` : fact;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(r);
   }
