@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
-import { createMachines, tapEvents, specs } from './machines.js';
+import { createMachines, personEvents, specs } from './machines.js';
 import { bindingError } from './pr-binding.js';
 import { ladder, readDecisionLog } from './decision-log.js';
 
@@ -16,15 +16,15 @@ const SCHEMA_VERSION = specs.harness.meta.store.schemaVersion;
 // The actor kinds and their id forms are the spec's (harness meta.actors): an agent is <session_id>/<agent_id>.
 const ACTORS = specs.harness.meta.actors;
 export const ACTOR_KINDS = Object.keys(ACTORS);
-export const SOURCE_KINDS = ['tap', 'github-wake', 'cli', 'timer'];
-// No event says it is the person's: `person` is refused, and the person's touches are posted cards and taps.
+export const SOURCE_KINDS = Object.keys(specs.harness.meta.sources);
+// No event says it is the person's: `person` is refused, and the person's touches are taps on posted cards and, for a grant, their messages.
 const envelopeError = ({ actor, source, relayedBy, ...event }) =>
-  'person' in event ? 'carrying "person": no event marks itself as the person\'s; the person acts only by a tap on a card'
+  'person' in event ? 'carrying "person": no event marks itself as the person\'s; the person acts only by a tap on a card or, for a grant, a message'
   : !actor ? 'without an actor'
   : !ACTOR_KINDS.includes(actor.kind) || typeof actor.id !== 'string' || !actor.id || !new RegExp(ACTORS[actor.kind].id ?? '').test(actor.id) ? `with actor ${JSON.stringify(actor)} (kind ${ACTOR_KINDS.join('|')} and an id of its form)`
   : !source ? 'without a source'
   : !SOURCE_KINDS.includes(source.kind) || typeof source.ref !== 'string' ? `with source ${JSON.stringify(source)} (kind ${SOURCE_KINDS.join('|')} and a ref)`
-  : source.kind === 'tap' && !relayedBy && process.env.CLAUDE_CODE_SESSION_ID ? 'from a tap without the session that relayed it (relayedBy)' : null;
+  : ['tap', 'message'].includes(source.kind) && !relayedBy && process.env.CLAUDE_CODE_SESSION_ID ? `from a ${source.kind} without the session that relayed it (relayedBy)` : null;
 
 // The harness that applied an event, so a finding can be matched to the code that produced it.
 let applied;
@@ -89,7 +89,7 @@ export function tryRestore(store) {
 export function init(store, input = {}, now = new Date().toISOString()) {
   // A new harness takes only its WIP limit: everything else in its context (the orchestrator, the person's grant) comes from events.
   const extra = Object.keys(input ?? {}).filter((k) => k !== 'wipLimit');
-  if (extra.length) throw new Error(`init takes only wipLimit, not ${extra.join(', ')}: the rest of the harness comes from events (a grant only from the person's tap)`);
+  if (extra.length) throw new Error(`init takes only wipLimit, not ${extra.join(', ')}: the rest of the harness comes from events (a grant only from the person's tap or message)`);
   return store.withLock(() => {
     if (store.read()) throw new Error(`a harness already exists in ${store.dir}`);
     const actor = restore(null, input, () => {}).start();
@@ -145,12 +145,12 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
       // rule: machine
       return { version: state.version, refused: true, why: `refused: ${event.type} in ${snap.status === 'active' ? valueText(snap.value) : snap.status}${guard ? ` (${guard})` : ''}`, effects: [] };
     }
-    // A person acts only by a tap on a card the machine asked for, and a tap is only ever the person's: an event
-    // whose machine binds the tap to its card (tapEvents). Any other event from a person or a tap is refused.
-    if ((event.actor.kind === 'person' || event.source.kind === 'tap') && !tapEvents.has(event.type)) {
+    // A person acts only by a tap on a card the machine asked for or, for a grant, a message, and a tap or a message is
+    // only ever the person's: an event a machine takes from the person (personEvents). Any other is refused.
+    if ((event.actor.kind === 'person' || ['tap', 'message'].includes(event.source.kind)) && !personEvents.has(event.type)) {
       actor.stop();
       // rule: tapOnly
-      return { version: state.version, refused: true, why: `refused: ${event.type} from ${event.actor.kind}:${event.actor.id} by ${event.source.kind}: a person acts only by a tap on a card the machine asked for (${[...tapEvents].join(', ')})`, effects: [] };
+      return { version: state.version, refused: true, why: `refused: ${event.type} from ${event.actor.kind}:${event.actor.id} by ${event.source.kind}: a person acts only by a tap on a card the machine asked for, or a message for a grant (${[...personEvents].join(', ')})`, effects: [] };
     }
     if (dryRun) {
       actor.stop();

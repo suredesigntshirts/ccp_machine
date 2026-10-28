@@ -163,16 +163,23 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `PERSON_GRANTED {picks}`, taken only on that card and only with the card's own options and one end time. The
   grant actor reports `GRANT_GIVEN` to the harness, which holds one grant (`context.grant`) and refuses
   `GRANT_GIVEN` from outside: nothing else creates, widens or extends a grant, and a later tap replaces it
-  whole (no kind ticked ends it). Every decision carries its class's door (`meta.classes`: plan and accept are
+  whole (no kind ticked ends it). The person can also grant in their own words, with no checklist: the session
+  that reads their chat message sends the same `PERSON_GRANTED {picks}` to the harness itself, as the person
+  with `--source message:<cmsg id>` (the message's id), and the picks it reads from the words (kinds, the
+  one-way box, at most one end time; none is no end time, so "stop asking" is every kind and `one-way`). The
+  harness takes it only from a person with a message source and the grant's own vocabulary
+  (`messageGrantOverreaches`); a session, an agent, the lead or a sender with no source is refused, and the CLI
+  refuses `--actor person` in a subagent. A message grant replaces any earlier grant like a tap does, and
+  `harness verify-taps` lists it with its message id for another session to read. Every decision carries its class's door (`meta.classes`: plan and accept are
   two-way, merge one-way). The decision reads the harness's grant as the stand-in's answer arrives and decides
-  alone (`grantCovers`) only before the grant's end time, for a class it names, and for a one-way door only
+  alone (`grantCovers`) only before the grant's end time (if it has one), for a class it names, and for a one-way door only
   with the box; the answer still needs a reason, the confidence threshold and, for accept, `expectationsMet`.
   Outside the grant the ladder rule (`standInMayDecide`) applies as before. Which one decided is logged
   (`authority`). A decision made under the grant also reports itself (`DECIDED_UNDER_GRANT`, refused from
   outside), and the harness keeps one compact row per decision in `state.json` (`context.granted`: address,
-  item, class, door, choice, confidence, reason, the grant's card, time). Live mission control declares
+  item, class, door, choice, confidence, reason, the grant's card or message, time). Live mission control declares
   `context.grant` and `context.granted` in its needs file and shows "Decided under your grant": the grant
-  (kinds, the one-way box, until) and every row with its reason and how to reverse it. `harness page` and the
+  (kinds, the one-way box, until or no end time, its card or message) and every row with its reason and how to reverse it. `harness page` and the
   daily audit read the same list.
 - `src/github.js`: `harness from-github FILE` turns one PR activity event (a wake's `<event source="github">`
   text or `{kind, data}` JSON) into the item event it means: a finished check suite is `CHECKS_PASSED`, a
@@ -235,15 +242,16 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `--actor person:<id> --source tap:<that message id>`; the machine refuses a tap before the card is
   posted, on another card or with an option the card did not offer (`tapUnbound`, `choiceNotOffered`,
   `optionNotOffered`, `picksNotOffered`). A person actor, or a tap source, on any other event is refused by `apply()`
-  (`tapEvents`, the events whose machine guards the tap): the person triages, builds, checks and blocks
-  nothing.
-- `src/verify-taps.js`: `harness verify-taps [--store DIR]` lists every tap in the log, one line per tap:
-  event id, time, the card's message id, the decision, audit or checklist it went to, the choice (or picks) it claims, the
+  (`personEvents`, the events a machine takes from a person): the person triages, builds, checks and blocks
+  nothing, and a message source is taken only for a grant.
+- `src/verify-taps.js`: `harness verify-taps [--store DIR]` lists every tap and every message grant in the
+  log, one line each: event id, time, the card's message id (or, for a grant in the person's words, `message`
+  and the message's id), the decision, audit or checklist it went to, the choice (or picks) it claims, the
   person, and the session that relayed it (`relayedBy`, from `$CLAUDE_CODE_SESSION_ID`; inside a session a
-  tap without it is refused). It never writes, and a `--store` with no `events.jsonl` is an error (exit 2). The machine binds a
+  tap or message without it is refused). It never writes, and a `--store` with no `events.jsonl` is an error (exit 2). The machine binds a
   tap to its card, but only the platform knows whether the person tapped that option: verify-taps output
   must be checked by a session other than the one that sent the taps, reading each card with
-  `read_messages_by_id`.
+  `read_messages_by_id` and, for a message grant, checking the picks match the person's words.
 - `src/scenario.js` and `scenarios/*.json`: golden event stories. Each step is an event (with `to`, `id`,
   `now`) and an `expect` of `effects` (exact, `dispatchRun:<step>`), `items` `{id: state}`, `scheduler`,
   `budget`, `inFlight`, `queued`, `inbox`, `needsPerson`, `duplicate`, `refused` (`refused: <EVENT> in

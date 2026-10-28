@@ -26,8 +26,8 @@ export const eventsWhere = (test, out = new Set()) => {
   Object.values(specs).forEach(walk);
   return out;
 };
-// The events a person may send: those whose machine binds the tap to its posted card. apply() refuses the rest.
-export const tapEvents = eventsWhere((t) => t.guard?.type === 'tapUnbound');
+// The events a person may send: those a machine takes from the person (binding a tap to its card, or a grant to its message). apply() refuses the rest.
+export const personEvents = eventsWhere((t) => t.guard?.type === 'unattested' && [t.guard.params?.actor].flat().includes('person'));
 
 // Input overrides the spec's default context by shallow merge (v6's context patches behave the same).
 const withInput = (config) => ({
@@ -154,15 +154,22 @@ export const grantOptions = (askedAt) => [
   'one-way',
   ...(Number.isNaN(Date.parse(askedAt)) ? [] : specs.grant.meta.checklist.endsAfterHours.map((h) => `until:${new Date(Date.parse(askedAt) + h * 36e5).toISOString()}`))
 ];
-/** The grant a tap's picks make, from the picks alone: the kinds ticked (in the card's order), the box, the one end time. */
+/** The grant picks make, from the picks alone: the kinds ticked (in the card's order), the box, the end time (none: null). */
 export const grantOf = (options, picks) => ({
   kinds: options.filter((o) => o.startsWith('kind:') && picks.includes(o)).map((o) => o.slice(5)),
   oneWay: picks.includes('one-way'),
-  until: picks.find((p) => p.startsWith('until:')).slice(6)
+  until: picks.find((p) => p.startsWith('until:'))?.slice(6) ?? null
 });
-/** Whether grant g, at time `at`, covers a decision of class cls behind door: live (before until), the class named, a one-way door only with the box. */
+/** Whether grant g, at time `at`, covers a decision of class cls behind door: live (before until, if it has one), the class named, a one-way door only with the box. */
 export const grantCoversAt = (g, at, cls, door) =>
-  g != null && typeof at === 'string' && Date.parse(at) < Date.parse(g.until) && (g.kinds ?? []).includes(cls) && (door === 'two-way' || g.oneWay === true);
+  g != null && typeof at === 'string' && (g.until == null || Date.parse(at) < Date.parse(g.until)) && (g.kinds ?? []).includes(cls) && (door === 'two-way' || g.oneWay === true);
+// A grant in the person's words (spec harness PERSON_GRANTED): the checklist's kinds and box, and at most one end time after the event's own time.
+const MESSAGE_OPTIONS = grantOptions(null);
+const messageGrantOverreaches = ({ event: { picks, source, receivedAt } }) => {
+  const ends = Array.isArray(picks) ? picks.filter((p) => typeof p === 'string' && p.startsWith('until:')) : [];
+  return !/^cmsg_[A-Za-z0-9_-]+$/.test(String(source?.ref)) || !Array.isArray(picks) || new Set(picks).size !== picks.length || ends.length > 1 ||
+    !picks.every((p) => MESSAGE_OPTIONS.includes(p) || ends.includes(p)) || ends.some((p) => !/^\d{4}-\d\d-\d\dT/.test(p.slice(6)) || !(Date.parse(p.slice(6)) > Date.parse(receivedAt)));
+};
 
 const provenance = {
   unattested: ({ event }, p) => (p.actor != null && ![p.actor].flat().includes(event.actor?.kind)) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
@@ -268,7 +275,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       reportGrantDecision: enqueueActions(({ enqueue, context: c, system }) => {
         const harness = system.get('harness');
         if (harness)
-          enqueue.sendTo(harness, { type: 'DECIDED_UNDER_GRANT', row: { address: c.address, item: c.item, decisionClass: c.decisionClass, door: c.door, choice: c.standIn.choice, confidence: c.standIn.confidence, reason: c.standIn.reason, card: c.grant.card, at: c.answeredAt } });
+          enqueue.sendTo(harness, { type: 'DECIDED_UNDER_GRANT', row: { address: c.address, item: c.item, decisionClass: c.decisionClass, door: c.door, choice: c.standIn.choice, confidence: c.standIn.confidence, reason: c.standIn.reason, ...(c.grant.message ? { message: c.grant.message } : { card: c.grant.card }), at: c.answeredAt } });
       }),
       recordPersonChoice: assign({ choice: ({ event }) => event.choice, decidedBy: 'person' }),
       recordCard,
@@ -368,6 +375,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       requestOverreaches: ({ event: { request: r } }) => !r || typeof r.id !== 'string' || !r.id || Object.keys(r).some((k) => k in specs.workItem.context && !['id', 'project'].includes(k)),
       // Only the orchestrator's own session routes the work, so only it sets how much runs at once.
       notFromOrchestrator: ({ context, event: { actor } }) => actor?.kind !== 'session' || !context.orchestrator || actor.id !== context.orchestrator,
+      messageGrantOverreaches,
       wipOutOfRange: ({ event: { limit } }, { min, max }) => !Number.isInteger(limit) || limit < min || limit > max,
       modeIs: ({ event }, params) => event.mode === params.mode,
       inboxEmpty: ({ context }) => context.inbox.length === 0
@@ -424,6 +432,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       }),
       // The harness holds one grant: the latest tap replaces it whole.
       recordGrant: assign({ grant: ({ event }) => event.grant }),
+      recordMessageGrant: assign({ grant: ({ event }) => ({ message: event.source.ref, ...grantOf(MESSAGE_OPTIONS, event.picks), at: event.receivedAt ?? null }) }),
       recordGrantDecision: assign({ granted: ({ context, event }) => [...(context.granted ?? []), event.row] }),
       addToInbox: assign({ inbox: ({ context, event }) => [...context.inbox, event.decisionId] }),
       removeFromInbox: assign({

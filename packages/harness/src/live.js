@@ -147,7 +147,7 @@ function granted(h, ev) {
   const rows = h.granted ?? [];
   if (!g && !rows.length) return '';
   const line = !g ? 'No grant: the ladder alone decides.'
-    : `Your grant (card ${esc(g.card)}): ${g.kinds.length ? esc(g.kinds.join(', ')) : 'nothing'}, ${g.oneWay ? 'one-way doors included' : 'two-way doors only'}, until ${esc(clock(g.until).slice(5))} UTC.`;
+    : `Your grant (${g.message ? `message ${esc(g.message)}` : `card ${esc(g.card)}`}): ${g.kinds.length ? esc(g.kinds.join(', ')) : 'nothing'}, ${g.oneWay ? 'one-way doors included' : 'two-way doors only'}, ${g.until == null ? 'no end time' : `until ${esc(clock(g.until).slice(5))} UTC`}.`;
   const card = (r) => `<div class="card"><span class="eyebrow">${esc(r.decisionClass)} · ${esc(r.door)} door · ${esc(clock(r.at))} UTC</span><b>${esc(r.item)}: ${esc(r.choice)}</b> <span class="m">${pct(r.confidence)} sure</span>
 <div>${esc(r.reason)}</div>
 <div class="m">To reverse it${r.door === 'one-way' ? ' (a merge also needs a revert)' : ''}: ask the lead to revise it, or cancel: <code>harness send '{"type":"${esc(ev.cancel)}"}' --to item:${esc(r.item)}</code></div></div>`;
