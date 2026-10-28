@@ -37,6 +37,11 @@ test('a store written by an earlier release replays clean against the current co
   assert.match(r.admittedThen.find((a) => a.id === 'merge-pr47').why, /unverifiedHead/);
   // No row of it needs a route other than today's: none is searched.
   assert.deepEqual(r.admittedThen.filter((a) => /found by its effects/.test(a.why)), []);
+  // The 34 checks that reopened the accept decision close more today (#84, harness meta.store closes) than their log
+  // does: harness 0.1.0 left the stopped decision's ask pending. Listed, not a divergence.
+  const closesMore = r.admittedThen.filter((a) => /closes more today/.test(a.why));
+  assert.equal(closesMore.length, 34);
+  for (const a of closesMore) assert.match(a.why, /closes more today \(\S+; the log closes none\)$/);
 });
 
 test('doctor lists an event the rules changed for, with its id and release, and it is not a problem', async () => {

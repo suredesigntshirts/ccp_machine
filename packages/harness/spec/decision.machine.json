@@ -52,7 +52,7 @@
   },
   "states": {
     "askingStandIn": {
-      "description": "The stand-in is asked: the askStandIn effect stays pending until its answer is recorded (harness answer acks it only then). A decision here with no pending askStandIn effect for it is stuck, and harness doctor names it (meta.waitsOn).",
+      "description": "The stand-in is asked: the askStandIn effect stays pending until its answer is recorded (harness answer acks it only then), or until the item withdraws the decision, which closes it (spec workItem, withdrawDecision closes). A decision here with no pending askStandIn effect for it is stuck, and harness doctor names it (meta.waitsOn).",
       "meta": {
         "waitsOn": "askStandIn"
       },
@@ -99,6 +99,13 @@
             },
             "admission": true,
             "description": "Refused unless the answer is exactly a choice, a confidence between 0 and 1, and optionally a reason. An answer that carries autonomy or threshold is refused: the machine holds both. A missing confidence is refused; there is no default."
+          },
+          {
+            "guard": {
+              "type": "choiceNotOffered"
+            },
+            "admission": true,
+            "description": "Refused unless the answer's choice is one of the decision's options (context.options: approve, revise, reject), the same choices the person's card offers; this list is the one place that says which choices a stand-in may give (harness answer takes one flag per option). At every gate approve moves the item on, revise sends it back (to building from the accept and land gates, to triage from the plan gate, as a person's revise tap does) and reject cancels it (spec workItem, each gate's DECISION_MADE)."
           },
           {
             "target": "routing",

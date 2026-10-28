@@ -1,13 +1,16 @@
 // The scale simulation: a scripted host drives many synthetic items through a scratch store, the way an
 // orchestrator would, to show what a busy day does to the WIP limit, the outbox, the store and the page.
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { openStore } from './store.js';
 import { init, apply, ack, status, cardAddress } from './runtime.js';
 import { logPrecedents } from './decision-log.js';
 import { doctor } from './doctor.js';
 import { renderPage } from './page.js';
+import { parseLog } from './live.js';
 
 const sure = { choice: 'approve', confidence: 0.95, reason: 'simulated' };
 
@@ -41,7 +44,7 @@ export function verifyHead(store, to, { sha = SIM_HEAD, now, lead = 'sim-orchest
   const steps = [
     ...(ctx().verifierBrief ? [] : [{ type: 'VERIFIER_BRIEF_FIXED', sha256: brief, ...by('session', lead) }]),
     ...((ctx().spawns ?? []).some((s) => s.agent === agent) ? [] : [
-      { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: brief, agentType: 'harness:verifier', ...by('session', lead) },
+      { type: 'WORKER_SPAWNED', role: 'verifier', briefSha256: brief, agentType: 'harness:verifier', model: 'opus', ...by('session', lead) },
       { type: 'WORKER_STARTED', agent, agentType: 'harness:verifier', ...by('session', lead) }
     ]),
     { type: 'VERDICT_GIVEN', verdict: 'PASS', sha, review: 1, text: `PASS\n\nBrief-Sha256: ${brief}`, ...by('agent', agent) }
@@ -186,6 +189,7 @@ export async function contractStore(dir) {
     return r;
   };
   send({ type: 'DAY_STARTED', sevenDay: 0.07, fiveHour: 0.04 }, 'budget', 'c-day');
+  send({ type: 'USAGE_SAMPLED', sevenDay: 0.08, fiveHour: 0.05, at: now() }, 'budget', 'c-usage');
   send({ type: 'REQUEST_RECEIVED', request: { id: 'c-asks', title: 'A tier-2 change', project: 'sim', url: 'https://example.test/issues/1' } }, undefined, 'c-1');
   send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:c-asks', 'c-2');
   send({ type: 'STAND_IN_ANSWERED', answer: { ...sure, choice: 'revise', reason: 'too big for one PR' } }, 'item:c-asks/decision:c-asks:plan:1', 'c-3');
@@ -208,4 +212,19 @@ export async function contractStore(dir) {
   const day = now();
   send({ type: 'AUDIT_PICKED', day: day.slice(0, 10), picks }, undefined, 'c-audit', day);
   return { store, dir };
+}
+
+/**
+ * The contract store as a history (epic #59): its events.jsonl through the old-store extractor and the joiner
+ * (scripts/history/extract-store.mjs and join.mjs), as the current code writes them. Returns the joined history's
+ * folder and its rows; the pages that read the history are checked against it.
+ */
+export async function contractHistory(dir) {
+  const { store } = await contractStore(join(dir, 'store'));
+  const script = (name) => fileURLToPath(new URL(`../scripts/history/${name}`, import.meta.url));
+  const candidates = join(dir, 'candidates.jsonl');
+  writeFileSync(candidates, execFileSync(process.execPath, [script('extract-store.mjs'), store.dir, 'sim/contract/events.jsonl'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+  const out = join(dir, 'history');
+  execFileSync(process.execPath, [script('join.mjs'), candidates, '--out', out], { stdio: 'ignore' });
+  return { dir: out, rows: parseLog(readFileSync(join(out, 'events.jsonl'), 'utf8')) };
 }

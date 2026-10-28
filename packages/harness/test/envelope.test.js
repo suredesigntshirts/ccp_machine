@@ -83,7 +83,7 @@ test('replay re-applies each row with its envelope; a row from before the envelo
   assert.deepEqual([good.ok, good.notes, good.admittedThen], [true, [], []]);
   // A fixture row as the store wrote it before M1: no actor, no source. It was admitted then, so it is applied and listed.
   store.appendEvents([{ id: 'old-1', version: 6, at: '2026-10-26T12:00:00Z', to: 'item:a', event: { type: 'CHECKS_PASSED' } }]);
-  assert.deepEqual(replay(store).admittedThen.map((a) => `${a.id}: ${a.why}`), ['old-1: refused: CHECKS_PASSED without an actor']);
+  assert.deepEqual(replay(store).admittedThen.map((a) => `${a.id}: ${a.why}`), ['old-1: refused: CHECKS_PASSED without an actor; routed otherwise today (no route logged, found by its effects: checksPassedBeforeVerdict taken)']);
 });
 
 test('PERSON_DECIDED is taken only from a person through a tap with the posted card\'s message id', () => {

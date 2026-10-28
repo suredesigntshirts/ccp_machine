@@ -112,6 +112,7 @@ export function renderSpec() {
     if (config.meta?.reviewFooter) out.push(`Review footer (\`reviewFooter\`): ${JSON.stringify(config.meta.reviewFooter.text)}. ${config.meta.reviewFooter.description}`, '');
     // The store layout pages read (meta.store) and how pages refresh (meta.pages).
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
+    if (config.meta?.store?.closes) out.push(`Closing effects (\`closes\`): ${config.meta.store.closes}`, '');
     if (config.meta?.store?.facts) out.push(`Facts (replay): ${config.meta.store.facts}`, '');
     if (config.meta?.pages)
       out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
@@ -132,6 +133,7 @@ export function renderSpec() {
   // The one history's row format (history.schema.json): provenance, placeholders, event versions and fact identity.
   const p = HISTORY.$defs.provenance.properties;
   out.push(`## History (schema v${HISTORY.schemaVersion})`, '', HISTORY.description, '');
+  out.push(`Row layout: a row's \`schemaVersion\`, absent means ${HISTORY.absentMeans}. ${HISTORY.properties.schemaVersion.description}`, '');
   out.push(`Provenance: \`origin\` is one of ${p.origin.enum.map((o) => `\`${o}\``).join(', ')}. ${p.origin.description} \`from.source\` is one of ${HISTORY.$defs.from.properties.source.enum.map((s) => `\`${s}\``).join(', ')}. ${p.placeholders.description} ${HISTORY.$defs.legacy.description}`, '');
   out.push(`Events: ${HISTORY.events.description}`, '');
   out.push(...Object.entries(HISTORY.events.types).filter(([, d]) => d.required || d.description).map(([t, d]) => `- \`${t}\` v${d.v}${d.required ? `, needs ${d.required.map((f) => `\`${f}\``).join(', ')}` : ''}${d.description ? `: ${d.description}` : ''}`), '');

@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createActor } from 'xstate';
-import { createMachines, personEvents, routeIds, specs } from './machines.js';
+import { createMachines, personEvents, routeIds, specs, CLOSE_EFFECTS } from './machines.js';
 import { bindingError } from './pr-binding.js';
 import { ladder, readDecisionLog } from './decision-log.js';
 
@@ -183,7 +183,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
       run.collecting = false;
       const snapshot = run.actor.getPersistedSnapshot();
       run.actor.stop();
-      return { effects: run.effects, route: run.route, snapshot };
+      return { effects: run.effects.filter((e) => e.name !== CLOSE_EFFECTS), closing: run.effects.filter((e) => e.name === CLOSE_EFFECTS), route: run.route, snapshot };
     };
     const first = start();
     const refused = !fact && admission(store, state, event, to, first.actor);
@@ -210,16 +210,19 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
           if (r && r.snapshot.status !== 'error' && fact.matches(r.effects)) [ran, rerouted] = [r, `${rid} ${take ? 'taken' : 'passed over'}`];
         }
     }
-    const { effects, snapshot, route } = ran;
+    const { effects, closing, snapshot, route } = ran;
     if (snapshot.status === 'error') throw new Error(`event ${event.type} put the harness in error: ${snapshot.error}`);
 
     const version = state.version + 1;
+    // A machine closes its own pending effects (harness meta.store closes): acks with outcome withdrawn, never queued.
     const queued = effects.map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
+    const closed = closing.length ? store.pending().filter((p) => closing.some((c) => p.subject === c.subject && c.params.names.includes(p.name))) : [];
     store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: harnessVersion(), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
     const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
     store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, ...(relayedBy && { relayedBy }), harness: harnessVersion(), route, event: rest }]);
     store.appendOutbox(queued);
-    return { version, effects: queued, route, ...(rerouted && { rerouted }) };
+    store.appendAcks(closed.map((p) => ({ effectId: p.id, outcome: 'withdrawn', note: `${p.subject} withdrawn by ${eventId}`, at: now })));
+    return { version, effects: queued, route, ...(rerouted && { rerouted }), ...(closed.length && { closed: closed.map((p) => p.id) }) };
   });
 }
 

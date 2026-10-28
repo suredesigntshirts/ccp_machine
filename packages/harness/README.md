@@ -8,7 +8,9 @@ else the item's machine holds is refused. A triager, who is not the requester, t
 sends `TRIAGED {tier, criteria}`; until it does, nothing leaves triage, and with no criteria the item waits
 for the person (`needsCriteria`, tagged `needs-human`) and only a cancel ends it. A reviewer, who is neither
 the orchestrator nor a worker, sends `CRITERION_CHECKED {criterion, verdict, evidence}` per criterion; a new
-build clears them. An item with a verifier brief leaves verifying only when CI has passed and the verifier's
+build clears them. A check while the accept decision is open keeps that decision when it leaves
+`expectationsMet` as the decision has it, and reopens it once when it changes it (spec workItem,
+`awaitingAcceptance`), so N checks leave one live accept decision and one pending ask. An item with a verifier brief leaves verifying only when CI has passed and the verifier's
 verdict is recorded for the same head, in either order (spec workItem, `verifying`), so the verifier's checks
 count before the accept decision opens. A FAIL verdict sends the item back to building, keeping its roles,
 workers and verifier brief hash, so the same builder reports its next round's run and a verifier with the
@@ -23,6 +25,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `test/spec.test.js` fails when a name in the JSON has no implementation here, or the other way round.
 - `src/runtime.js`: the backend-workflow loop. Every wake restores the root actor from the store,
   applies one event, persists, and queues the effects that event asked for. Event ids make it idempotent.
+  A machine closes its own pending effects the same way (harness `meta.store` closes): when an item stops a
+  decision that has not decided, the decision's pending `askStandIn` and `postDecisionCard` are acked in the
+  same write, outcome `withdrawn`, so the outbox keeps no ask that no decision can take (#84).
   An event the addressed actor would not take (`snapshot.can`) is refused: nothing is written and the
   result says `refused: <EVENT> in <state>`. An item's PR is bound once, by the first event that names it
   (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a
@@ -51,7 +56,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `AUDIT_ANSWERED` events, dated at or before the spawn), set on the decision when it is spawned, so a reversal
   lowers the very next decision's rung with no command run; a log that cannot be read gives `recommend`. Threshold is the
   constant in `decision.machine.json`'s context. Confidence is the stand-in's: `STAND_IN_ANSWERED` carries
-  only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, and is
+  only choice, confidence and reason, is refused with autonomy or threshold or without a confidence, or with
+  a choice that is not one of the decision's options (approve, revise, reject: `context.options`, the same the
+  person's card offers, and the one list `harness answer`'s flags come from; approve moves the item on, revise
+  sends it back to building, or to triage from the plan gate, and reject cancels it), and is
   refused from the orchestrator and from every worker that reported a run for the item, succeeded or failed
   (both recorded on the decision at spawn). `test/paths.test.js` replays generated paths through all six
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
@@ -65,7 +73,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
 - `pages/<page>/needs.json`, `src/pages.js` and `src/live.js`: the page needs contract. A page declares in its needs
-  file the one store file it reads (`reads.file`, mission control's is `state.json`), the `schemaVersion` range it
+  file the one file it reads (`reads.file`, mission control's is `state.json`), the `schemaVersion` range it
   understands, the fields it reads (paths into the store root, the harness snapshot and each child snapshot, the
   children told apart by spec machine id), and the spec states and events it names. `project()` copies only those
   fields; the renderer sees nothing else. `harness page --live --project chan_... --files-path <store path in the
@@ -80,6 +88,18 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   fixture) and fails naming the page and the missing piece: a spec state or event a page names, a field no row of
   its kind has, a field the renderer reads that the needs file does not declare, or a view state missing from the
   needs spec list.
+- The ledger page (`pages/ledger/needs.json`, #89) is the same live page over the one history instead of a store:
+  `harness page --live --page ledger --dir <history> --files-path <its path in the Library>` reads the history's
+  `events.jsonl` (such as `scripts/history/join.mjs` writes) and shows, by item, the spawns (role, model), starts
+  and runs, the usage samples, and in a corner each source's rows and the placeholders among the fields it reads,
+  counted and never shown as values. Its needs file declares the fields of each event type it reads and the spec
+  machines that take those types; `projectLog()` copies only those fields. The Refresh button, the timing row (its
+  `storeVersion` is the history's row count, `bytes` its size), the trend and `harness doctor --refreshes` are
+  mission control's. A history with a row whose `schemaVersion` (history.schema.json; absent means `absentMeans`)
+  is outside the page's `reads.schemaVersion`, or a file that is not a history, shows the red banner and no data.
+  `test/ledger-page.test.js` builds a history with the current code (`contractHistory`: the sim's contract store
+  through `extract-store.mjs` and `join.mjs`), renders it and the golden history and checks every count the page
+  shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
@@ -138,9 +158,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   takes the route its row recorded (`route`): each route is taken exactly when the row names it, and a route that
   cannot be taken again is a divergence. A row from before routes were recorded has none: it takes today's routes
   when they give the effects the outbox logged for it, and otherwise the one route, taken or passed over, that
-  does (a search, for such rows only). A rule tightened (#55) or loosened (#67) since then changes nothing on
-  replay: every event today's rules would refuse or route otherwise is listed in `admittedThen` with its id and
-  the release that wrote it (a searched row says its route was found by its effects), and is not a difference.
+  does (a search, for such rows only). An event's closes (harness `meta.store` closes) are facts too: replay puts
+  the host's own acks on its scratch copy in time order, so the same effects are pending, and the effects it closes
+  must be the ones the log acks `withdrawn` by that event. A routed row that closes otherwise, or a log close replay
+  does not give, is a divergence; an older row that closes more today was written by a release that closed less
+  (before #84). A rule tightened (#55) or loosened (#67) since then changes nothing on replay: every event today's
+  rules would refuse, route otherwise or close more for is listed in `admittedThen` with its id and the release
+  that wrote it (a searched row says its route was found by its effects), and is not a difference.
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
@@ -163,10 +187,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
   file, an empty title or a page over 1 MB, and saves screenshots to `--shots` (default a temp folder,
-  never the Library). It also renders live mission control from a sim-built store and, with a stand-in for the
-  Artifact runtime, presses Refresh: the page must not read the store or record anything before the press, must
-  re-render and record one timing row with the store version after it, and must show the red banner and no table
-  for a store whose `schemaVersion` it does not read. CI runs it and uploads the shots.
+  never the Library). It also renders live mission control from a sim-built store and the live ledger from that
+  store as a history and, with a stand-in for the Artifact runtime, presses Refresh on each: the page must not read
+  its file or record anything before the press, must re-render and record one timing row with the size it rendered
+  after it, and must show the red banner and no table for data whose `schemaVersion` it does not read. CI runs it
+  and uploads the shots.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
   log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.

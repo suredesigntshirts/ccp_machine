@@ -2,8 +2,10 @@
 // store. Each logged event is a fact: it was admitted when it was sent, by the rules of the release that wrote it, so
 // it is applied again without its admission rules, by the route its log row recorded, or for a row from before routes
 // were recorded, by the route its logged effects took (runtime apply, fact; harness meta.store.facts). A match shows the
-// store is deterministic; a difference shows a tampered store, a lost event, or a state change no route reproduces. An event today's rules would refuse or route otherwise is listed (admittedThen),
-// with the release that wrote it: not a problem.
+// store is deterministic; a difference shows a tampered store, a lost event, or a state change no route reproduces. An
+// event's closes (harness meta.store.closes) are compared with the withdrawn acks the log holds for it, with the host's
+// own acks put on the scratch copy in time order so the same effects are pending. An event today's rules would refuse,
+// route otherwise or close more for is listed (admittedThen), with the release that wrote it: not a problem.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,8 +50,18 @@ export function replay(store) {
     const notes = [];
     const admittedThen = [];
     const events = store.events();
+    // The host's acks, oldest first, go on the scratch copy as the log reached them; the withdrawn ones are the closes
+    // replay writes itself, by the event that closed them ("<subject> withdrawn by <event id>").
+    const acks = store.acks();
+    const hostAcks = acks.filter((a) => a.outcome !== 'withdrawn').sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
+    const closedBy = (id) => acks.filter((a) => a.outcome === 'withdrawn' && String(a.note ?? '').endsWith(` withdrawn by ${id}`)).map((a) => a.effectId).sort();
+    let fed = 0;
     for (const e of events) {
       let effects;
+      const upTo = hostAcks.slice(fed).findIndex((a) => String(a.at ?? '') > e.at);
+      const next = upTo < 0 ? hostAcks.length : fed + upTo;
+      scratch.appendAcks(hostAcks.slice(fed, next));
+      fed = next;
       try {
         const sent = { ...e.event, actor: e.actor, source: e.source, ...(e.relayedBy && { relayedBy: e.relayedBy }) };
         const at = { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at };
@@ -58,8 +70,20 @@ export function replay(store) {
         const logged = JSON.stringify(outbox.get(e.id) ?? []);
         // A row records its route; one written before routes were recorded is matched to its logged effects.
         const r = apply(scratch, sent, { ...at, fact: e.route ? { route: e.route } : { matches: (fx) => JSON.stringify(fx.map(effectKey)) === logged } });
-        // Today's rules would refuse it, or route it otherwise: it was admitted, and routed as logged, by the release that wrote it.
-        if (today.refused || r.rerouted) admittedThen.push({ id: e.id, type: e.event.type, release: e.harness ?? null, why: today.why ?? `routed otherwise today (${e.route ? '' : 'no route logged, found by its effects: '}${r.rerouted})` });
+        // Its closes are the ones the log holds. A row written before routes were recorded may close fewer, by a release
+        // that closed less; a logged close today's rules do not give, or any difference on a routed row, is a divergence.
+        const logClosed = closedBy(e.id);
+        const closed = [...(r.closed ?? [])].sort();
+        const closesDiffer = !same(closed, logClosed);
+        if (closesDiffer && (e.route || logClosed.some((x) => !closed.includes(x))))
+          throw new Error(`closes differ: the log holds ${logClosed.join(', ') || 'none'}, replay gives ${closed.join(', ') || 'none'}`);
+        // Today's rules would refuse it, route it otherwise or close more: it was admitted, and applied as logged, by the release that wrote it.
+        const whys = [
+          today.why,
+          r.rerouted && `routed otherwise today (${e.route ? '' : 'no route logged, found by its effects: '}${r.rerouted})`,
+          closesDiffer && `closes more today (${closed.filter((x) => !logClosed.includes(x)).join(', ')}; the log closes ${logClosed.join(', ') || 'none'})`
+        ].filter(Boolean);
+        if (whys.length) admittedThen.push({ id: e.id, type: e.event.type, release: e.harness ?? null, why: whys.join('; ') });
         ({ effects } = r);
       } catch (err) {
         firstDivergence ??= `${e.id}: ${err.message}`;

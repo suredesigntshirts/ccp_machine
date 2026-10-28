@@ -4,10 +4,12 @@
   "title": "Harness history event",
   "description": "One row of the one history (epic #59): today's event envelope plus where the row came from (provenance). Every row from every era (main, dogfood, dogfood2, sessions, GitHub, the live runtime) has this shape. A field that could not be recovered holds a legacy placeholder, never an invented value, and provenance.placeholders lists its path. Rows are never edited: a format change adds an event version and a declared conversion. src/history.js reads this file; nothing restates it.",
   "schemaVersion": 1,
+  "absentMeans": 1,
   "type": "object",
   "required": ["id", "version", "at", "to", "actor", "source", "harness", "event", "provenance"],
   "additionalProperties": false,
   "properties": {
+    "schemaVersion": { "type": "integer", "minimum": 1, "description": "The history schema the row was written in (schemaVersion above). A row without one was written before the field and is at absentMeans. A page that reads the history declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a history with a row outside it, shows a red banner naming the mismatch and no data." },
     "id": { "type": "string", "minLength": 1, "description": "The event id as its source wrote it. Ids are unique within one source, not across sources (dogfood and dogfood2 share orchestrator ids)." },
     "version": { "type": "integer", "minimum": 1, "description": "The row's position in the one history, counted from 1 in time order." },
     "at": { "$ref": "#/$defs/time" },
