@@ -20,6 +20,8 @@ import { loadNeeds } from '../src/pages.js';
 const SCRIPTS = fileURLToPath(new URL('../scripts/history/', import.meta.url));
 const GOLDEN = fileURLToPath(new URL('./fixtures/history-golden/', import.meta.url));
 const DOGFOOD2 = process.env.HARNESS_DOGFOOD2_DIR;
+// What no store recorded as a row, recovered from dogfood2's own rows and GitHub: the #66 landing out of band.
+const RECOVERED = fileURLToPath(new URL('../scripts/history/recovered/dogfood2.jsonl', import.meta.url));
 
 const rowsOf = (text) => text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 const run = (script, args) => spawnSync(process.execPath, [join(SCRIPTS, script), ...args], { encoding: 'utf8' });
@@ -78,6 +80,17 @@ test('T: the golden history goes through both scripts: every row a row, one per 
   assert.equal(sha(ex.file), candidates, 'join never edits an input');
 });
 
+test('T: the recovered rows are history rows, each recovered from a source it names, with what it could not recover as a placeholder', () => {
+  const rows = rowsOf(readFileSync(RECOVERED, 'utf8'));
+  assert.deepEqual(rows.flatMap(validate), []);
+  for (const r of rows) {
+    assert.equal(r.provenance.origin, 'recovered');
+    assert.ok(r.provenance.also?.length, `${r.id} names no second source`);
+  }
+  const oob = rows.find((r) => r.id === 'oob-review-footer-pr66');
+  assert.deepEqual([oob.event.type, oob.event.pr, oob.event.sha, oob.provenance.placeholders], ['OUT_OF_BAND', 'https://github.com/suredesigntshirts/ccp_machine/pull/66', '2d04bb40779cd73e7cfc3872328bc8d13057da2b', ['event.message']]);
+});
+
 test('T: extract skips a row it cannot turn, naming the line and why; join refuses bad rows and an existing --out, writing nothing', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
   const store = join(tmp, 'old');
@@ -115,8 +128,9 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.deepEqual(ex.skips, [], 'on dogfood2 every row becomes a row');
   assert.equal(ex.rows.length, lines);
   const out = join(tmp, 'joined');
-  const { report, history } = joinTo([ex.file], out);
-  assert.equal(history.length, lines, 'one history row per events.jsonl line');
+  const { report, history } = joinTo([ex.file, RECOVERED], out);
+  assert.equal(history.length, lines + 1, 'one history row per events.jsonl line, and the recovered row');
+  assert.deepEqual(history.filter((r) => r.provenance.origin === 'recovered').map((r) => r.id), ['oob-review-footer-pr66']);
   assert.deepEqual([report.dropped, report.conflicts], [[], []]);
   isHistory(history);
   const store = openStore(out);
@@ -125,6 +139,7 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.deepEqual(r.notes, report.refused, 'the rows the current code refuses (R1, #55) are the ones the report names');
   const d = await doctor(store, { verify: false, now: Date.parse(history.at(-1).at) });
   assert.deepEqual(d.problems, []);
+  assert.deepEqual(d.outOfBand.map((l) => l.split(':')[0]), ['oob-review-footer-pr66'], 'doctor lists the #66 landing out of band');
   assert.deepEqual(stages(out), stages(copy), 'mission control shows the same items in the same stages');
   assert.equal(shaDir(copy), copied, 'the copy is untouched');
   assert.equal(shaDir(DOGFOOD2), original, 'the store is untouched');

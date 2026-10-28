@@ -8,6 +8,7 @@ import { apply, start } from './send.js';
 import { tempDir } from './tmp.js';
 import { readFileSync } from 'node:fs';
 import { specs } from '../src/machines.js';
+import { validate } from '../src/history.js';
 
 const LEAD = 'sim-orchestrator';
 const cli = { kind: 'cli', ref: 'harness send' };
@@ -122,6 +123,39 @@ test('doctor lists a merged PR whose merge head has no verifier PASS in the stor
   assert.deepEqual((await verifyMerges(store, { fetcher: github().fetcher })), [], 'an open PR is not audited');
   const down = await doctor(store, { ledgers: tempDir('harness-ledgers-'), fetcher: async () => { throw new Error('HTTP 502'); } });
   assert.ok(down.unverifiable.some((l) => /^merges: unreachable o\/r#7/.test(l)));
+});
+
+// #65: a joined store holds history rows (spec/history.schema.json); an OUT_OF_BAND row records a landing outside the
+// gates. The row goes in as join.mjs writes it, numbered after the log, with state.json at its version.
+function landedOutOfBand(store, sha) {
+  const state = store.read();
+  const row = {
+    id: 'oob-x', version: state.version + 1, at: new Date().toISOString(), to: 'item:x', ...lead, harness: { version: '0.1.0', commit: null },
+    event: { type: 'OUT_OF_BAND', orderedBy: { kind: 'person', id: 'p1' }, message: { legacy: 'pressed on GitHub; no chat message ordered it' }, what: "landed o/r#7 by GitHub's button", skipped: ['unverifiedHead', 'reviewOnHead'], pr: PR, sha },
+    provenance: { origin: 'recovered', from: { source: 'store', ref: 'library/harness/state/x/events.jsonl', line: 9 }, placeholders: ['event.message'] }
+  };
+  assert.deepEqual(validate(row), [], 'a history row');
+  store.appendEvents([row]);
+  store.write({ ...state, version: row.version }, state.version);
+}
+
+test('doctor lists a landing an OUT_OF_BAND row records (PR and head) instead of counting it; an unexplained landing is still a problem', async () => {
+  const explained = merging();
+  landedOutOfBand(explained, HEAD);
+  const gh = github({ merged: true });
+  assert.deepEqual((await verifyMerges(explained, { fetcher: gh.fetcher })).map((r) => [r.result, r.row]), [['outOfBand', 'oob-x']]);
+  const report = await doctor(explained, { ledgers: tempDir('harness-ledgers-'), fetcher: gh.fetcher });
+  assert.deepEqual(report.problems.filter((l) => l.startsWith('merges:')), []);
+  assert.deepEqual(report.outOfBand, [`oob-x: landed o/r#7 by GitHub's button (o/r#7 item:x at ${HEAD.slice(0, 7)}), ordered by person:p1, skipped unverifiedHead, reviewOnHead`]);
+  // The row names another head than the one GitHub landed: it explains nothing.
+  const other = merging();
+  landedOutOfBand(other, OLD);
+  assert.deepEqual((await verifyMerges(other, { fetcher: gh.fetcher })).map((r) => r.result), ['problem']);
+  const still = await doctor(other, { ledgers: tempDir('harness-ledgers-'), fetcher: gh.fetcher });
+  assert.ok(still.problems.some((l) => /^merges: problem o\/r#7 item:x: the store holds no verifier PASS/.test(l)), still.problems.join('\n'));
+  assert.deepEqual(still.outOfBand, [`oob-x: landed o/r#7 by GitHub's button (o/r#7 item:x at ${OLD.slice(0, 7)}), ordered by person:p1, skipped unverifiedHead, reviewOnHead`]);
+  // A store with no out-of-band row lists none.
+  assert.deepEqual((await doctor(merging(), { ledgers: tempDir('harness-ledgers-'), fetcher: gh.fetcher })).outOfBand, []);
 });
 
 // #61: GitHub holds a verdict review as the stored text plus the host's footer (harness meta.reviewFooter). The real
