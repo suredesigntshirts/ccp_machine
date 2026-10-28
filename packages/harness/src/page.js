@@ -4,8 +4,8 @@
 import { lastMoved } from './stalled.js';
 import { waitingOnPerson } from './runtime.js';
 
-export const esc = (s) =>
-  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+import { esc } from './live.js';
+export { esc };
 export const time = (iso) => (iso ? iso.slice(5, 16).replace('T', ' ') : '');
 const ago = (now, then) => {
   const m = Math.max(0, Math.round((Date.parse(now) - Date.parse(then)) / 60000));

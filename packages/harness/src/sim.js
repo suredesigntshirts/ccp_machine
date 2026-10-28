@@ -140,3 +140,35 @@ export function timeApplyAt(store, events = 500) {
 
 /** Tables inside "Needs you" cards: a card should stay readable at any width. */
 export const tablesInCards = (html) => (html.match(/<div class="card"[^]*?<\/div>\s*<\/div>/g) ?? []).filter((c) => c.includes('<table')).length;
+
+/**
+ * A store the page contract test reads: the simulation's finished items, then, on top, one of every row a page
+ * shows that a settled simulation no longer has: a budget reading, a decision waiting on the person with its card
+ * posted, an item triage gave no criteria, one building, one queued, and the day's open stand-in audit. Built
+ * with the current runtime every time, never a frozen fixture.
+ */
+export async function contractStore(dir) {
+  const { store } = await simulate({ items: 6, wip: 3, dir });
+  let clock = Date.parse(store.read().updatedAt);
+  const now = () => new Date((clock += 60_000)).toISOString();
+  const send = (event, to, id, at = now()) => {
+    const r = apply(store, { ...event, ...scripted(event.type, id) }, { to, id, now: at });
+    if (r.refused) throw new Error(`contract store: ${r.why}`);
+    return r;
+  };
+  send({ type: 'DAY_STARTED', sevenDay: 0.07, fiveHour: 0.04 }, 'budget', 'c-day');
+  send({ type: 'REQUEST_RECEIVED', request: { id: 'c-asks', title: 'A tier-2 change', project: 'sim', url: 'https://example.test/issues/1' } }, undefined, 'c-1');
+  send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:c-asks', 'c-2');
+  send({ type: 'STAND_IN_ANSWERED', answer: { ...sure, choice: 'revise', reason: 'too big for one PR' } }, 'item:c-asks/decision:c-asks:plan:1', 'c-3');
+  const card = store.pending().find((e) => e.name === 'postDecisionCard' && cardAddress(e) === 'item:c-asks/decision:c-asks:plan:1');
+  ack(store, [card.id], { card: 'cmsg_contract', by: scripted('CARD_POSTED'), now: now() });
+  send({ type: 'REQUEST_RECEIVED', request: { id: 'c-none', title: 'Make it better', project: 'sim' } }, undefined, 'c-4');
+  send({ type: 'TRIAGED', tier: 1, criteria: [] }, 'item:c-none', 'c-5');
+  send({ type: 'REQUEST_RECEIVED', request: { id: 'c-build', project: 'sim' } }, undefined, 'c-6');
+  send({ type: 'TRIAGED', tier: 0, criteria: ['it works'] }, 'item:c-build', 'c-7');
+  send({ type: 'REQUEST_RECEIVED', request: { id: 'c-queued' } }, undefined, 'c-8');
+  const picks = store.outbox().filter((e) => e.name === 'logPrecedent').slice(0, 2).map((e) => e.id);
+  const day = now();
+  send({ type: 'AUDIT_PICKED', day: day.slice(0, 10), picks }, undefined, 'c-audit', day);
+  return { store, dir };
+}
