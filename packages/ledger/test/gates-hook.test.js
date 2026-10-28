@@ -315,7 +315,17 @@ test('#64: the word merge in arguments, strings, jq filters or heredoc text is n
     "echo `printf \\x` 'gh pr merge 7'", // a backslash inside backticks (unreadable)
     "gh pr view 7 'gh pr merge 7", // an unterminated quote (unreadable)
     "cat <<'EOF'\ngh pr merge 7", // a heredoc with no closing line (unreadable)
-    "echo 'gh pr merge 7'\u0000" // a NUL, where bash stops reading (unreadable)
+    "echo 'gh pr merge 7'\u0000", // a NUL, where bash stops reading (unreadable)
+    // Round 5 (review 5684184577): the environment a program runs with is part of the call. gh runs GH_BROWSER,
+    // GH_EDITOR and GH_PAGER; any assignment word makes the call unreadable.
+    `GH_BROWSER="sh -c 'gh pr merge 5 --repo o/r ${pin}' x" gh search repos foo --web`,
+    `GH_EDITOR="sh -c 'gh pr merge 5 --repo o/r ${pin}'" gh issue create -e`,
+    `GH_PAGER="sh -c 'gh pr merge 5 --repo o/r'" gh pr view 5`, `GH_PAGER="sh -c 'gh pr merge 5 --repo o/r'" gh pr diff 5`,
+    "PAGER='gh pr merge 5' gh pr view 5", "set -a; GH_PAGER='gh pr merge 5'; gh pr view 5", // a bare assignment, exported by set -a
+    "export GH_PAGER='gh pr merge 5'; gh pr view 5", "PATH=/tmp/m gh pr view 5 # /tmp/m/gh runs gh pr merge",
+    // A redirect outside the modelled set: a named descriptor, >& with a word, >|, <> and process substitution.
+    'echo merge gh {fd}> /tmp/q', "echo 'gh pr merge 7' >&m.sh", "echo 'gh pr merge 7' >|m.sh", "echo 'gh pr merge 7' <>m.sh",
+    "cat <(echo gh pr merge 7)", "echo gh pr merge>m.sh" // a redirect glued to a word still writes a file
   ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c);
 });
 
