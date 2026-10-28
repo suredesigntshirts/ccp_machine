@@ -12,7 +12,7 @@ import { init, apply } from './runtime.js';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // The actor field can be an internal session id (x:0), so effects match on name, subject and params.
-const effectKey = (e) => JSON.stringify([e.name, e.subject ?? null, e.params ?? null]);
+export const effectKey = (e) => JSON.stringify([e.name, e.subject ?? null, e.params ?? null]);
 
 /** Compare two persisted snapshots: state values, each child's state value, and shared context keys. */
 function compare(stored, rebuilt, path = 'harness', out = { differences: [], notes: [] }) {

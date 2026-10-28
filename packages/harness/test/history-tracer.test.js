@@ -128,7 +128,8 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.deepEqual(ex.skips, [], 'on dogfood2 every row becomes a row');
   assert.equal(ex.rows.length, lines);
   const out = join(tmp, 'joined');
-  const { report, history } = joinTo([ex.file, RECOVERED], out);
+  // The copy's outbox gives each row the route its logged effects took (harness meta.store.facts).
+  const { report, history } = joinTo([ex.file, RECOVERED, '--outbox', join(copy, 'outbox.jsonl')], out);
   assert.equal(history.length, lines + 1, 'one history row per events.jsonl line, and the recovered row');
   assert.deepEqual(history.filter((r) => r.provenance.origin === 'recovered').map((r) => r.id), ['oob-review-footer-pr66']);
   assert.deepEqual([report.dropped, report.conflicts], [[], []]);

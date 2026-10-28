@@ -10,13 +10,14 @@ import { parseArgs } from 'node:util';
 import { validate, dedupe } from '../../src/history.js';
 import { openStore } from '../../src/store.js';
 import { init, apply } from '../../src/runtime.js';
+import { effectKey } from '../../src/replay.js';
 
-const { values: o, positionals: candidates } = parseArgs({ allowPositionals: true, options: { out: { type: 'string' } } });
+const { values: o, positionals: candidates } = parseArgs({ allowPositionals: true, options: { out: { type: 'string' }, outbox: { type: 'string', multiple: true } } });
 const fail = (msg) => {
   console.error(`join: ${msg}`);
   process.exit(1);
 };
-if (!o.out || !candidates.length) fail('usage: join.mjs <candidates>... --out <dir>');
+if (!o.out || !candidates.length) fail('usage: join.mjs <candidates>... [--outbox <outbox.jsonl>]... --out <dir>');
 if (existsSync(o.out)) fail(`${o.out} exists: join writes a new store and never adds to one`);
 
 const read = (f) => readFileSync(f, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -32,10 +33,14 @@ const store = openStore(o.out);
 init(store, {}, history[0].at);
 // Each row is a fact, admitted when it was written: it is applied without the admission rules (harness meta.store.facts),
 // so no row is refused for a rule that changed since. A row that cannot be applied at all is listed as refused.
+// The effects the source stores logged (--outbox), by event id (a row with none logged none): a row whose effects today's
+// route does not give takes the route that gives them, as replay does. Without --outbox every row takes today's route.
+const logged = new Map();
+for (const f of o.outbox ?? []) for (const e of read(f)) logged.set(e.eventId, [...(logged.get(e.eventId) ?? []), effectKey(e)]);
 const refused = [];
 for (const r of history) {
   try {
-    apply(store, { ...r.event, actor: r.actor, source: r.source, ...(r.relayedBy && { relayedBy: r.relayedBy }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact: {} });
+    apply(store, { ...r.event, actor: r.actor, source: r.source, ...(r.relayedBy && { relayedBy: r.relayedBy }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact: o.outbox ? { matches: (fx) => JSON.stringify(fx.map(effectKey)) === JSON.stringify(logged.get(r.id) ?? []) } : {} });
   } catch (e) {
     refused.push(`${r.id}: ${e.message}`);
   }

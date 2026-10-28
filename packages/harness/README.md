@@ -90,7 +90,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   and why. `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
-  each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted),
+  each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted;
+  with `--outbox <source outbox.jsonl>`, each row takes the route its logged effects took, as replay does),
   and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
   An OUT_OF_BAND row is history only (no machine takes it), so the replay lists it among the rows today's rules
@@ -224,7 +225,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   threshold: under a grant the person has said they trust the stand-in's judgement, so an answer honest about
   doubt decides like a sure one, and its confidence goes on the granted row. Only an answer received before the
   guard's `thresholdBefore` (when #58's looser rule went live, as PR #60 landed) keeps the threshold it was logged under, so the
-  history join (which has no logged effects) routes an older log as it was routed. Replay does not need the cutoff:
+  history join run without the source's outbox routes an older log as it was routed. Replay does not need the cutoff:
   it takes each logged event's route from its logged effects (harness `meta.store.facts`), so an answer an older
   release routed after the cutoff (#67) also replays as it was routed. Outside the grant the ladder rule (`standInMayDecide`) applies as before,
   threshold included. A decision already waiting on the person goes back to the stand-in for a fresh answer when
