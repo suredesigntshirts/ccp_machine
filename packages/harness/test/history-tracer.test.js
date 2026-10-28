@@ -128,7 +128,8 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.deepEqual(ex.skips, [], 'on dogfood2 every row becomes a row');
   assert.equal(ex.rows.length, lines);
   const out = join(tmp, 'joined');
-  const { report, history } = joinTo([ex.file, RECOVERED], out);
+  // The copy's outbox gives each row the route its logged effects took (harness meta.store.facts).
+  const { report, history } = joinTo([ex.file, RECOVERED, '--outbox', join(copy, 'outbox.jsonl')], out);
   assert.equal(history.length, lines + 1, 'one history row per events.jsonl line, and the recovered row');
   assert.deepEqual(history.filter((r) => r.provenance.origin === 'recovered').map((r) => r.id), ['oob-review-footer-pr66']);
   assert.deepEqual([report.dropped, report.conflicts], [[], []]);
@@ -136,12 +137,14 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   const store = openStore(out);
   const r = replay(store);
   assert.deepEqual([r.ok, r.firstDivergence, r.differences], [true, null, []]);
-  assert.deepEqual(r.notes, report.refused, 'the rows the current code refuses (R1, #55) are the ones the report names');
+  assert.deepEqual(report.refused, [], 'join applies every row as a fact (R1, #85): it refuses none');
+  const R1 = ['spawn-toolu_01KyZNYss7BW3tKekro5RPeK', 'spawn-toolu_011auzhHXfFayBACUm5eqxZP', 'start-a1789bcb30965ef75', 'spawn-toolu_01Ey5FUaAHa6NiXrTdCmtYqD', 'spawn-toolu_01SHeiefeUku4ueafvSeLRyu'];
+  assert.ok(R1.every((id) => history.some((h) => h.id === id)), 'the rows the tracer refused before R1 are in the history');
   const d = await doctor(store, { verify: false, now: Date.parse(history.at(-1).at) });
   assert.deepEqual(d.problems, []);
   assert.deepEqual(d.outOfBand.map((l) => l.split(':')[0]), ['oob-review-footer-pr66'], 'doctor lists the #66 landing out of band');
   assert.deepEqual(stages(out), stages(copy), 'mission control shows the same items in the same stages');
   assert.equal(shaDir(copy), copied, 'the copy is untouched');
   assert.equal(shaDir(DOGFOOD2), original, 'the store is untouched');
-  console.log(`dogfood2: ${lines} lines, ${ex.rows.length} extracted, ${history.length} joined, ${report.refused.length} refused by the current code: ${report.refused.map((x) => x.split(':')[0]).join(', ')}`);
+  console.log(`dogfood2: ${lines} lines, ${ex.rows.length} extracted, ${history.length} joined, ${report.refused.length} refused, ${r.admittedThen.length} today's rules would refuse or route otherwise: ${r.admittedThen.map((x) => x.id).join(', ')}`);
 });

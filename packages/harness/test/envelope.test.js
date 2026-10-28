@@ -70,20 +70,20 @@ test('the log records actor, source and the harness version that applied the eve
   const store = fresh();
   apply(store, { type: 'REQUEST_RECEIVED', request: { id: 'a' }, ...orchestrator }, { id: 'req-a', now: '2026-10-27T09:01:00Z' });
   const [row] = store.events();
-  assert.deepEqual(Object.keys(row), ['id', 'version', 'at', 'to', 'actor', 'source', 'harness', 'event']);
+  assert.deepEqual(Object.keys(row), ['id', 'version', 'at', 'to', 'actor', 'source', 'harness', 'route', 'event']);
   assert.deepEqual([row.actor, row.source], [orchestrator.actor, orchestrator.source]);
   assert.deepEqual(row.event, { type: 'REQUEST_RECEIVED', request: { id: 'a' } }, 'the envelope is not repeated in the event');
-  assert.equal(row.harness.version, '0.1.0');
+  assert.equal(row.harness.version, JSON.parse(readFileSync(new URL('../../../plugins/harness/.claude-plugin/plugin.json', import.meta.url), 'utf8')).version, 'the release: the plugin version');
   assert.ok(row.harness.commit === null || /^[0-9a-f]{40}$/.test(row.harness.commit), row.harness.commit);
 });
 
-test('replay re-applies each row with its envelope; a row from before the envelope is refused and noted', () => {
+test('replay re-applies each row with its envelope; a row from before the envelope is a fact today\'s envelope would refuse', () => {
   const store = itemAt('verifying');
   const good = replay(store);
-  assert.deepEqual([good.ok, good.notes], [true, []]);
-  // A fixture row as the store wrote it before M1: no actor, no source.
+  assert.deepEqual([good.ok, good.notes, good.admittedThen], [true, [], []]);
+  // A fixture row as the store wrote it before M1: no actor, no source. It was admitted then, so it is applied and listed.
   store.appendEvents([{ id: 'old-1', version: 6, at: '2026-10-26T12:00:00Z', to: 'item:a', event: { type: 'CHECKS_PASSED' } }]);
-  assert.deepEqual(replay(store).notes, ['old-1: refused: CHECKS_PASSED without an actor']);
+  assert.deepEqual(replay(store).admittedThen.map((a) => `${a.id}: ${a.why}`), ['old-1: refused: CHECKS_PASSED without an actor']);
 });
 
 test('PERSON_DECIDED is taken only from a person through a tap with the posted card\'s message id', () => {

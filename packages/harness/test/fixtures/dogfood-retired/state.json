@@ -1,0 +1,709 @@
+{
+ "version": 94,
+ "snapshot": {
+  "status": "active",
+  "value": {
+   "intake": "listening",
+   "scheduler": "accepting",
+   "attention": "needsPerson"
+  },
+  "historyValue": {},
+  "context": {
+   "wipLimit": 2,
+   "queued": [
+    "harness-pages-ledger",
+    "harness-pages-tour"
+   ],
+   "inFlight": [
+    "spawn-merge-gates",
+    "stand-in-grants"
+   ],
+   "inbox": [
+    "decision:spawn-merge-gates:accept:19",
+    "decision:stand-in-grants:accept:10"
+   ],
+   "budgetMode": "normal",
+   "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+   "audited": [],
+   "wipLimitAtInit": 1
+  },
+  "children": {
+   "budget": {
+    "snapshot": {
+     "status": "active",
+     "value": "normal",
+     "historyValue": {},
+     "context": {
+      "dailyShare": 0.1,
+      "softAt": 0.8,
+      "fiveHourStopAt": 0.95,
+      "dayStartSevenDay": 0,
+      "sevenDay": 0,
+      "fiveHour": 0,
+      "spentToday": 0,
+      "sevenDayResetsAt": null,
+      "staleAfterMs": 7200000,
+      "backstopMs": 86400000,
+      "costRate": 0.002,
+      "sampledAt": null
+     },
+     "children": {}
+    },
+    "src": "budget",
+    "systemId": "budget",
+    "syncSnapshot": false
+   },
+   "spawn-merge-gates": {
+    "snapshot": {
+     "status": "active",
+     "value": {
+      "active": "awaitingAcceptance"
+     },
+     "historyValue": {},
+     "context": {
+      "id": "spawn-merge-gates",
+      "project": "ccp_machine",
+      "tier": 2,
+      "criteria": [
+       "Machine first: the first commit changes `spec/*.machine.json` (plus failing tests) so the workItem machine records each worker spawn (role builder, verifier or triager; the agent actor from #33; sha256 of the brief; agent type; model; harness version) and refuses a builder spawn until a verifier brief hash is fixed for the item, and refuses a verifier spawn whose brief hash differs from the fixed one. SPEC.md is re-rendered and shows these guards; no new refusal lives only in host code.",
+       "Standing, versioned agent definitions `plugins/harness/agents/builder.md` and `verifier.md` carry the rules that must not drift per brief: machines first (a rule is a guard in the JSON, not a host check), concepts added, merged or removed instead of growth, build only what the item needs, keep SPEC.md and the README true, and for the verifier the distrust, blind and hard-limit rules of the Verifier section below.",
+       "Builder and verifier spawns use these agent types, and the spawn record names the definition's version.",
+       "An agent actor is believed only when the plugin's own PreToolUse record says that agent ran the command: the hook records (session, agent_id, tool_use_id or command hash, time) for every Bash call that runs `harness`, and the CLI refuses an event whose claimed agent does not match the record for the call it is running in, so an obfuscated `HARNESS_AGENT` (for example `env \"HARNESS_\"\"AGENT=<other>:builder\" harness …`, found by #33's verifier) records nothing.",
+       "A `harness` call the hook did not see records nothing under `HARNESS_ENFORCE=1`.",
+       "Spawn gate: a plugin PreToolUse hook on the Agent tool, on when `HARNESS_ENFORCE=1`, denies (with a reason naming the rule) a spawn that names an item role unless the item is triaged in the store and the machine would take the spawn; on an allowed spawn it records the spawn event in the store, and SubagentStart binds the new agent_id to it.",
+       "A spawn with no item role is allowed but its agent can send no item event (run result, criterion check, triage) for any item.",
+       "Merge gate: a plugin PreToolUse hook, on when `HARNESS_ENFORCE=1`, on `mcp__github__merge_pull_request`, `gh pr merge`, and `gh api` calls to a pull's merge endpoint, denies the merge unless the PR is bound to an item whose machine would take `MERGED` now the store holds the item's verifier verdict PASS for the exact head sha being merged, and the PR carries that verdict as a review on that sha (`commit_id`).",
+       "The merge call must pin the head sha (`expectedHeadSha`, `--match-head-commit` or `sha`).",
+       "The verifier's verbatim verdict is on the PR as a review with event COMMENT on the head sha it checked, ending with the brief's sha256, and the same verdict is an event in the store from the verifier's agent actor.",
+       "The CLI gives the verifier one command that does both from a verdict file. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with 403, measured 2026-10-27.)",
+       "With `HARNESS_ENFORCE` unset, both hooks only record and never deny. Like the other hooks they are silent no-ops in a project without the install marker, and exit 0 on their own failure; under `HARNESS_ENFORCE=1` a gate that cannot reach the store denies instead of allowing.",
+       "`harness doctor` lists, as a problem, every merged PR bound to an item that has no verifier PASS in the store for its merge head, or no PASS review on GitHub on that sha.",
+       "End to end, in a headless `claude -p --plugin-dir <worktree>/plugins/harness` run with `HARNESS_ENFORCE=1` and a scratch store: a builder spawn before the verifier brief is fixed is denied; after fixing it, the builder spawn is allowed and recorded with its agent_id; a merge call without the status is denied. Commands and outputs are in the PR body.",
+       "No refusal lives only in host code: a CI check fails when a `refused:` path in `packages/harness/src` or a deny in the plugin hooks has no guard or named host invariant in the spec. The PR body lists the concepts (CLI commands, events, files, hooks) it adds, merges and removes.",
+       "`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green; the plugin bundle check passes."
+      ],
+      "checks": {
+       "Machine first: the first commit changes `spec/*.machine.json` (plus failing tests) so the workItem machine records each worker spawn (role builder, verifier or triager; the agent actor from #33; sha256 of the brief; agent type; model; harness version) and refuses a builder spawn until a verifier brief hash is fixed for the item, and refuses a verifier spawn whose brief hash differs from the fixed one. SPEC.md is re-rendered and shows these guards; no new refusal lives only in host code.": {
+        "verdict": "met",
+        "evidence": "First commit 5d190ed changes the machine JSON with failing tests; WORKER_SPAWNED records role, brief sha256, agent type, model, definition and harness version; builder spawn refused with noVerifierBrief and edited verifier brief with briefDiffers in my drivers; SPEC.md re-renders clean.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "Standing, versioned agent definitions `plugins/harness/agents/builder.md` and `verifier.md` carry the rules that must not drift per brief: machines first (a rule is a guard in the JSON, not a host check), concepts added, merged or removed instead of growth, build only what the item needs, keep SPEC.md and the README true, and for the verifier the distrust, blind and hard-limit rules of the Verifier section below.": {
+        "verdict": "met",
+        "evidence": "agents/builder.md and verifier.md exist with the machines-first, concepts, only-what-the-item-needs, SPEC/README rules, and the verifier's distrust, blind and hard-limit rules.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "Builder and verifier spawns use these agent types, and the spawn record names the definition's version.": {
+        "verdict": "met",
+        "evidence": "agentTypeIsNot refuses a builder or verifier spawn with another agent type; the spawn event records the definition's file, sha256 and version (0.7.0).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "An agent actor is believed only when the plugin's own PreToolUse record says that agent ran the command: the hook records (session, agent_id, tool_use_id or command hash, time) for every Bash call that runs `harness`, and the CLI refuses an event whose claimed agent does not match the record for the call it is running in, so an obfuscated `HARNESS_AGENT` (for example `env \"HARNESS_\"\"AGENT=<other>:builder\" harness …`, found by #33's verifier) records nothing.": {
+        "verdict": "met",
+        "evidence": "Obfuscated HARNESS_AGENT (quote-split env, variable-built, eval, printf, env -S, node setenv, bash -c export, env -u, forged HARNESS_CALL, --actor flags) all refused or denied from a subagent, nothing recorded as another actor. Residual: a subagent can write its own call record file and act as the lead (reproduced), which the issue concedes a local hook cannot stop.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "A `harness` call the hook did not see records nothing under `HARNESS_ENFORCE=1`.": {
+        "verdict": "met",
+        "evidence": "Once a recorded enforced call marks the store enforced, a call without HARNESS_CALL or with a wrong key is refused, and a call with no literal 'harness' is stamped under enforcement. Caveat: the CLI never reads HARNESS_ENFORCE, so an unhooked call to a never-enforced store still records.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "Spawn gate: a plugin PreToolUse hook on the Agent tool, on when `HARNESS_ENFORCE=1`, denies (with a reason naming the rule) a spawn that names an item role unless the item is triaged in the store and the machine would take the spawn; on an allowed spawn it records the spawn event in the store, and SubagentStart binds the new agent_id to it.": {
+        "verdict": "met",
+        "evidence": "Under enforce a builder spawn before the brief is denied (machine, noVerifierBrief); bad, repeated, missing or other-item role lines and role/type mismatches are denied naming the rule; an allowed spawn is recorded and SubagentStart records WORKER_STARTED with the agent id (also seen in the headless run).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "A spawn with no item role is allowed but its agent can send no item event (run result, criterion check, triage) for any item.": {
+        "verdict": "unmet",
+        "evidence": "An agent spawned with no role sent BLOCK then CANCEL to item:a and the store took both (item went to done); a builder bound to item a sent BLOCK and CANCEL to item:b and the store took both. RUN_*, CRITERION_CHECKED, TRIAGED, VERDICT_GIVEN are refused with unspawnedAgent, but BLOCK and CANCEL have no agent guard; 'no item event' is a hard limit.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "Merge gate: a plugin PreToolUse hook, on when `HARNESS_ENFORCE=1`, on `mcp__github__merge_pull_request`, `gh pr merge`, and `gh api` calls to a pull's merge endpoint, denies the merge unless the PR is bound to an item whose machine would take `MERGED` now the store holds the item's verifier verdict PASS for the exact head sha being merged, and the PR carries that verdict as a review on that sha (`commit_id`).": {
+        "verdict": "unmet",
+        "evidence": "Exact PASS plus matching COMMENT review is allowed and no verdict, FAIL, older-sha PASS, missing or mismatched review are denied on the mcp, gh pr merge and gh api routes. But a literal gh pr merge inside { ...; }, if/then, for/do, while/do, '! gh', a function body, 'echo ... | bash', 'bash -c -- ...' or behind setsid/stdbuf/flock/find -exec is not read and not denied, so the merge gate can be bypassed by ordinary shell syntax.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "The merge call must pin the head sha (`expectedHeadSha`, `--match-head-commit` or `sha`).": {
+        "verdict": "met",
+        "evidence": "No pin, a short sha and a path built from a variable are denied with pinnedHead on all three routes; a full 40-hex pin is accepted.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "The verifier's verbatim verdict is on the PR as a review with event COMMENT on the head sha it checked, ending with the brief's sha256, and the same verdict is an event in the store from the verifier's agent actor.": {
+        "verdict": "met",
+        "evidence": "harness verdict against a fake gh posts {commit_id, event COMMENT, body ending with the brief sha256} and the store takes VERDICT_GIVEN from <session>/<agent>; lead session, builder, no-role agent and a file without a PASS/FAIL first line are refused.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "The CLI gives the verifier one command that does both from a verdict file. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with 403, measured 2026-10-27.)": {
+        "verdict": "met",
+        "evidence": "harness verdict does both from one verdict file (see the previous check).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "With `HARNESS_ENFORCE` unset, both hooks only record and never deny. Like the other hooks they are silent no-ops in a project without the install marker, and exit 0 on their own failure; under `HARNESS_ENFORCE=1` a gate that cannot reach the store denies instead of allowing.": {
+        "verdict": "met",
+        "evidence": "Unenforced: spawn and merge never denied (call record says would deny); no install marker or HARNESS_DISABLED=1: silent no-op; garbage stdin exits 0; under enforce a bad HARNESS_DIR or HARNESS_BIN denies (storeReachable or mergeBound).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "`harness doctor` lists, as a problem, every merged PR bound to an item that has no verifier PASS in the store for its merge head, or no PASS review on GitHub on that sha.": {
+        "verdict": "met",
+        "evidence": "harness doctor lists as merges problems a merged PR with no verdict, a PASS in the store with no PASS review on GitHub, a merge head different from the verdict sha, and a GitHub review reading FAIL; verdict plus review is ok and an open PR is skipped (fake gh).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "End to end, in a headless `claude -p --plugin-dir <worktree>/plugins/harness` run with `HARNESS_ENFORCE=1` and a scratch store: a builder spawn before the verifier brief is fixed is denied; after fixing it, the builder spawn is allowed and recorded with its agent_id; a merge call without the status is denied. Commands and outputs are in the PR body.": {
+        "verdict": "met",
+        "evidence": "Headless claude -p --model haiku --plugin-dir with HARNESS_ENFORCE=1 and a scratch store: builder spawn before the brief denied (noVerifierBrief); after VERIFIER_BRIEF_FIXED the spawn is allowed and the store holds WORKER_SPAWNED and WORKER_STARTED with the agent id; gh pr merge denied (mergeBound). I did not read the PR body for its commands.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "No refusal lives only in host code: a CI check fails when a `refused:` path in `packages/harness/src` or a deny in the plugin hooks has no guard or named host invariant in the spec. The PR body lists the concepts (CLI commands, events, files, hooks) it adds, merges and removes.": {
+        "verdict": "unclear",
+        "evidence": "rules.test.js fails on an uncited 'refused: ' string and on a deny outside deny(<spec rule>); a refusal returned as refused: true with text not starting 'refused: ' is not caught. I did not read the PR body, so the concept list is unchecked.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       },
+       "`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green; the plugin bundle check passes.": {
+        "verdict": "met",
+        "evidence": "npm test with CLAUDE_CODE_SESSION_ID unset and set: harness 236 tests (235 pass, 0 fail) and ledger 67 pass in both runs; build:plugin leaves no diff; the test check-run on the head sha is success.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+       }
+      },
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 3,
+      "choice": "revise",
+      "decisions": 19,
+      "decisionId": "decision:spawn-merge-gates:accept:19",
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aa493f167da2afc8f"
+      ],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a9d8047973463a82e"
+      ],
+      "checkers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/afb616cd11d3ecfcf",
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+      ],
+      "answerers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/abc7f340ed0451fe2",
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/af2282b33e6e33c7e",
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a8ab555eb5bb00736"
+      ],
+      "title": "Gate worker spawns and merges on the harness store",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/36",
+      "expect": "Machine first: the first commit changes `spec/*.machine.json` (plus failing tests) so the workItem machine records each worker spawn (role builder, verifier or triager; the agent actor from #33; sha256 of the brief; agent type; model; harness version) and refuses a builder spawn until a verifier brief hash is fixed for the item, and refuses a verifier spawn whose brief hash differs from the fixed one. SPEC.md is re-rendered and shows these guards; no new refusal lives only in host code.\nStanding, versioned agent definitions `plugins/harness/agents/builder.md` and `verifier.md` carry the rules that must not drift per brief: machines first (a rule is a guard in the JSON, not a host check), concepts added, merged or removed instead of growth, build only what the item needs, keep SPEC.md and the README true, and for the verifier the distrust, blind and hard-limit rules of the Verifier section below. Builder and verifier spawns use these agent types, and the spawn record names the definition's version.\nAn agent actor is believed only when the plugin's own PreToolUse record says that agent ran the command: the hook records (session, agent_id, tool_use_id or command hash, time) for every Bash call that runs `harness`, and the CLI refuses an event whose claimed agent does not match the record for the call it is running in, so an obfuscated `HARNESS_AGENT` (for example `env \"HARNESS_\"\"AGENT=<other>:builder\" harness …`, found by #33's verifier) records nothing. A `harness` call the hook did not see records nothing under `HARNESS_ENFORCE=1`.\nSpawn gate: a plugin PreToolUse hook on the Agent tool, on when `HARNESS_ENFORCE=1`, denies (with a reason naming the rule) a spawn that names an item role unless the item is triaged in the store and the machine would take the spawn; on an allowed spawn it records the spawn event in the store, and SubagentStart binds the new agent_id to it. A spawn with no item role is allowed but its agent can send no item event (run result, criterion check, triage) for any item.\nMerge gate: a plugin PreToolUse hook, on when `HARNESS_ENFORCE=1`, on `mcp__github__merge_pull_request`, `gh pr merge`, and `gh api` calls to a pull's merge endpoint, denies the merge unless the PR is bound to an item whose machine would take `MERGED` now the store holds the item's verifier verdict PASS for the exact head sha being merged, and the PR carries that verdict as a review on that sha (`commit_id`). The merge call must pin the head sha (`expectedHeadSha`, `--match-head-commit` or `sha`).\nThe verifier's verbatim verdict is on the PR as a review with event COMMENT on the head sha it checked, ending with the brief's sha256, and the same verdict is an event in the store from the verifier's agent actor. The CLI gives the verifier one command that does both from a verdict file. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with 403, measured 2026-10-27.)\nWith `HARNESS_ENFORCE` unset, both hooks only record and never deny. Like the other hooks they are silent no-ops in a project without the install marker, and exit 0 on their own failure; under `HARNESS_ENFORCE=1` a gate that cannot reach the store denies instead of allowing.\n`harness doctor` lists, as a problem, every merged PR bound to an item that has no verifier PASS in the store for its merge head, or no PASS review on GitHub on that sha.\nEnd to end, in a headless `claude -p --plugin-dir <worktree>/plugins/harness` run with `HARNESS_ENFORCE=1` and a scratch store: a builder spawn before the verifier brief is fixed is denied; after fixing it, the builder spawn is allowed and recorded with its agent_id; a merge call without the status is denied. Commands and outputs are in the PR body.\nNo refusal lives only in host code: a CI check fails when a `refused:` path in `packages/harness/src` or a deny in the plugin hooks has no guard or named host invariant in the spec. The PR body lists the concepts (CLI commands, events, files, hooks) it adds, merges and removes.\n`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green; the plugin bundle check passes."
+     },
+     "children": {
+      "decision:spawn-merge-gates:accept:19": {
+       "snapshot": {
+        "status": "active",
+        "value": "awaitingPerson",
+        "historyValue": {},
+        "context": {
+         "id": "decision:spawn-merge-gates:accept:19",
+         "item": "spawn-merge-gates",
+         "address": "item:spawn-merge-gates/decision:spawn-merge-gates:accept:19",
+         "decisionClass": "accept",
+         "tier": 2,
+         "question": "accept: spawn-merge-gates",
+         "options": [
+          "approve",
+          "revise",
+          "reject"
+         ],
+         "autonomy": "shadow",
+         "threshold": 0.9,
+         "expectationsMet": false,
+         "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+         "workers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aa493f167da2afc8f"
+         ],
+         "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+         "triagers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a9d8047973463a82e"
+         ],
+         "checkers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/afb616cd11d3ecfcf",
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/aca59a04144f5199f"
+         ],
+         "answerers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/abc7f340ed0451fe2",
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/af2282b33e6e33c7e"
+         ],
+         "standIn": {
+          "choice": "reject",
+          "confidence": 0.85,
+          "reason": "Revise, not cancel: the independent verifier FAILed two Expect lines that the issue makes hard limits (partial breach = FAIL). (1) BLOCK and CANCEL from a no-role agent, or from a builder on an item it has no spawn on, are accepted by the store, so 'no item event' is not met. (2) The merge gate misses gh pr merge inside { }, if/for/while, '!', functions, bash -c, setsid/stdbuf/find -exec and 'gh pr --repo o/r merge', so the gate does not read every command (SPEC readableGitHubWrite). The other 14 lines are met and the design is sound, so send it back to the builder to fix these two, rather than cancel it. Do not accept it, because the gaps are exactly the unaudited-merge hole this item exists to close."
+         },
+         "choice": null,
+         "decidedBy": null,
+         "card": "cmsg_01CRqZ2YoFXkbgk5p24fe6KkCues78gsjcXy5u2sqgbadz"
+        },
+        "children": {}
+       },
+       "src": "decision",
+       "syncSnapshot": false
+      }
+     }
+    },
+    "src": "workItem",
+    "systemId": "item:spawn-merge-gates",
+    "syncSnapshot": false
+   },
+   "rules-in-spec": {
+    "snapshot": {
+     "status": "done",
+     "value": "cancelled",
+     "historyValue": {
+      "workItem.active.hist": [
+       {
+        "id": "workItem.active.queued"
+       }
+      ]
+     },
+     "context": {
+      "id": "rules-in-spec",
+      "project": "ccp_machine",
+      "tier": null,
+      "criteria": [],
+      "checks": {},
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 0,
+      "choice": null,
+      "decisions": 0,
+      "decisionId": null,
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [],
+      "checkers": [],
+      "answerers": [],
+      "title": "Put every harness refusal in the spec, enforced by one runtime path",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/37",
+      "expect": "Every event refusal the harness makes is a guard in `spec/*.machine.json` (the harness machine holds the PR-to-item map as an event with a guard, for example `PR_BOUND` / `prNotBound`), or, where XState cannot express it, a named host invariant listed in SPEC.md under \"Host invariants\"; SPEC.md is re-rendered and a reader learns every refusal from it.\nThe runtime enforces them through one generic path; the rule-specific host functions this replaces are removed.\nBehaviour is unchanged: the existing binding, branch and refusal tests pass unmodified in what they assert (a test may move, not weaken).\nThe PR body lists concepts (CLI commands, events, guards, files, functions) added, merged and removed, and host lines in `packages/harness/src`, `bin` and `plugins/harness/scripts` go down.\n`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green."
+     },
+     "children": {}
+    },
+    "src": "workItem",
+    "systemId": "item:rules-in-spec",
+    "syncSnapshot": false
+   },
+   "harness-pages": {
+    "snapshot": {
+     "status": "done",
+     "value": "done",
+     "historyValue": {
+      "workItem.active.hist": [
+       {
+        "id": "workItem.active.merging"
+       }
+      ]
+     },
+     "context": {
+      "id": "harness-pages",
+      "project": "ccp_machine",
+      "tier": 2,
+      "criteria": [
+       "Opening mission control or the ledger page shows the store and ledgers as they are now, or plainly shows how old the data is and offers a button that brings it up to date.",
+       "No refresh happens without a viewer. An idle project spends nothing on pages.",
+       "Every refresh records its duration, the store version or ledger size it rendered, and when it ran. The page shows the trend.",
+       "`harness doctor` flags a refresh slower than a set threshold.",
+       "The guided tour is part of the plugin. Its content about states, events and guards comes from the current `spec/*.machine.json` and SPEC.md. Hand-written parts name the spec version they were written for, or CI checks them against the spec.",
+       "Each page declares its data needs and spec references in one file in the repo (for example `pages/<page>/needs.json`) and reads nothing else.",
+       "`npm test` fails, naming the page and the missing piece, when a runtime, store or spec change breaks any page's declared needs. The test builds its store with the current runtime (the sim), not a frozen fixture.",
+       "A test fails when the spec has a state, event or guard that the tour does not cover.",
+       "A page opened on a store whose `schemaVersion` is outside its declared range shows a red banner naming the mismatch, and never shows partial data as complete.",
+       "A fresh install from the plugin alone (no Library, no memory) gets all three pages working against `harness/state/<store>` (the dogfood store here, never `main`)."
+      ],
+      "checks": {
+       "Opening mission control or the ledger page shows the store and ledgers as they are now, or plainly shows how old the data is and offers a button that brings it up to date.": {
+        "verdict": "met",
+        "evidence": "Page embeds the store at render and shows 'Read from the store Nm ago ... store vN, last changed ...' plus a Refresh button; in Playwright on a copy of the dogfood store (v38) the age line and button were present and a press re-read state.json.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "No refresh happens without a viewer. An idle project spends nothing on pages.": {
+        "verdict": "met",
+        "evidence": "The page's script has no timer or auto-read; in Playwright zero setInterval calls and zero files.read/db writes occurred before the button was pressed; spec meta.pages says refresh only on a viewer press. Mission control only.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "Every refresh records its duration, the store version or ledger size it rendered, and when it ran. The page shows the trend.": {
+        "verdict": "met",
+        "evidence": "One press wrote one db row {page, at, ms, storeVersion:38, schemaVersion, bytes, ok} (stand-in db), and the Refreshes table showed it with a bar. Ledger size not checked (later slice).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "`harness doctor` flags a refresh slower than a set threshold.": {
+        "verdict": "met",
+        "evidence": "`harness doctor --refreshes <rows>` with a 4500 ms row printed warning 'refresh of mission-control ... took 4500 ms, over 3000 ms (store v3)'; test 'doctor flags a refresh slower than the spec threshold' passes.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "The guided tour is part of the plugin. Its content about states, events and guards comes from the current `spec/*.machine.json` and SPEC.md. Hand-written parts name the spec version they were written for, or CI checks them against the spec.": {
+        "verdict": "unclear",
+        "evidence": "later slice, not checked",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "Each page declares its data needs and spec references in one file in the repo (for example `pages/<page>/needs.json`) and reads nothing else.": {
+        "verdict": "met",
+        "evidence": "pages/mission-control/needs.json declares file state.json, schemaVersion range, fields and spec states/events; project() copies only declared fields and checkPage fails on an undeclared read (test passes; embedded html carries no undeclared keys).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "`npm test` fails, naming the page and the missing piece, when a runtime, store or spec change breaks any page's declared needs. The test builds its store with the current runtime (the sim), not a frozen fixture.": {
+        "verdict": "met",
+        "evidence": "npm test passes (56 tests/workspace, with and without CLAUDE_CODE_SESSION_ID). Renaming workItem state triaging gave 'mission-control: names workItem state \"active.triaging\", which spec/workItem.machine.json does not have'; adding an undeclared-in-store item field gave 'mission-control: needs item field context.nonexistentField, which no item in this store has'. Store built by contractStore via simulate (current runtime).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "A test fails when the spec has a state, event or guard that the tour does not cover.": {
+        "verdict": "unclear",
+        "evidence": "later slice, not checked",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "A page opened on a store whose `schemaVersion` is outside its declared range shows a red banner naming the mismatch, and never shows partial data as complete.": {
+        "verdict": "met",
+        "evidence": "Dogfood copy with schemaVersion 7: page showed red banner 'Wrong store layout ... schemaVersion 7; mission-control reads 1 to 1', zero tables, row ok:false. Absent schemaVersion is read as layout 1 and shown.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       },
+       "A fresh install from the plugin alone (no Library, no memory) gets all three pages working against `harness/state/<store>` (the dogfood store here, never `main`).": {
+        "verdict": "unclear",
+        "evidence": "later slice, not checked",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+       }
+      },
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 2,
+      "choice": "approve",
+      "decisions": 13,
+      "decisionId": null,
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/ab77f0338438c8310"
+      ],
+      "requester": "1686bfbc-d979-5636-a521-9276757040c4",
+      "triagers": [
+       "1686bfbc-d979-5636-a521-9276757040c4/a6f281eec6ad8a0dc"
+      ],
+      "checkers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a27885dbf8edca2e2"
+      ],
+      "answerers": [
+       "1686bfbc-d979-5636-a521-9276757040c4/ac1d5bf348d88e911"
+      ],
+      "title": "Harness pages ship in the plugin and are current when viewed",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/38"
+     },
+     "children": {}
+    },
+    "src": "workItem",
+    "systemId": "item:harness-pages",
+    "syncSnapshot": false
+   },
+   "stand-in-grants": {
+    "snapshot": {
+     "status": "active",
+     "value": {
+      "active": "awaitingAcceptance"
+     },
+     "historyValue": {},
+     "context": {
+      "id": "stand-in-grants",
+      "project": "ccp_machine",
+      "tier": 2,
+      "criteria": [
+       "Machine first: the spec defines a grant the person gives the stand-in (which decision kinds it may decide alone, and until when), recorded only from the person's tap on a checklist card the machine asked for, like PERSON_DECIDED; SPEC.md shows it.",
+       "Nothing else can create, widen or extend a grant.",
+       "Every decision says whether it is a two-way door (cheaply reversible) or a one-way door; the stand-in decides alone only on a two-way door whose kind the live grant covers, or on a one-way door the grant names explicitly. Outside the grant, the ladder rule applies as today.",
+       "A grant ends at its end time or when the person taps a new checklist; an expired or replaced grant decides nothing.",
+       "The checklist card's options are generated by the machine (decision kinds, the one-way-door box, the end time), and the person's ticks arrive as one tap event naming the card.",
+       "Every decision the stand-in made under a grant is listed for the person (mission control and the daily audit) with its reason, so the person can reverse it.",
+       "The PR body lists concepts added, merged and removed; host code grows only where an Expect line needs it.",
+       "`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green."
+      ],
+      "checks": {
+       "Machine first: the spec defines a grant the person gives the stand-in (which decision kinds it may decide alone, and until when), recorded only from the person's tap on a checklist card the machine asked for, like PERSON_DECIDED; SPEC.md shows it.": {
+        "verdict": "met",
+        "evidence": "grant.machine.json exists and SPEC.md renders it; PERSON_GRANTED is refused unless actor person + source tap bound to the card CARD_POSTED recorded for the machine-asked postGrantCard (my CLI attacks: session, cli-source person, tap on other card, early tap, root-addressed tap all refused).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "Nothing else can create, widen or extend a grant.": {
+        "verdict": "met",
+        "evidence": "Attacks all refused with nothing written: forged GRANT_GIVEN (no actor, and as person tap), re-tap on an answered checklist, old card after a new ask or a replacement, unoffered until/kind, two untils, init with a grant; a bare GRANT_ASKED left grant null and a second ask changed nothing.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "Every decision says whether it is a two-way door (cheaply reversible) or a one-way door; the stand-in decides alone only on a two-way door whose kind the live grant covers, or on a one-way door the grant names explicitly. Outside the grant, the ladder rule applies as today.": {
+        "verdict": "met",
+        "evidence": "Own e2e on a persisted scratch store: tier-2 plan and accept decided alone under a plan+accept grant (authority grant) on a fresh ladder; merge (one-way) went to the person; one-way decided only with merge named AND the box, not with box alone nor merge alone; ladder rule unchanged otherwise (no-grant baseline went to person).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "A grant ends at its end time or when the person taps a new checklist; an expired or replaced grant decides nothing.": {
+        "verdict": "met",
+        "evidence": "Answer exactly at until and after it went to the person, 1s before it was decided by the grant; a new tap with kinds [accept] stopped plan deciding; a no-kind tap ended the grant; the replaced checklist card cannot resurrect it.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "The checklist card's options are generated by the machine (decision kinds, the one-way-door box, the end time), and the person's ticks arrive as one tap event naming the card.": {
+        "verdict": "met",
+        "evidence": "Options come from grantOptions() over the spec (kind per class, one-way, until at 2/8/24/72h of receivedAt); the CLI refused CARD_POSTED sent directly and any picks outside the options; ticks are one PERSON_GRANTED {picks} tap naming the card.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "Every decision the stand-in made under a grant is listed for the person (mission control and the daily audit) with its reason, so the person can reverse it.": {
+        "verdict": "unclear",
+        "evidence": "Listed with reason on the static harness page (Decided under your grant), harness audit output and the audit card (all grant decisions, in my 5-decision run), but the live mission control (harness page --live, src/pages.js) lists none and the PR admits this; audit card also names the rest by count past about 40. Whether live counts as mission control is for the lead to rule.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "The PR body lists concepts added, merged and removed; host code grows only where an Expect line needs it.": {
+        "verdict": "met",
+        "evidence": "PR body has Concepts Added/Merged/Removed (removed: none); host diff is +173/-40 (PR says +170/-40), all tied to Expect lines (checklistFor, grant listing, init guard, door and authority fields).",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       },
+       "`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green.": {
+        "verdict": "met",
+        "evidence": "After npm ci in my worktree, npm test passed with and without CLAUDE_CODE_SESSION_ID (harness 229 pass/0 fail of 230, ledger 56/56); check-runs for 266265f show test completed success.",
+        "by": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+       }
+      },
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 2,
+      "choice": "approve",
+      "decisions": 10,
+      "decisionId": "decision:stand-in-grants:accept:10",
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a78cba7f1a72829a1"
+      ],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a9d83083b39c19247"
+      ],
+      "checkers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+      ],
+      "answerers": [
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/ab70c6a55ff82e5f0",
+       "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/af5b918d88f679884"
+      ],
+      "title": "Let the person grant the stand-in what it may decide for them",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/42",
+      "expect": "Machine first: the spec defines a grant the person gives the stand-in (which decision kinds it may decide alone, and until when), recorded only from the person's tap on a checklist card the machine asked for, like PERSON_DECIDED; SPEC.md shows it. Nothing else can create, widen or extend a grant.\nEvery decision says whether it is a two-way door (cheaply reversible) or a one-way door; the stand-in decides alone only on a two-way door whose kind the live grant covers, or on a one-way door the grant names explicitly. Outside the grant, the ladder rule applies as today.\nA grant ends at its end time or when the person taps a new checklist; an expired or replaced grant decides nothing.\nThe checklist card's options are generated by the machine (decision kinds, the one-way-door box, the end time), and the person's ticks arrive as one tap event naming the card.\nEvery decision the stand-in made under a grant is listed for the person (mission control and the daily audit) with its reason, so the person can reverse it.\nThe PR body lists concepts added, merged and removed; host code grows only where an Expect line needs it.\n`npm test` passes with and without `CLAUDE_CODE_SESSION_ID`; CI is green."
+     },
+     "children": {
+      "decision:stand-in-grants:accept:10": {
+       "snapshot": {
+        "status": "active",
+        "value": "awaitingPerson",
+        "historyValue": {},
+        "context": {
+         "id": "decision:stand-in-grants:accept:10",
+         "item": "stand-in-grants",
+         "address": "item:stand-in-grants/decision:stand-in-grants:accept:10",
+         "decisionClass": "accept",
+         "tier": 2,
+         "question": "accept: stand-in-grants",
+         "options": [
+          "approve",
+          "revise",
+          "reject"
+         ],
+         "autonomy": "shadow",
+         "threshold": 0.9,
+         "expectationsMet": false,
+         "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+         "workers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a78cba7f1a72829a1"
+         ],
+         "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+         "triagers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a9d83083b39c19247"
+         ],
+         "checkers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/a5a473542e4ed16f5"
+         ],
+         "answerers": [
+          "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49/ab70c6a55ff82e5f0"
+         ],
+         "standIn": {
+          "choice": "reject",
+          "confidence": 0.7,
+          "reason": "Revise, not cancel: verifier met 6 of 7 Expect groups but the live mission control (harness page --live) lists no grant decision, and the issue says 'every' is a hard limit, so a partial breach is a FAIL. The person's own words name mission control as where they reverse stand-in decisions. Static page, audit and audit card do list them; the fix is small (show grant and its decisions in src/pages.js live). Do not accept as is, and do not cancel since security attacks all held and tests/CI pass."
+         },
+         "choice": null,
+         "decidedBy": null,
+         "card": "cmsg_01CRqZ2YoFXkbgk5p24fe6KkRAGuJUg11H5krfSioSL3As"
+        },
+        "children": {}
+       },
+       "src": "decision",
+       "syncSnapshot": false
+      }
+     }
+    },
+    "src": "workItem",
+    "systemId": "item:stand-in-grants",
+    "syncSnapshot": false
+   },
+   "harness-pages-ledger": {
+    "snapshot": {
+     "status": "active",
+     "value": {
+      "active": "queued"
+     },
+     "historyValue": {},
+     "context": {
+      "id": "harness-pages-ledger",
+      "project": "ccp_machine",
+      "tier": null,
+      "criteria": [],
+      "checks": {},
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 0,
+      "choice": null,
+      "decisions": 0,
+      "decisionId": null,
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [],
+      "checkers": [],
+      "answerers": [],
+      "title": "Ledger page is current when viewed (harness pages slice b)",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/48",
+      "expect": "Opening the ledger page shows the ledgers as they are now, or plainly shows how old the data is and offers a button that brings it up to date.\nNo refresh happens without a viewer. An idle project spends nothing on the page.\nEvery refresh records its duration, the ledger size it rendered, and when it ran. The page shows the trend, and `harness doctor` flags a refresh slower than the threshold slice (a) set.\nThe ledger page declares its data needs and spec references in its own needs file (as slice (a) does for mission control) and reads nothing else.\n`npm test` fails, naming the ledger page and the missing piece, when a runtime, ledger or spec change breaks its declared needs. The test builds its data with the current code, not a frozen fixture.\nA ledger page opened on data whose schema version is outside its declared range shows a red banner naming the mismatch, and never shows partial data as complete.\nThe PR body lists the concepts it adds, merges and removes; if `ledger.js report` and the page path overlap, they become one."
+     },
+     "children": {}
+    },
+    "src": "workItem",
+    "systemId": "item:harness-pages-ledger",
+    "syncSnapshot": false
+   },
+   "harness-pages-tour": {
+    "snapshot": {
+     "status": "active",
+     "value": {
+      "active": "queued"
+     },
+     "historyValue": {},
+     "context": {
+      "id": "harness-pages-tour",
+      "project": "ccp_machine",
+      "tier": null,
+      "criteria": [],
+      "checks": {},
+      "expectationsMet": false,
+      "retries": 0,
+      "runs": 0,
+      "choice": null,
+      "decisions": 0,
+      "decisionId": null,
+      "orchestrator": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "workers": [],
+      "requester": "2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+      "triagers": [],
+      "checkers": [],
+      "answerers": [],
+      "title": "Guided tour ships in the plugin and follows the spec (harness pages slice c)",
+      "url": "https://github.com/suredesigntshirts/ccp_machine/issues/49",
+      "expect": "The guided tour is part of the plugin. Its content about states, events and guards comes from the current `spec/*.machine.json` and SPEC.md. Hand-written parts name the spec version they were written for, or CI checks them against the spec.\nA test fails when the spec has a state, event or guard that the tour does not cover.\nThe tour declares its data needs and spec references in its own needs file, as the other pages do, and reads nothing else.\nA fresh install from the plugin alone (no Library, no memory) gets all three pages (mission control, ledger page, tour) working against `harness/state/<store>` (the dogfood store here, never `main`).\nThe PR body lists the concepts it adds, merges and removes."
+     },
+     "children": {}
+    },
+    "src": "workItem",
+    "systemId": "item:harness-pages-tour",
+    "syncSnapshot": false
+   }
+  }
+ },
+ "appliedIds": [
+  "orchestrator-2ce18a8f-fd3a-507a-82d3-2dea2ed3db49",
+  "req-issue36",
+  "triage-spawn-merge-gates-1",
+  "standin-decision:spawn-merge-gates:plan:1",
+  "card-standin-decision:spawn-merge-gates:plan:1.0",
+  "req-issue37",
+  "cancel-rules-in-spec-1",
+  "tap-plan-spawn-merge-gates-1",
+  "wip-2",
+  "req-issue38",
+  "req-issue42",
+  "triage-harness-pages-1",
+  "standin-decision:harness-pages:plan:1",
+  "card-standin-decision:harness-pages:plan:1.0",
+  "build-spawn-merge-gates-1",
+  "ci-suredesigntshirts/ccp_machine#46-dc61385-passed",
+  "tap-plan-harness-pages-1",
+  "verify-spawn-merge-gates-1",
+  "verify-spawn-merge-gates-2",
+  "verify-spawn-merge-gates-3",
+  "verify-spawn-merge-gates-4",
+  "verify-spawn-merge-gates-5",
+  "verify-spawn-merge-gates-6",
+  "verify-spawn-merge-gates-7",
+  "verify-spawn-merge-gates-8",
+  "verify-spawn-merge-gates-9",
+  "verify-spawn-merge-gates-10",
+  "verify-spawn-merge-gates-11",
+  "verify-spawn-merge-gates-12",
+  "verify-spawn-merge-gates-13",
+  "verify-spawn-merge-gates-14",
+  "verify-spawn-merge-gates-15",
+  "verify-spawn-merge-gates-16",
+  "standin-decision:spawn-merge-gates:accept:18",
+  "card-standin-decision:spawn-merge-gates:accept:18.0",
+  "build-harness-pages-a-1",
+  "ci-suredesigntshirts/ccp_machine#47-75be4ab-passed",
+  "verify-harness-pages-a-1",
+  "verify-harness-pages-a-2",
+  "verify-harness-pages-a-3",
+  "verify-harness-pages-a-4",
+  "verify-harness-pages-a-5",
+  "verify-harness-pages-a-6",
+  "verify-harness-pages-a-7",
+  "verify-harness-pages-a-8",
+  "verify-harness-pages-a-9",
+  "verify-harness-pages-a-10",
+  "standin-failed-harness-pages-accept-12",
+  "card-standin-failed-harness-pages-accept-12.0",
+  "tap-accept-spawn-merge-gates-18",
+  "tap-accept-harness-pages-12",
+  "standin-failed-harness-pages-merge-13",
+  "build-spawn-merge-gates-2",
+  "card-standin-failed-harness-pages-merge-13.0",
+  "tap-merge-harness-pages-13",
+  "merge-pr47",
+  "req-issue48",
+  "req-issue49",
+  "triage-stand-in-grants-1",
+  "standin-decision:stand-in-grants:plan:1",
+  "card-standin-decision:stand-in-grants:plan:1.0",
+  "tap-plan-stand-in-grants-1",
+  "verify3-spawn-merge-gates-1",
+  "verify3-spawn-merge-gates-2",
+  "verify3-spawn-merge-gates-3",
+  "verify3-spawn-merge-gates-4",
+  "verify3-spawn-merge-gates-5",
+  "verify3-spawn-merge-gates-6",
+  "verify3-spawn-merge-gates-7",
+  "verify3-spawn-merge-gates-8",
+  "verify3-spawn-merge-gates-9",
+  "verify3-spawn-merge-gates-10",
+  "verify3-spawn-merge-gates-11",
+  "verify3-spawn-merge-gates-12",
+  "verify3-spawn-merge-gates-13",
+  "verify3-spawn-merge-gates-14",
+  "verify3-spawn-merge-gates-15",
+  "verify3-spawn-merge-gates-16",
+  "ci-suredesigntshirts/ccp_machine#46-30f05fe-passed",
+  "standin-decision:spawn-merge-gates:accept:19",
+  "card-standin-decision:spawn-merge-gates:accept:19.0",
+  "build-stand-in-grants-1",
+  "ci-suredesigntshirts/ccp_machine#52-266265f-passed",
+  "verify-stand-in-grants-1",
+  "verify-stand-in-grants-2",
+  "verify-stand-in-grants-3",
+  "verify-stand-in-grants-4",
+  "verify-stand-in-grants-5",
+  "verify-stand-in-grants-6",
+  "verify-stand-in-grants-7",
+  "verify-stand-in-grants-8",
+  "standin-decision:stand-in-grants:accept:10",
+  "card-standin-decision:stand-in-grants:accept:10.0"
+ ],
+ "updatedAt": "2026-10-28T03:04:55.184Z"
+}

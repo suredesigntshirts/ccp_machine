@@ -3,9 +3,11 @@
 // through runtime.apply(), the way the host does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { tempDir } from './tmp.js';
 import { apply, start, post, earn } from './send.js';
-import { openStore, init, ack, status, apply as applyEvent, replay, renderLivePage, renderPage, auditCard, specs } from '../src/index.js';
+import { openStore, init, ack, status, apply as applyEvent, replay, doctor, renderLivePage, renderPage, auditCard, specs } from '../src/index.js';
 
 const T0 = '2026-10-28T10:00:00.000Z';
 const at = (minutes) => new Date(Date.parse(T0) + minutes * 6e4).toISOString();
@@ -101,6 +103,43 @@ test('an answer logged before the rule was loosened keeps the threshold, so an o
   const late = itemAtPlan(s2, 'late', 2, live);
   answer(s2, late, live, { confidence: 0.88 });
   assert.equal(decision(s2, late).state, 'awaitingPerson', 'routed as dogfood2 logged it');
+});
+
+test('an answer an older release routed to the person after the cutoff replays as it was routed (#67)', async () => {
+  // #67: code from before #60 kept writing after thresholdBefore, and sent an answer at 0.88 under a stop-asking grant to
+  // the person: its logged effects post the person's card. Write it as that release did, after the cutoff.
+  const late = new Date(Date.parse(specs.decision.states.routing.always[0].guard.params.thresholdBefore) + 6e5).toISOString();
+  const store = fresh(late);
+  grant(store, STOP_ASKING, late);
+  const plan = itemAtPlan(store, 'late', 2, late);
+  const asLogged = { matches: (effects) => effects.some((e) => e.name === 'postDecisionCard') };
+  const r = apply(store, { type: 'STAND_IN_ANSWERED', answer: { choice: 'approve', confidence: 0.88, reason: 'looks right' } }, { to: plan, now: late, fact: asLogged });
+  assert.equal(r.rerouted, 'grantDecides passed over', 'today the grant decides it; the logged route is the person');
+  assert.equal(decision(store, plan).state, 'awaitingPerson', 'routed as the older release logged it');
+  assert.deepEqual(store.events().at(-1).route, [], 'the row records the route it took: no route, so the person decides');
+  // Replay takes the route the row records, whatever the cutoff, and lists the event with the release that wrote it.
+  const rp = replay(store);
+  assert.deepEqual([rp.ok, rp.firstDivergence, rp.differences], [true, null, []]);
+  assert.deepEqual(rp.admittedThen.map((a) => [a.type, a.why]), [['STAND_IN_ANSWERED', "routed otherwise today (logged route none, today's planApproved, grantDecides)"]]);
+  // The same row as a release from before routes were recorded wrote it, with no route: replay finds the route by its effects.
+  const rows = readFileSync(join(store.dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  writeFileSync(join(store.dir, 'events.jsonl'), rows.map(({ route, ...row }) => JSON.stringify(row) + '\n').join(''));
+  const old = replay(store);
+  assert.deepEqual([old.ok, old.firstDivergence, old.differences], [true, null, []]);
+  assert.deepEqual(old.admittedThen.map((a) => [a.type, a.why]), [['STAND_IN_ANSWERED', 'routed otherwise today (no route logged, found by its effects: grantDecides passed over)']]);
+  // Doctor lists the searched row by its id, with the release that wrote it, and it is not a problem.
+  const d = await doctor(store, { verify: false, now: Date.parse(late) });
+  assert.deepEqual(d.problems, []);
+  const id = store.events().find((e) => e.event.type === 'STAND_IN_ANSWERED').id;
+  assert.deepEqual(d.admittedThen.map((l) => l.split(' ')[0]), [id]);
+  assert.match(d.admittedThen[0], /found by its effects: grantDecides passed over/);
+  // Today's rule decides the same answer under the grant.
+  const now = fresh(late);
+  grant(now, STOP_ASKING, late);
+  const today = itemAtPlan(now, 'today', 2, late);
+  answer(now, today, late, { confidence: 0.88 });
+  assert.equal(status(now).items.find((i) => i.id === 'today').state, 'active.building');
+  assert.equal(granted(now).length, 1);
 });
 
 test('a decision waiting on the person goes back to the stand-in when the live grant covers it, and is decided', () => {

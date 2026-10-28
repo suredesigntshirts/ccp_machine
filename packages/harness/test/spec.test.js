@@ -29,6 +29,35 @@ test('the spec and the bindings name the same guards, actions and actors', () =>
   }
 });
 
+// Admission and routes are marked in the JSON (harness meta.store.facts), not inferred from a transition's shape: every
+// guarded transition is exactly one of them. A new guarded transition that does nothing and carries no mark fails here.
+test('every guarded transition is marked: an admission rule ("admission": true) or a route with a stable id ("route")', () => {
+  const ids = new Map();
+  const walk = (name, node, at) => {
+    const lists = [...Object.entries(node.on ?? {}).map(([ev, l]) => [`on.${ev}`, l]), ['always', node.always]];
+    for (const [k, l] of lists)
+      for (const t of [l ?? []].flat()) {
+        const where = `${name}${at}:${k}${t?.guard ? ` [${t.guard.type}]` : ''}`;
+        if (typeof t !== 'object' || t.guard == null) {
+          assert.ok(!t?.admission && !t?.route, `${where} has no guard, so it is neither an admission rule nor a route`);
+          continue;
+        }
+        const doesNothing = t.target === undefined && !(t.actions ?? []).length;
+        assert.ok(Boolean(t.admission) !== Boolean(t.route), `${where}: mark it "admission": true or "route": <id>, one of them`);
+        if (t.admission) assert.ok(t.admission === true && doesNothing, `${where} is an admission rule, so it has no target and no actions`);
+        else {
+          assert.ok(!doesNothing, `${where} is a route that does nothing: an admission rule is marked "admission": true`);
+          assert.match(t.route, /^[a-z][A-Za-z]*$/, `${where}: a route id is one camelCase word`);
+          assert.ok(!ids.has(t.route), `${where}: route id ${t.route} is also ${ids.get(t.route)}`);
+          ids.set(t.route, where);
+        }
+      }
+    for (const [k, v] of Object.entries(node.states ?? {})) walk(name, v, `${at}.${k}`);
+  };
+  for (const [name, config] of Object.entries(specs)) walk(name, config, '');
+  assert.ok(ids.size >= 30, 'the routes were found');
+});
+
 test('every state that waits on the person or a gate can be left', () => {
   const visit = (node, path, name) => {
     const waits = (node.tags ?? []).some((t) => t === 'needs-human' || t === 'gated');
