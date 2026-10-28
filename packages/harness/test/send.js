@@ -27,9 +27,9 @@ export const logged = (store, rows) => {
 export const earn = (store, decisionClass, at = '2026-01-01T00:00:00Z') =>
   logged(store, Array.from({ length: 20 }, (_, i) => ({ effectId: `earned-${decisionClass}-${i}`, at, decisionClass, choice: 'approve', decidedBy: 'person', standIn: { choice: 'approve' } })));
 
-/** The host posts the card the machine asked for at `to` (a decision or an audit): it acks the pending card effect with the card's message id. */
+/** The host posts the card the machine asked for at `to` (a decision, an audit or a grant checklist): it acks the pending card effect with the card's message id. */
 export const post = (store, to, card = `cmsg_${to.replace(/[^A-Za-z0-9]/g, '_')}`, now) => {
-  const effect = store.pending().find((e) => ['postDecisionCard', 'postAuditCard'].includes(e.name) && cardAddress(e) === to);
+  const effect = store.pending().find((e) => ['postDecisionCard', 'postAuditCard', 'postGrantCard'].includes(e.name) && cardAddress(e) === to);
   if (!effect) throw new Error(`no card to post for ${to}`);
   ack(store, [effect.id], { card, by: scripted('CARD_POSTED'), ...(now && { now }) });
   return card;

@@ -36,7 +36,15 @@ Guards: `fiveHourExhausted`, `mayRun`, `mustPause`, `mustWrapUp`, `usageStale`
 
 ## decision (v0.1.0)
 
-One decision. The stand-in answers first; it decides alone only where its autonomy for this decision class is earned, otherwise the person decides on a card with its recommendation. Each input of standInMayDecide has one supplier, and none of them is the stand-in's caller: tier is the item's, set by triage (TRIAGED), never by the request; expectationsMet is the item's, from its acceptGate, for an accept decision; autonomy is the ladder's rung for the class over the store's own decided decisions (its logPrecedent effects and the AUDIT_ANSWERED events dated at or before the spawn; no file kept by hand), which the harness reads when it spawns the decision (recommend if they cannot be read, so the person decides); threshold is the constant in this machine's context; confidence is the stand-in's, the only number its answer carries. Only a person's tap decides for the person, and only on the card the machine asked for: postDecisionCard asks the host to post the card (its detail carries the decision's item and address, item:<item>/<id>, where the ack and the tap go), the host's ack of that effect names the card's message id (CARD_POSTED, which the decision records once), and PERSON_DECIDED is taken only from the person with source tap:<that id> and a choice among the card's options. A tap on no card, an unposted card or another decision's card is refused; that the tap is real is checked afterwards against the platform (harness verify-taps, by another session, which names the session that relayed each tap: relayedBy on the log row). The item passes in its roles when it opens the decision (requester, triagers, workers, checkers, answerers; spec workItem, Roles), and a stand-in answer from a session holding another of them is refused; the answering session is reported to the item (STAND_IN_RECORDED), which records it as an answerer.
+One decision. The stand-in answers first; it decides alone only where the person's live grant covers the decision (grantCovers, spec grant) or its autonomy for this decision class is earned (standInMayDecide, the ladder), otherwise the person decides on a card with its recommendation. Every decision says its door (meta.classes): a two-way door is cheaply reversible, a one-way door is not. Each input of standInMayDecide has one supplier, and none of them is the stand-in's caller: tier is the item's, set by triage (TRIAGED), never by the request; expectationsMet is the item's, from its acceptGate, for an accept decision; autonomy is the ladder's rung for the class over the store's own decided decisions (its logPrecedent effects and the AUDIT_ANSWERED events dated at or before the spawn; no file kept by hand), which the harness reads when it spawns the decision (recommend if they cannot be read, so the person decides); threshold is the constant in this machine's context; confidence is the stand-in's, the only number its answer carries. Only a person's tap decides for the person, and only on the card the machine asked for: postDecisionCard asks the host to post the card (its detail carries the decision's item and address, item:<item>/<id>, where the ack and the tap go), the host's ack of that effect names the card's message id (CARD_POSTED, which the decision records once), and PERSON_DECIDED is taken only from the person with source tap:<that id> and a choice among the card's options. A tap on no card, an unposted card or another decision's card is refused; that the tap is real is checked afterwards against the platform (harness verify-taps, by another session, which names the session that relayed each tap: relayedBy on the log row). The item passes in its roles when it opens the decision (requester, triagers, workers, checkers, answerers; spec workItem, Roles), and a stand-in answer from a session holding another of them is refused; the answering session is reported to the item (STAND_IN_RECORDED), which records it as an answerer.
+
+Decision classes:
+
+- `plan`: two-way door. Approving a plan only lets the build start; a revise or a cancel later undoes it.
+- `accept`: two-way door. Accepting the work only moves the item on toward its merge; nothing reaches main until it merges.
+- `merge`: one-way door. Merging puts the change on main for everyone; undoing it takes a revert.
+
+Each decision class has one door, two-way (cheaply reversible) or one-way, and a decision takes its class's door when the item opens it (context.door); a class not listed here is a one-way door. The grant's checklist offers these classes, and a grant decides a one-way door only when it names that class and has the one-way-door box ticked (spec grant).
 
 ```mermaid
 stateDiagram-v2
@@ -48,6 +56,7 @@ stateDiagram-v2
   [*] --> askingStandIn
   askingStandIn --> routing : STAND_IN_ANSWERED
   askingStandIn --> awaitingPerson : STAND_IN_FAILED
+  routing --> decided : always [grantCovers]
   routing --> decided : always [standInMayDecide]
   routing --> awaitingPerson : always
   awaitingPerson --> decided : PERSON_DECIDED
@@ -55,7 +64,7 @@ stateDiagram-v2
 
 States:
 
-- `routing`: The stand-in decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides.
+- `routing`: The stand-in decides alone under the person's grant (grantCovers) when the harness's grant, read as the answer arrived (readLiveGrant: the one grant the harness holds, so a replaced grant is gone), has not ended by the answer's own time (receivedAt, before until), names this decision's class, and, for a one-way door, has the one-way-door box; the answer carries a reason, its confidence is at or above the machine's threshold, and for an accept decision the item's expectationsMet was true when it opened. Tier and autonomy do not matter there. Otherwise, as before the grant (the ladder rule, standInMayDecide), it decides alone when the tier is below 2, the class's autonomy (set at spawn from the ladder) is act, its confidence is at or above the machine's threshold, and, for an accept decision, the item's expectationsMet was true when the decision opened (false or unknown is not); otherwise the person decides. Which rule decided is recorded (authority: grant or ladder) and logged with the precedent. A decision made under the grant also reports itself to the harness (DECIDED_UNDER_GRANT, reportGrantDecision) with its choice, confidence, reason and the grant's card, and the harness keeps the row in context.granted, the one list mission control and the daily audit show the person.
 - `awaitingPerson` (tags: `needs-human`): A decision card is in front of the person, with the stand-in's recommendation. The card is the one the machine asked for (postDecisionCard); its message id arrives with the ack (CARD_POSTED), and only a tap on it decides.
 
 Refused (nothing changes and nothing is written):
@@ -70,9 +79,9 @@ Refused (nothing changes and nothing is written):
 - `PERSON_DECIDED` in `awaitingPerson`, when `tapUnbound`: Refused unless the tap's ref is this decision's card: the message id CARD_POSTED recorded when the host acked this decision's postDecisionCard effect. A tap before the card is posted, on another decision's card or on no card at all changes nothing. Whether the tap happened is checked afterwards against the platform (harness verify-taps).
 - `PERSON_DECIDED` in `awaitingPerson`, when `choiceNotOffered`: Refused unless the choice is one of the card's options (the decision's options: approve, revise, reject).
 
-Effects and context updates: `acceptStandInChoice`, `askStandIn`, `logPrecedent`, `notifyInboxClosed`, `notifyInboxOpened`, `postDecisionCard`, `recordCard`, `recordPersonChoice`, `recordStandInAnswer`, `reportAnswerer`, `reportDecision`
+Effects and context updates: `acceptStandInChoice`, `askStandIn`, `logPrecedent`, `notifyInboxClosed`, `notifyInboxOpened`, `postDecisionCard`, `readLiveGrant`, `recordCard`, `recordPersonChoice`, `recordStandInAnswer`, `reportAnswerer`, `reportDecision`, `reportGrantDecision`
 
-Guards: `answerOverreaches`, `answeredByOrchestratorOrWorker`, `cardOverreaches`, `choiceNotOffered`, `holdsAnotherRole`, `standInMayDecide`, `tapUnbound`, `unattested`
+Guards: `answerOverreaches`, `answeredByOrchestratorOrWorker`, `cardOverreaches`, `choiceNotOffered`, `grantCovers`, `holdsAnotherRole`, `standInMayDecide`, `tapUnbound`, `unattested`
 
 ## audit (v0.1.0)
 
@@ -103,6 +112,38 @@ Refused (nothing changes and nothing is written):
 Effects and context updates: `postAuditCard`, `recordAuditAnswer`, `recordCard`
 
 Guards: `cardOverreaches`, `optionNotOffered`, `tapUnbound`, `unattested`
+
+## grant (v0.1.0)
+
+The person's grant to the stand-in: which decision kinds it may decide alone, and until when. A session the person asked sends GRANT_ASKED to the harness, which opens this actor (grant:<n>) with a checklist the machine generates (meta.checklist): one tick per decision class (spec decision meta.classes, each marked with its door), the one-way-door box, and end times counted from the ask. The actor asks the host to post the checklist card (postGrantCard); the host's ack names the card's message id (CARD_POSTED), and the person's ticks arrive as one tap event naming that card, PERSON_GRANTED {picks}, taken exactly like PERSON_DECIDED. The grant it reports to the harness (GRANT_GIVEN) is {card, kinds, oneWay, until, at} built from the picks alone; the harness holds one grant, so the tap replaces any earlier one. A grant decides a two-way door whose class it names, and a one-way door only when it names the class and has the one-way-door box; it decides nothing at or after until. Tapping a checklist with no kind ticked ends the live grant.
+
+Checklist: end times 2, 8, 24, 72 hours after the ask. The options, generated when the ask is opened: kind:<class> for every class in spec decision meta.classes, one-way (the one-way-door box), and until:<ISO time> for each of endsAfterHours after the ask's own time (receivedAt). A tap names any of the kinds, the box or not, and exactly one end time.
+
+```mermaid
+stateDiagram-v2
+  state "awaitingPerson" as awaitingPerson
+  note right of awaitingPerson : needs-human
+  state "granted ✓" as granted
+  [*] --> awaitingPerson
+  awaitingPerson --> granted : PERSON_GRANTED
+```
+
+States:
+
+- `awaitingPerson` (tags: `needs-human`): The checklist card is in front of the person. Its message id arrives with the ack of postGrantCard (CARD_POSTED), and only a tap on it grants.
+- `granted`: The person ticked the checklist. The harness holds the grant (GRANT_GIVEN) until its end time or the next tap on a checklist.
+
+Refused (nothing changes and nothing is written):
+
+- `CARD_POSTED` in `awaitingPerson`, when `unattested` {"actor":"session"}: Refused unless a session sends it: the host session that posted the checklist acks the postGrantCard effect with the card's message id (harness ack <effect> --card <cmsg id>).
+- `CARD_POSTED` in `awaitingPerson`, when `cardOverreaches`: Refused unless it names one message id (cmsg_...) and this ask has no card yet.
+- `PERSON_GRANTED` in `awaitingPerson`, when `unattested` {"actor":"person","source":"tap"}: Refused unless the actor is a person and the source a tap: no session, agent or timer can grant.
+- `PERSON_GRANTED` in `awaitingPerson`, when `tapUnbound`: Refused unless the tap's ref is this ask's card, the message id CARD_POSTED recorded on the ack of its postGrantCard effect. A tap on no card, an unposted card, a decision's or an audit's card, or an earlier checklist changes nothing.
+- `PERSON_GRANTED` in `awaitingPerson`, when `picksNotOffered`: Refused unless picks is a list of the card's own options, each at most once, with exactly one end time: a kind, a box or an end time the machine did not generate is refused.
+
+Effects and context updates: `postGrantCard`, `recordCard`, `recordPicks`, `reportGrant`
+
+Guards: `cardOverreaches`, `picksNotOffered`, `tapUnbound`, `unattested`
 
 ## workItem (v0.1.0)
 
@@ -184,7 +225,7 @@ States:
 - `active.verifying`: CI, spec checks and a reviewer run against the acceptance criteria. The reviewer sends one CRITERION_CHECKED {criterion, verdict, evidence} per criterion; the latest verdict for a criterion counts.
 - `active.acceptGate`: expectationsMet is true only when every criterion's latest CRITERION_CHECKED says met, with evidence, from an actor who is neither the orchestrator nor one of the item's workers now. Unmet, unclear, unchecked or no criteria are not met. The accept decision opens with the answer, and when it is false the stand-in cannot decide it, so the person does.
 - `active.awaitingAcceptance` (tags: `gated`): Evidence against each acceptance criterion: is the work doing what the person expected? A criterion checked now takes the item back through acceptGate, which withdraws this decision and opens a new one with the new answer.
-- `active.awaitingMergeDecision` (tags: `gated`): Merge to main: the person decides, the stand-in recommends.
+- `active.awaitingMergeDecision` (tags: `gated`): Merge to main, a one-way door: the person decides and the stand-in recommends, unless the person's live grant names merge and has the one-way-door box (spec decision, grantCovers).
 - `blocked`: Waiting on something outside the item (a dependency, a conflict, a failing check). Resumes where it stopped.
 
 Refused (nothing changes and nothing is written):
@@ -265,7 +306,7 @@ Guards: `agentTypeIsNot`, `briefDiffers`, `briefOverreaches`, `checkOverreaches`
 
 ## harness (v0.1.0)
 
-The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit).
+The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit). It holds the person's grant to the stand-in (context.grant, spec grant): GRANT_ASKED from a session opens a checklist card (a child grant actor, one open at a time: a new ask withdraws the unanswered one), and only the person's tap on that card, reported up as GRANT_GIVEN, sets or replaces the grant. Every decision the stand-in makes under a grant reports itself (DECIDED_UNDER_GRANT), and the harness keeps it in context.granted, one compact row each ({address, item, decisionClass, door, choice, confidence, reason, card, at}), so mission control and the daily audit list every one with its reason for the person to reverse.
 
 Actors:
 
@@ -339,6 +380,9 @@ Refused (nothing changes and nothing is written):
 - `ORCHESTRATOR_STARTED` in any state, when `unattested` {"actor":"session"}: Refused unless the actor is a session. Its id becomes the orchestrator's, here and in every queued or in-flight item, so no run it reports itself is taken.
 - `AUDIT_PICKED` in any state, when `unattested` {"actor":"session"}: Refused unless a session sends it: the session that read the decision log and picked (harness audit).
 - `AUDIT_PICKED` in any state, when `auditOverreaches` {"max":3}: Refused unless its day is the UTC day of the event's own time (receivedAt: the at the runtime logs it with, never the sender's word), so a past or future day is refused and there is at most one audit per real day, a day not audited before, and it names 1 to max picks, each a logPrecedent effect id. The picks name decisions only; what each decided is read from the store's own outbox, never from the event.
+- `GRANT_ASKED` in any state, when `unattested` {"actor":"session"}: Refused unless a session sends it: the session the person asked, to put the grant checklist in front of the person. Asking grants nothing: the card's options are the machine's (spec grant), and only the person's tap on it records a grant.
+- `GRANT_GIVEN` in any state, when `fromOutside`: Sent by a grant actor when the person taps its checklist card; the same event from outside (any event with an actor) is refused. Nothing else creates, widens or extends a grant.
+- `DECIDED_UNDER_GRANT` in any state, when `fromOutside`: Sent by a decision the stand-in decided under the person's grant; the same event from outside (any event with an actor) is refused, so no row is written for a decision the grant did not make.
 - `REQUEST_RECEIVED` in `intake.listening`, when `requestOverreaches`: Refused when the request has no id, or sets a field the work item's machine holds (tier, criteria, checks, workers, orchestrator, requester and the rest of its context, all but id and project). The filer names the work; triage sets the tier and the criteria. The requester is the event's actor, recorded by the item.
 - `BUDGET_MODE` in `scheduler`, when `fromOutside`: Sent by the budget actor when its mode changes inside the harness; the same event from outside (any event with an actor) is refused.
 - `ITEM_PARKED` in `scheduler`, when `fromOutside`: Sent by an item when it enters needsCriteria: it waits on the person and gives up its slot. The same event from outside (any event with an actor) is refused.
@@ -349,6 +393,6 @@ Refused (nothing changes and nothing is written):
 - `WIP_SET` in `scheduler.accepting`, when `notFromOrchestrator`: Refused unless the orchestrator's own session sends it (the actor is a session whose id is context.orchestrator): any other session, an agent, the person or a tap is refused. The orchestrator routes the work, so it alone sets how much runs at once.
 - `WIP_SET` in `scheduler.accepting`, when `wipOutOfRange` {"min":1,"max":4}: Refused unless limit is an integer from min to max.
 
-Effects and context updates: `addToInbox`, `openAudit`, `publishDigest`, `recordBudgetMode`, `recordOrchestrator`, `recordWipLimit`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
+Effects and context updates: `addToInbox`, `openAudit`, `openGrantAsk`, `publishDigest`, `recordBudgetMode`, `recordGrant`, `recordGrantDecision`, `recordOrchestrator`, `recordWipLimit`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
 
 Guards: `auditOverreaches`, `fromOutside`, `inboxEmpty`, `modeIs`, `notFromOrchestrator`, `requestOverreaches`, `unattested`, `wipOutOfRange`

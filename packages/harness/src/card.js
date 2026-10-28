@@ -5,6 +5,7 @@
 // `address` as the person from a tap whose ref is that message id (--actor person:<id> --source tap:<cmsg id>);
 // the decision refuses anything else.
 import { specs } from './machines.js';
+import { cardAddress } from './runtime.js';
 
 const LABELS = {
   approve: ['Approve', { plan: 'The item goes on to build.', accept: 'The item goes on to merge.', merge: 'The PR is merged.' }],
@@ -27,7 +28,7 @@ export function cardFor(effect, { itemUrl } = {}) {
   const lean = d.standIn?.choice;
   const recommended = Math.max(0, CHOICES.findIndex(([c]) => c === lean));
   const context = [
-    `Tier ${d.tier ?? '?'} ${gate} gate for "${d.title ?? item}"${d.project ? ` in ${d.project}` : ''}.`,
+    `Tier ${d.tier ?? '?'} ${gate} gate for "${d.title ?? item}"${d.project ? ` in ${d.project}` : ''}, a ${d.door ?? 'one-way'} door.`,
     lean ? `The stand-in leans ${lean}${d.standIn.confidence != null ? ` (${Math.round(d.standIn.confidence * 100)}% sure)` : ''}${d.standIn.reason ? `: ${d.standIn.reason}` : ''}.` : 'The stand-in gave no lean.',
     itemUrl ?? d.url ?? ''
   ]
@@ -41,5 +42,34 @@ export function cardFor(effect, { itemUrl } = {}) {
     recommended,
     ...(d.standIn?.reason ? { reason: cut(d.standIn.reason, 200) } : {}),
     context: cut(context, 1200)
+  };
+}
+
+const CLASSES = specs.decision.meta.classes;
+const hour = (iso) => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+
+/**
+ * The grant checklist for a postGrantCard effect: one tick per option the machine generated, in its order (decision
+ * kinds with their doors, the one-way-door box, the end times; the person ticks any kinds, the box or not, and one
+ * end time). The ticks come back as one tap, PERSON_GRANTED {picks: [ids]}, sent to `address` as the person from a
+ * tap whose ref is the card's message id; the grant actor refuses anything else.
+ * @returns {{address: string, question: string, checks: {id: string, label: string, pick: 'any'|'one'}[], context: string, tap: string}}
+ */
+export function checklistFor(effect) {
+  if (effect?.name !== 'postGrantCard') throw new Error(`${effect?.id ?? 'effect'} is not a postGrantCard effect`);
+  const options = effect.detail?.options ?? [];
+  const label = (o) =>
+    o.startsWith('kind:') ? `${o.slice(5)} decisions (${CLASSES[o.slice(5)]?.door ?? 'one-way'} door)`
+    : o === 'one-way' ? 'Also one-way doors I tick above'
+    : `Until ${hour(o.slice(6))}`;
+  return {
+    address: cardAddress(effect),
+    question: 'What may the stand-in decide for you, and until when?',
+    checks: options.map((id) => ({ id, label: label(id), pick: id.startsWith('until:') ? 'one' : 'any' })),
+    context: cut(
+      `Ticked kinds are decided by the stand-in alone while the grant lasts, when it is sure and gives a reason; everything else comes to you. ${Object.entries(CLASSES).map(([k, c]) => `${k}: ${c.door} door, ${c.description}`).join(' ')} A one-way door needs its kind and the one-way box. Tapping this replaces your current grant; ticking no kind ends it. Every decision made under it is listed on mission control and in the daily audit.`,
+      1200
+    ),
+    tap: `harness send '{"type":"PERSON_GRANTED","picks":[<ticked ids>]}' --to ${cardAddress(effect)} --actor person:<you> --source tap:<card message id>`
   };
 }

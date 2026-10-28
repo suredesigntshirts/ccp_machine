@@ -134,9 +134,24 @@ export function renderView(view, needs) {
 <div class="tile"><span class="eyebrow">Scheduler</span><b><span class="pill ${tone}">${esc(h.scheduler)}</span></b><small>budget ${esc(b?.state ?? 'unknown')}${b?.sevenDay != null ? ` · 7-day ${pct(b.sevenDay)}` : ''}${b?.sampledAt ? ` · read ${esc(clock(b.sampledAt))} UTC` : ''}</small></div>
 </div>
 <section><h2>Needs you</h2>${asks.join('') || '<div class="empty">Nothing is waiting on you.</div>'}</section>
+${granted(h, ev)}
 <section><h2>In flight</h2>${live.length ? table(live) : '<div class="empty">Nothing in flight.</div>'}</section>
 ${finished.length ? `<section><h2>Finished</h2>${table(finished)}</section>` : ''}
 <p class="m">Host to-do, recent events and item pages are on the full page (<code>harness page</code>).</p>`;
+}
+
+// The person's grant (kinds, the one-way box, until) and every decision made under it, newest first, each with its
+// reason and how to reverse it: the harness's context.grant and context.granted.
+function granted(h, ev) {
+  const g = h.grant;
+  const rows = h.granted ?? [];
+  if (!g && !rows.length) return '';
+  const line = !g ? 'No grant: the ladder alone decides.'
+    : `Your grant (card ${esc(g.card)}): ${g.kinds.length ? esc(g.kinds.join(', ')) : 'nothing'}, ${g.oneWay ? 'one-way doors included' : 'two-way doors only'}, until ${esc(clock(g.until).slice(5))} UTC.`;
+  const card = (r) => `<div class="card"><span class="eyebrow">${esc(r.decisionClass)} · ${esc(r.door)} door · ${esc(clock(r.at))} UTC</span><b>${esc(r.item)}: ${esc(r.choice)}</b> <span class="m">${pct(r.confidence)} sure</span>
+<div>${esc(r.reason)}</div>
+<div class="m">To reverse it${r.door === 'one-way' ? ' (a merge also needs a revert)' : ''}: ask the lead to revise it, or cancel: <code>harness send '{"type":"${esc(ev.cancel)}"}' --to item:${esc(r.item)}</code></div></div>`;
+  return `<section><h2>Decided under your grant</h2><p class="m">${line}</p>${rows.length ? [...rows].reverse().map(card).join('') : '<div class="empty">Nothing decided under a grant yet.</div>'}</section>`;
 }
 
 export const banner = (problem) => `<div class="banner bad" role="alert"><b>Wrong store layout.</b> ${problem}</div>`;

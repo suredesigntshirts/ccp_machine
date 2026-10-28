@@ -1,4 +1,4 @@
-export { createMachines, machines, specs, referencedNames, eventsWhere } from './machines.js';
+export { createMachines, machines, specs, referencedNames, eventsWhere, grantOptions } from './machines.js';
 export { openStore } from './store.js';
 export { init, apply, ack, status, cardAddress } from './runtime.js';
 export { renderPage, itemHref, prOf } from './page.js';
@@ -7,7 +7,7 @@ export { renderItemPage, itemRecords, itemTurns } from './item-page.js';
 export { logPrecedents, readDecisionLog, classStats, renderDecisionLog, ladder, EARN_ACT, RUNGS } from './decision-log.js';
 export { renderDigest, writeDigest } from './digest.js';
 export { doctor } from './doctor.js';
-export { cardFor } from './card.js';
+export { cardFor, checklistFor } from './card.js';
 export { runScenario, runScenarios, SCENARIOS_DIR } from './scenario.js';
 export { replay } from './replay.js';
 export { stalled, lastMoved, parseAfter } from './stalled.js';

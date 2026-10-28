@@ -12,6 +12,7 @@ export const specs = {
   budget: load('budget'),
   decision: load('decision'),
   audit: load('audit'),
+  grant: load('grant'),
   workItem: load('workItem'),
   harness: load('harness')
 };
@@ -38,7 +39,7 @@ const withInput = (config) => ({
 // the sink as data ({ name, actor, params, subject, detail }); the host's outbox carries it out
 // later, so detail holds what the host needs to do it without reading the snapshot.
 // The default sink drops them, and pure transition() returns them by name either way.
-const DETAIL = ['item', 'address', 'title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy', 'day', 'picks'];
+const DETAIL = ['item', 'address', 'title', 'url', 'project', 'tier', 'criteria', 'expectationsMet', 'decisionClass', 'question', 'choice', 'decidedBy', 'standIn', 'autonomy', 'door', 'authority', 'grant', 'day', 'picks', 'askedAt', 'options'];
 const external = (sink, ...names) =>
   Object.fromEntries(
     names.map((name) => [
@@ -145,6 +146,24 @@ const cards = {
 };
 const recordCard = assign({ card: ({ event }) => event.card });
 
+// The person's grant (spec grant). The checklist is generated here from the spec alone: a tick per decision class,
+// the one-way-door box, and end times counted from the ask's own time (receivedAt).
+const CLASSES = specs.decision.meta.classes;
+export const grantOptions = (askedAt) => [
+  ...Object.keys(CLASSES).map((k) => `kind:${k}`),
+  'one-way',
+  ...(Number.isNaN(Date.parse(askedAt)) ? [] : specs.grant.meta.checklist.endsAfterHours.map((h) => `until:${new Date(Date.parse(askedAt) + h * 36e5).toISOString()}`))
+];
+/** The grant a tap's picks make, from the picks alone: the kinds ticked (in the card's order), the box, the one end time. */
+export const grantOf = (options, picks) => ({
+  kinds: options.filter((o) => o.startsWith('kind:') && picks.includes(o)).map((o) => o.slice(5)),
+  oneWay: picks.includes('one-way'),
+  until: picks.find((p) => p.startsWith('until:')).slice(6)
+});
+/** Whether grant g, at time `at`, covers a decision of class cls behind door: live (before until), the class named, a one-way door only with the box. */
+export const grantCoversAt = (g, at, cls, door) =>
+  g != null && typeof at === 'string' && Date.parse(at) < Date.parse(g.until) && (g.kinds ?? []).includes(cls) && (door === 'two-way' || g.oneWay === true);
+
 const provenance = {
   unattested: ({ event }, p) => (p.actor != null && ![p.actor].flat().includes(event.actor?.kind)) || (p.source != null && (event.source?.kind !== p.source || !event.source.ref)),
   fromOutside: ({ event }) => event.actor != null
@@ -207,6 +226,21 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     }
   }).createMachine(withInput(specs.audit));
 
+  const grantMachine = setup({
+    guards: {
+      unattested: provenance.unattested,
+      ...cards,
+      picksNotOffered: ({ context: c, event: { picks } }) =>
+        !Array.isArray(picks) || !picks.every((p) => typeof p === 'string' && c.options.includes(p)) || new Set(picks).size !== picks.length || picks.filter((p) => p.startsWith('until:')).length !== 1
+    },
+    actions: {
+      recordCard,
+      recordPicks: assign({ picks: ({ event }) => event.picks }),
+      reportGrant: toParent(({ context, event }) => ({ type: 'GRANT_GIVEN', grant: { card: context.card, ...grantOf(context.options, event.picks), at: event.receivedAt ?? null } })),
+      ...external(sink, 'postGrantCard')
+    }
+  }).createMachine(withInput(specs.grant));
+
   const decisionMachine = setup({
     guards: {
       unattested: provenance.unattested,
@@ -218,15 +252,23 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         !a || typeof a.choice !== 'string' || typeof a.confidence !== 'number' || !(a.confidence >= 0 && a.confidence <= 1) || Object.keys(a).some((k) => !['choice', 'confidence', 'reason'].includes(k)),
       // Tier from the item, autonomy and threshold from this decision's context, confidence from the stand-in.
       // An unknown tier is not below 2, and an accept decision needs the item's expectationsMet to be true.
+      // The harness's one grant, read as the answer arrived, judged at the answer's own time; the answer's checks as for the ladder, plus a reason.
+      grantCovers: ({ context: c }) =>
+        grantCoversAt(c.grant, c.answeredAt, c.decisionClass, c.door) && isText(c.standIn.reason) && c.standIn.confidence >= c.threshold && (c.decisionClass !== 'accept' || c.expectationsMet === true),
       standInMayDecide: ({ context: c }) =>
         typeof c.tier === 'number' && c.tier < 2 && c.autonomy === 'act' && c.standIn.confidence >= c.threshold && (c.decisionClass !== 'accept' || c.expectationsMet === true)
     },
     actions: {
       recordStandInAnswer: assign({ standIn: ({ event }) => event.answer }),
+      // The grant the harness holds now (a replaced one is gone) and the answer's time (the runtime's receivedAt, never the sender's).
+      readLiveGrant: assign({ grant: ({ system }) => system.get('harness')?.getSnapshot().context.grant ?? null, answeredAt: ({ event }) => event.receivedAt ?? null }),
       reportAnswerer: toParent(({ event }) => holdsRoles(event.actor) && { type: 'STAND_IN_RECORDED', by: event.actor.id }),
-      acceptStandInChoice: assign({
-        choice: ({ context }) => context.standIn.choice,
-        decidedBy: 'stand-in'
+      acceptStandInChoice: assign(({ context }, params) => ({ choice: context.standIn.choice, decidedBy: 'stand-in', authority: params?.authority ?? null })),
+      // A decision made under the grant reports itself as one compact row, which the harness keeps for the person to review.
+      reportGrantDecision: enqueueActions(({ enqueue, context: c, system }) => {
+        const harness = system.get('harness');
+        if (harness)
+          enqueue.sendTo(harness, { type: 'DECIDED_UNDER_GRANT', row: { address: c.address, item: c.item, decisionClass: c.decisionClass, door: c.door, choice: c.standIn.choice, confidence: c.standIn.confidence, reason: c.standIn.reason, card: c.grant.card, at: c.answeredAt } });
       }),
       recordPersonChoice: assign({ choice: ({ event }) => event.choice, decidedBy: 'person' }),
       recordCard,
@@ -286,7 +328,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         enqueue.assign({ decisions: context.decisions + 1, decisionId: id });
         enqueue.spawnChild('decision', {
           id,
-          input: { id, item: context.id, address: `item:${context.id}/${id}`, decisionClass: params.gate, tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
+          input: { id, item: context.id, address: `item:${context.id}/${id}`, decisionClass: params.gate, door: CLASSES[params.gate]?.door ?? 'one-way', tier: context.tier, question: `${params.gate}: ${context.id}`, orchestrator: context.orchestrator,
             requester: context.requester, triagers: context.triagers ?? [], workers: context.workers ?? [], checkers: context.checkers ?? [], answerers: context.answerers ?? [],
             ...(params.gate === 'accept' && { expectationsMet: context.expectationsMet }), ...(rung && { autonomy: rung(params.gate) }) }
         });
@@ -315,7 +357,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
   }).createMachine(withInput(specs.workItem));
 
   const harnessMachine = setup({
-    actors: { budget: budgetMachine, workItem: workItemMachine, audit: auditMachine },
+    actors: { budget: budgetMachine, workItem: workItemMachine, audit: auditMachine, grant: grantMachine },
     guards: {
       ...provenance,
       // The event's own UTC day (receivedAt, set by the runtime), not audited before, and 1 to max distinct logPrecedent effect ids.
@@ -371,6 +413,18 @@ export function createMachines(sink = () => {}, { rung } = {}) {
         enqueue.spawnChild('audit', { id, systemId: id, input: { id, day, picks } });
         enqueue.assign({ audited: [...(context.audited ?? []), day] });
       }),
+      // One checklist open at a time: a new ask stops the unanswered one, so its card can no longer grant.
+      openGrantAsk: enqueueActions(({ enqueue, context, event, self }) => {
+        if (context.grantAsk && self.getSnapshot().children?.[context.grantAsk]) enqueue.stopChild(context.grantAsk);
+        const n = (context.grantAsks ?? 0) + 1;
+        const id = `grant:${n}`;
+        const askedAt = event.receivedAt ?? null;
+        enqueue.spawnChild('grant', { id, input: { id, askedAt, options: grantOptions(askedAt) } });
+        enqueue.assign({ grantAsks: n, grantAsk: id });
+      }),
+      // The harness holds one grant: the latest tap replaces it whole.
+      recordGrant: assign({ grant: ({ event }) => event.grant }),
+      recordGrantDecision: assign({ granted: ({ context, event }) => [...(context.granted ?? []), event.row] }),
       addToInbox: assign({ inbox: ({ context, event }) => [...context.inbox, event.decisionId] }),
       removeFromInbox: assign({
         inbox: ({ context, event }) => context.inbox.filter((d) => d !== event.decisionId)
@@ -379,7 +433,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
     }
   }).createMachine(withInput(specs.harness));
 
-  return { budget: budgetMachine, decision: decisionMachine, audit: auditMachine, workItem: workItemMachine, harness: harnessMachine };
+  return { budget: budgetMachine, decision: decisionMachine, audit: auditMachine, grant: grantMachine, workItem: workItemMachine, harness: harnessMachine };
 }
 
 export const machines = createMachines();

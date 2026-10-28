@@ -16,7 +16,7 @@ const sure = { choice: 'approve', confidence: 0.95, reason: 'simulated' };
 // person taps a card (ref: the card's message id), and the orchestrator sends the rest (requests and card posts included).
 const SESSIONS = { triager: 'sim-triager', worker: 'sim-worker', reviewer: 'sim-reviewer', 'stand-in': 'sim-stand-in' };
 export function scripted(type, ref = 'sim') {
-  const party = { TRIAGED: 'triager', RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CRITERION_CHECKED: 'reviewer', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
+  const party = { TRIAGED: 'triager', RUN_SUCCEEDED: 'worker', RUN_FAILED: 'worker', CRITERION_CHECKED: 'reviewer', CHECKS_PASSED: 'github', CHECKS_FAILED: 'github', MERGED: 'github', PERSON_DECIDED: 'person', PERSON_GRANTED: 'person', STAND_IN_ANSWERED: 'stand-in' }[type];
   if (SESSIONS[party]) return { actor: { kind: 'session', id: SESSIONS[party] }, source: { kind: 'cli', ref } };
   if (party === 'github') return { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref } };
   if (party === 'person') return { actor: { kind: 'person', id: 'sim-person' }, source: { kind: 'tap', ref }, relayedBy: 'sim-orchestrator' };
@@ -195,6 +195,14 @@ export async function contractStore(dir) {
   send({ type: 'TRIAGED', tier: 1, criteria: [] }, 'item:c-none', 'c-5');
   send({ type: 'REQUEST_RECEIVED', request: { id: 'c-build', project: 'sim' } }, undefined, 'c-6');
   send({ type: 'TRIAGED', tier: 0, criteria: ['it works'] }, 'item:c-build', 'c-7');
+  // The person's grant (plan, two-way doors, 8 hours) and a plan the stand-in decided under it.
+  send({ type: 'GRANT_ASKED' }, undefined, 'c-ask');
+  const checklist = store.pending().find((e) => e.name === 'postGrantCard');
+  ack(store, [checklist.id], { card: 'cmsg_checklist', by: scripted('CARD_POSTED'), now: now() });
+  send({ type: 'PERSON_GRANTED', picks: ['kind:plan', checklist.detail.options.find((o) => o.startsWith('until:') && o > `until:${new Date(clock + 36e5).toISOString()}`)] }, cardAddress(checklist), 'cmsg_checklist');
+  send({ type: 'REQUEST_RECEIVED', request: { id: 'c-granted', title: 'A plan under the grant', project: 'sim' } }, undefined, 'c-g1');
+  send({ type: 'TRIAGED', tier: 2, criteria: ['it works'] }, 'item:c-granted', 'c-g2');
+  send({ type: 'STAND_IN_ANSWERED', answer: { ...sure, reason: 'small, and the grant covers plans' } }, 'item:c-granted/decision:c-granted:plan:1', 'c-g3');
   send({ type: 'REQUEST_RECEIVED', request: { id: 'c-queued' } }, undefined, 'c-8');
   const picks = store.outbox().filter((e) => e.name === 'logPrecedent').slice(0, 2).map((e) => e.id);
   const day = now();

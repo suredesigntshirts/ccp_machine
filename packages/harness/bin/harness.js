@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
-import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody, renderLivePage } from '../src/index.js';
+import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, requestFromIssue, issueBody, renderLivePage, checklistFor } from '../src/index.js';
 const HELP = `harness <command> [options]
 
   help, --help, -h               show this help
@@ -21,7 +21,7 @@ const HELP = `harness <command> [options]
                                  a worker's run (RUN_SUCCEEDED, RUN_FAILED), from the worker's own
                                  session, --actor session:$CLAUDE_CODE_SESSION_ID --source cli:<ref> (a
                                  subagent's, which the plugin's call record names, needs neither),
-                                 a tap (PERSON_DECIDED, AUDIT_ANSWERED, nothing else) --actor person:<id>
+                                 a tap (PERSON_DECIDED, AUDIT_ANSWERED, PERSON_GRANTED, nothing else) --actor person:<id>
                                  --source tap:<the message id the card's ack recorded>,
                                  CI and merges come only from from-github (send refuses --actor github
                                  and --source github-wake). Any other event is sent as this
@@ -64,8 +64,15 @@ const HELP = `harness <command> [options]
                                  cards waiting on the person, pending effects, budget, doctor, the host's
                                  own handoff-notes.md, and the next actions; run at the end of each wake
   audit                          today's (UTC) stand-in audit: up to 3 decisions the stand-in made alone, picked
-                                 once a day (AUDIT_PICKED queues postAuditCard); prints its effect and card.
+                                 once a day (AUDIT_PICKED queues postAuditCard), decisions made under the
+                                 person's grant first; prints its effect, its card and every grant decision
+                                 since the last audit (granted), which the card lists too.
                                  The answer is a tap: AUDIT_ANSWERED {option: 0 all right, N reverse pick N}
+  send '{"type":"GRANT_ASKED"}'  when the person asks to set what the stand-in may decide: opens a checklist
+                                 card (postGrantCard; harness card prints it). The person's ticks are one tap,
+                                 PERSON_GRANTED {picks} to grant:<n>; it replaces any earlier grant, and nothing
+                                 else creates, widens or extends one (spec grant). The stand-in then decides
+                                 alone the two-way doors the grant names, and one-way doors only with its box
   answer <item> --approve|--reject --reason TEXT --confidence N
                                  answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
                                  decision (id standin-<subject>), ack the ask and log the precedent. Autonomy
@@ -139,8 +146,10 @@ const HELP = `harness <command> [options]
   scenarios [FILE...]            play golden event stories (default packages/harness/scenarios/*.json) on
                                  scratch stores and check each step; exits 1 on a failure
   card <effect-id> [--url U]     print request_decision arguments for a postDecisionCard or postAuditCard
-                                 effect; post it, ack it with --card <cmsg id>; a tap on option i is
-                                 PERSON_DECIDED {choice: choices[i]} (AUDIT_ANSWERED {option: i}) to address
+                                 effect, or the checklist of a postGrantCard effect; post it, ack it with
+                                 --card <cmsg id>; a tap on option i is PERSON_DECIDED {choice: choices[i]}
+                                 (AUDIT_ANSWERED {option: i}) to address, the checklist's ticks one
+                                 PERSON_GRANTED {picks: [ids]}
   page [--html FILE] [--title T] [--standalone] [--request-box]
                                  render mission control (default .harness/mission-control.html) and
                                  one page per item beside it (items/<id>.html), linked from its row,
@@ -529,7 +538,7 @@ try {
     case 'card': {
       const effect = store.outbox().find((e) => e.id === args[0]);
       if (!effect) throw new Error(`no effect ${args[0]}`);
-      print(effect.name === 'postAuditCard' ? auditCardFor(store, effect) : cardFor(effect, { itemUrl: o.url }));
+      print(effect.name === 'postAuditCard' ? auditCardFor(store, effect) : effect.name === 'postGrantCard' ? checklistFor(effect) : cardFor(effect, { itemUrl: o.url }));
       break;
     }
     case 'page': {
@@ -548,7 +557,8 @@ try {
       const file = o.html ?? `${o.dir}/mission-control.html`;
       mkdirSync(dirname(file), { recursive: true });
       const events = store.events();
-      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions: readDecisionLog(store) };
+      const decisions = readDecisionLog(store);
+      const records = { events, outbox: store.outbox(), acks: store.acks(), back: '../', sessions: readSessions(o.sessions), decisions };
       const metrics = Object.fromEntries(st.items.map((i) => [i.id, attentionText(attention(i, records))]));
       writeFileSync(file, renderPage(st, { events, pending: store.pending(), title: o.title, standalone: o.standalone, itemLinks: true, metrics, requestBox: o['request-box'], audits: openAudits(store) }));
       const items = st.items.map((item) => {
@@ -557,7 +567,7 @@ try {
         writeFileSync(path, renderItemPage(item, records));
         return itemHref(item.id);
       });
-      writeFileSync(join(dirname(file), 'decisions.html'), renderDecisionLog(readDecisionLog(store), { back: './' }));
+      writeFileSync(join(dirname(file), 'decisions.html'), renderDecisionLog(decisions, { back: './' }));
       print({ page: file, files: [...items, 'decisions.html'] });
       break;
     }

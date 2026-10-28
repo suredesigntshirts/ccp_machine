@@ -17,7 +17,10 @@
       { "type": "AUDIT_PICKED", "day": "2026-10-26", "picks": ["s1", "s2"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness audit" } },
       { "type": "AUDIT_PICKED", "day": "2026-10-27", "picks": ["s1", "s2", "s3", "s4"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness audit" } },
       { "type": "AUDIT_PICKED", "day": "today", "picks": ["s1"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness audit" } },
-      { "type": "AUDIT_PICKED", "day": "2026-10-28", "picks": ["s1"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" }
+      { "type": "AUDIT_PICKED", "day": "2026-10-28", "picks": ["s1"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "GRANT_ASKED", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "GRANT_ASKED", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "GRANT_GIVEN", "grant": { "card": "cmsg_card", "kinds": ["merge"], "oneWay": true, "until": "2099-01-01T00:00:00.000Z", "at": "2026-10-26T12:00:00Z" }, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } }
     ]
   },
   "budget": {
@@ -121,6 +124,22 @@
       { "type": "AUDIT_ANSWERED", "option": 1, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_other" }, "relayedBy": "host" },
       { "type": "AUDIT_ANSWERED", "option": 1, "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
       { "type": "AUDIT_ANSWERED", "option": 1, "actor": { "kind": "person", "id": "person" }, "source": { "kind": "cli", "ref": "cmsg_card" } }
+    ]
+  },
+  "grant": {
+    "inputs": [{ "id": "grant:1", "askedAt": "2026-10-26T12:00:00Z", "options": ["kind:plan", "kind:accept", "kind:merge", "one-way", "until:2026-10-26T14:00:00.000Z", "until:2026-10-26T20:00:00.000Z", "until:2026-10-27T12:00:00.000Z", "until:2026-10-29T12:00:00.000Z"] }],
+    "events": [
+      { "type": "CARD_POSTED", "card": "cmsg_card", "effect": "e1.0", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness ack" } },
+      { "type": "CARD_POSTED", "card": "cmsg_card", "effect": "e1.0", "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "CARD_POSTED", "card": "posted", "effect": "e1.0", "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness ack" } },
+      { "type": "PERSON_GRANTED", "picks": ["kind:plan", "until:2026-10-26T20:00:00.000Z"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "PERSON_GRANTED", "picks": ["kind:merge", "one-way", "until:2026-10-29T12:00:00.000Z"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "PERSON_GRANTED", "picks": ["kind:deploy", "until:2026-10-26T20:00:00.000Z"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "PERSON_GRANTED", "picks": ["kind:plan"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "PERSON_GRANTED", "picks": ["kind:plan", "until:2026-10-26T20:00:00.000Z", "until:2026-10-27T12:00:00.000Z"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_card" }, "relayedBy": "host" },
+      { "type": "PERSON_GRANTED", "picks": ["kind:plan", "until:2026-10-26T20:00:00.000Z"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "tap", "ref": "cmsg_other" }, "relayedBy": "host" },
+      { "type": "PERSON_GRANTED", "picks": ["kind:plan", "until:2026-10-26T20:00:00.000Z"], "actor": { "kind": "session", "id": "orchestrator" }, "source": { "kind": "cli", "ref": "harness send" } },
+      { "type": "PERSON_GRANTED", "picks": ["kind:plan", "until:2026-10-26T20:00:00.000Z"], "actor": { "kind": "person", "id": "person" }, "source": { "kind": "cli", "ref": "cmsg_card" } }
     ]
   }
 }

@@ -52,7 +52,10 @@ function row(e) {
     choice: d.choice ?? null,
     decidedBy: d.decidedBy ?? null,
     standIn: d.standIn ?? null,
-    autonomy: d.autonomy ?? d.standIn?.autonomy ?? null
+    autonomy: d.autonomy ?? d.standIn?.autonomy ?? null,
+    door: d.door ?? null,
+    authority: d.authority ?? null,
+    grant: d.authority === 'grant' ? d.grant ?? null : null
   };
 }
 

@@ -1,7 +1,7 @@
 {
   "id": "harness",
   "version": "0.1.0",
-  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit).",
+  "description": "The root actor, held by the orchestrator thread. Takes requests, keeps 2-4 items in flight within budget, and keeps the person's inbox. The orchestrator is the session that sent ORCHESTRATOR_STARTED last; items take its id from here. It also opens the day's stand-in audit (AUDIT_PICKED), once per day, as a child audit actor (spec audit). It holds the person's grant to the stand-in (context.grant, spec grant): GRANT_ASKED from a session opens a checklist card (a child grant actor, one open at a time: a new ask withdraws the unanswered one), and only the person's tap on that card, reported up as GRANT_GIVEN, sets or replaces the grant. Every decision the stand-in makes under a grant reports itself (DECIDED_UNDER_GRANT), and the harness keeps it in context.granted, one compact row each ({address, item, decisionClass, door, choice, confidence, reason, card, at}), so mission control and the daily audit list every one with its reason for the person to reverse.",
   "meta": {
     "actors": {
       "person": {
@@ -77,7 +77,11 @@
     "budgetMode": "normal",
     "orchestrator": null,
     "audited": [],
-    "wipLimitAtInit": null
+    "wipLimitAtInit": null,
+    "grant": null,
+    "grantAsks": 0,
+    "grantAsk": null,
+    "granted": []
   },
   "invoke": {
     "src": "budget",
@@ -126,6 +130,54 @@
         "actions": [
           {
             "type": "openAudit"
+          }
+        ]
+      }
+    ],
+    "GRANT_ASKED": [
+      {
+        "guard": {
+          "type": "unattested",
+          "params": {
+            "actor": "session"
+          }
+        },
+        "description": "Refused unless a session sends it: the session the person asked, to put the grant checklist in front of the person. Asking grants nothing: the card's options are the machine's (spec grant), and only the person's tap on it records a grant."
+      },
+      {
+        "actions": [
+          {
+            "type": "openGrantAsk"
+          }
+        ]
+      }
+    ],
+    "GRANT_GIVEN": [
+      {
+        "guard": {
+          "type": "fromOutside"
+        },
+        "description": "Sent by a grant actor when the person taps its checklist card; the same event from outside (any event with an actor) is refused. Nothing else creates, widens or extends a grant."
+      },
+      {
+        "actions": [
+          {
+            "type": "recordGrant"
+          }
+        ]
+      }
+    ],
+    "DECIDED_UNDER_GRANT": [
+      {
+        "guard": {
+          "type": "fromOutside"
+        },
+        "description": "Sent by a decision the stand-in decided under the person's grant; the same event from outside (any event with an actor) is refused, so no row is written for a decision the grant did not make."
+      },
+      {
+        "actions": [
+          {
+            "type": "recordGrantDecision"
           }
         ]
       }
