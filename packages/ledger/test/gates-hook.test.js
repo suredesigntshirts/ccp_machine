@@ -292,7 +292,12 @@ test('#64: the word merge in arguments, strings, jq filters or heredoc text is n
     `gh pr mer? 7 --repo o/r ${pin}`, `gh pr mer* 7 --repo o/r ${pin}`, `gh pr [m]erge 7 --repo o/r ${pin}`, `gh pr @(merge) 7 --repo o/r ${pin}`,
     `gh pr ~merge 7 --repo o/r ${pin}`, `gh pr -R{,} o/r merge 7 ${pin}`, `gh api repos/o/r/pulls/7/m* -X PUT -f sha=${HEAD}`,
     `gh api {-X,PUT} repos/o/r/pulls/7/m{e,}rge`, 'gh api repos/o/r/pulls/$N', 'gh api "$A" "$B"', `gh api "$P" -f sha=${HEAD}`,
-    'curl "$A" "$B"', `gh api "repos/o/r/pulls/7/m$@"`, 'gh api "x${a[@]}"','curl {-XPUT,} https://api.github.com/repos/o/r/pulls/7/m{e,}rge', 'wget $W'
+    'curl "$A" "$B"', `gh api "repos/o/r/pulls/7/m$@"`, 'gh api "x${a[@]}"','curl {-XPUT,} https://api.github.com/repos/o/r/pulls/7/m{e,}rge', 'wget $W',
+    // Round 3 (review 5683445725): a gh command that runs an argument as a command (codespace ssh), or may run one
+    // later or through git (config, repo clone), is not data: its text falls to the word rule.
+    'gh codespace ssh -c x -- gh pr merge 7', "gh codespace ssh -c x -- 'gh pr merge 7 --repo o/r'", 'gh codespace ssh -c x "gh pr merge 7"',
+    "gh codespace ssh -c x -- sh -c 'gh pr merge 7'", "gh config set editor 'gh pr merge 7 --repo o/r #'",
+    "gh repo clone o/r -- -c core.sshCommand='gh pr merge 7'", 'gh cs ssh -- gh pr merge 7'
   ]) denied(hook(s, bashInput(c), enforce), 'readableGitHubWrite', /gh pr merge <number>/, c);
 });
 
