@@ -168,11 +168,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   after it, and must show the red banner and no table for data whose `schemaVersion` it does not read. CI runs it
   and uploads the shots.
 - `src/repair.js`: `harness repair [--rebuild]` fixes only the safe faults: it drops a torn last line of a
-  log and clears a stale lock. With `--rebuild`, it also rebuilds a `state.json` that is ahead of
+  log and clears a stale lock. It holds the store's lock like every writer, so it is refused while another
+  writer holds it (`oneWriter` in SPEC.md). With `--rebuild`, it also rebuilds a `state.json` that is ahead of
   `events.jsonl` (a crash between the two writes) from the log, so the host can resend the lost event.
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
   `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, a writer held off by
-  the lock (refused, it writes nothing, and lands once the holder lets go), duplicates, torn lines and a slow mount.
+  the lock (refused, it writes nothing, and lands once the holder lets go), repair held off by a writer and a
+  writer held off by repair, two writers finding one stale lock, duplicates, torn lines and a slow mount.
 - `src/canary.js`: `harness canary` files the day's canary item (bump `canary/last.txt`, PR, CI,
   merge) once per UTC day, with no tier: its triager gives it tier 0. `harness canary --check` times each stage and exits 1 with one attention line
   when the canary failed or is not merged 2 hours after the request. The digest leads with the canary when

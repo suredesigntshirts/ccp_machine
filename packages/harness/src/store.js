@@ -1,7 +1,8 @@
 // A harness store on disk: one folder per harness. The snapshot is replaced whole on each write
 // (write a temp file, then rename); the event log, outbox and acks are append-only JSONL, so a
-// reader never sees half a write and nothing is edited in place. One writer at a time holds the lock.
-import { readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, unlinkSync, mkdirSync, existsSync, statSync } from 'node:fs';
+// reader never sees half a write and nothing is edited in place but by repair. Every writer, repair too, holds the
+// lock (harness meta.invariants oneWriter).
+import { readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, unlinkSync, mkdirSync, existsSync, statSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const STALE_LOCK_MS = 60_000;
@@ -82,10 +83,24 @@ export function openStore(dir) {
     withLock(fn) {
       const lock = file('lock');
       // Another writer can remove the lock between any two calls here, so a missing file is not an error.
+      let found;
       try {
-        if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) unlinkSync(lock);
+        found = statSync(lock);
       } catch (e) {
         if (e.code !== 'ENOENT') throw e;
+      }
+      // A stale lock is removed only by the writer that first claims that lock (a file named after its inode and
+      // time), so a writer that found it stale after another took the lock again cannot remove the new one.
+      if (found && Date.now() - found.mtimeMs > STALE_LOCK_MS) {
+        const claim = `lock.${found.ino}-${found.mtimeMs}`;
+        try {
+          closeSync(openSync(file(claim), 'wx'));
+        } catch {
+          throw new Error(`another writer holds ${lock}`); // rule: oneWriter
+        }
+        // Claims on earlier locks are no longer needed: each was broken before this lock was taken, over 60s ago.
+        for (const n of readdirSync(dir)) if (n.startsWith('lock.') && n !== claim) rmSync(file(n), { force: true });
+        rmSync(lock, { force: true });
       }
       let fd;
       try {

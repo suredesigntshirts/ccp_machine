@@ -48,8 +48,9 @@ test('a stale lock: the next writer takes over, doctor names it, repair clears i
   assert.ok((await problems(store, Date.now())).some((p) => /lock is older than 60s \(fix with harness repair\)/.test(p)));
   assert.deepEqual(repair(store).fixed, ['cleared a stale lock']);
   assert.deepEqual((await problems(store, Date.now())), []);
+  // Another lock left behind, by a later writer: it has a time of its own.
   closeSync(openSync(lock, 'w'));
-  utimesSync(lock, old, old);
+  utimesSync(lock, old + 1, old + 1);
   apply(store, req('a'));
   assert.equal(status(store).items.length, 1, 'a writer clears a stale lock itself');
 });
