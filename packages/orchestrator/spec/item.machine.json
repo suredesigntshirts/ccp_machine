@@ -1,0 +1,157 @@
+{
+  "id": "item",
+  "description": "One work item, issue to merged commit. The machine starts every piece of work as an invoked actor; context holds the handles each state hands the next; a state's meta.needs are the preconditions of entering it.",
+  "initial": "briefing",
+  "context": {
+    "issue": null,
+    "why": null,
+    "briefs": null,
+    "pr": null,
+    "verdict": null,
+    "decision": null,
+    "merge": null,
+    "builds": 0
+  },
+  "output": { "issue": "context.issue", "pr": "context.pr", "verdict": "context.verdict", "merge": "context.merge" },
+  "states": {
+    "briefing": {
+      "meta": { "needs": ["hasIssue"] },
+      "invoke": {
+        "id": "brief",
+        "src": "brief",
+        "input": { "issue": "context.issue", "why": "context.why" },
+        "onDone": { "target": "building", "actions": [{ "type": "set", "params": { "briefs": "event.output" } }] },
+        "onError": "replanning"
+      }
+    },
+    "building": {
+      "meta": { "needs": ["hasBriefs", "buildsLeft"] },
+      "invoke": {
+        "id": "build",
+        "src": "build",
+        "input": { "issue": "context.issue", "brief": "context.briefs.builder", "verdict": "context.verdict" },
+        "onDone": {
+          "target": "verifying",
+          "actions": [{ "type": "set", "params": { "pr": "event.output.pr" } }, { "type": "inc", "params": "builds" }]
+        },
+        "onError": "replanning"
+      },
+      "after": { "buildTimeout": "replanning" }
+    },
+    "verifying": {
+      "meta": { "needs": ["hasBriefs", "hasPr"] },
+      "invoke": {
+        "id": "verify",
+        "src": "verify",
+        "input": { "issue": "context.issue", "brief": "context.briefs.verifier", "pr": "context.pr" },
+        "onDone": [
+          { "target": "awaitingMerge", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
+          { "target": "building", "guard": "failed", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
+          { "target": "replanning", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] }
+        ],
+        "onError": "replanning"
+      },
+      "on": { "pr.pushed": { "target": "verifying", "reenter": true, "actions": [{ "type": "set", "params": { "pr.headSha": "event.headSha" } }] } }
+    },
+    "awaitingMerge": {
+      "meta": { "needs": ["verifiedHead"] },
+      "invoke": {
+        "id": "ask",
+        "src": "ask",
+        "input": { "question": { "value": "Merge this PR at the verified commit?" }, "choices": { "value": ["approve", "reject"] }, "pr": "context.pr", "verdict": "context.verdict" },
+        "onDone": [
+          { "target": "merging", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] },
+          { "target": "replanning", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] }
+        ],
+        "onError": "replanning"
+      },
+      "on": { "pr.pushed": { "target": "verifying", "actions": [{ "type": "set", "params": { "pr.headSha": "event.headSha" } }] } }
+    },
+    "merging": {
+      "meta": { "needs": ["verifiedHead", "approved"] },
+      "invoke": {
+        "id": "merge",
+        "src": "merge",
+        "input": { "pr": "context.pr", "sha": "context.verdict.sha" },
+        "onDone": { "target": "done", "actions": [{ "type": "set", "params": { "merge": "event.output" } }] },
+        "onError": "replanning"
+      }
+    },
+    "replanning": {
+      "invoke": {
+        "id": "ask",
+        "src": "ask",
+        "input": { "question": { "value": "This item stalled. Replan it with a written five whys, or drop it?" }, "choices": { "value": ["replan", "drop"] }, "verdict": "context.verdict" },
+        "onDone": [
+          {
+            "target": "briefing",
+            "guard": "replan",
+            "actions": [{ "type": "set", "params": { "why": "event.output.why", "builds": { "value": 0 }, "verdict": { "value": null } } }]
+          },
+          { "target": "dropped", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] }
+        ],
+        "onError": "dropped"
+      }
+    },
+    "done": { "type": "final", "meta": { "needs": ["isMerged"] } },
+    "dropped": { "type": "final" }
+  },
+  "meta": {
+    "guards": {
+      "hasIssue": ["context.issue.url", "context.issue.expect"],
+      "hasBriefs": ["context.briefs.builder", "context.briefs.verifier"],
+      "buildsLeft": [{ "path": "context.builds", "below": 2 }],
+      "hasPr": ["context.pr.branch", "context.pr.headSha"],
+      "failed": [{ "path": "context.verdict.result", "is": "FAIL" }],
+      "verifiedHead": [{ "path": "context.verdict.result", "is": "PASS" }, { "path": "context.verdict.sha", "same": "context.pr.headSha" }],
+      "approved": [{ "path": "context.decision.choice", "is": "approve" }],
+      "replan": [{ "path": "event.output.choice", "is": "replan" }, "event.output.why"],
+      "isMerged": ["context.merge.sha"]
+    },
+    "delays": { "buildTimeout": 3600000 },
+    "input": {
+      "type": "object",
+      "required": ["issue"],
+      "properties": {
+        "issue": {
+          "type": "object",
+          "required": ["url", "expect"],
+          "properties": { "url": { "type": "string", "minLength": 1 }, "expect": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } } }
+        }
+      }
+    },
+    "events": {
+      "pr.pushed": { "type": "object", "required": ["headSha"], "properties": { "headSha": { "$ref": "#sha" } } }
+    },
+    "actors": {
+      "brief": {
+        "type": "object",
+        "required": ["builder", "verifier"],
+        "properties": { "builder": { "type": "string", "minLength": 1 }, "verifier": { "type": "string", "minLength": 1 } }
+      },
+      "build": {
+        "type": "object",
+        "required": ["pr"],
+        "properties": {
+          "pr": {
+            "type": "object",
+            "required": ["branch", "headSha", "url"],
+            "properties": { "branch": { "type": "string", "minLength": 1 }, "headSha": { "$ref": "#sha" }, "url": { "type": "string", "minLength": 1 } }
+          }
+        }
+      },
+      "verify": {
+        "type": "object",
+        "required": ["result", "sha", "report"],
+        "properties": { "result": { "enum": ["PASS", "FAIL"] }, "sha": { "$ref": "#sha" }, "report": { "type": "string", "minLength": 1 } }
+      },
+      "ask": {
+        "type": "object",
+        "required": ["choice", "by"],
+        "properties": { "choice": { "type": "string" }, "by": { "type": "string", "minLength": 1 }, "why": { "type": "string" } }
+      },
+      "merge": { "type": "object", "required": ["sha"], "properties": { "sha": { "$ref": "#sha" } } }
+    },
+    "schemas": { "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" } }
+  }
+}
