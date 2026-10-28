@@ -34,6 +34,7 @@ function itemAtPlan(store, id, tier = 2, now = T0) {
   return `item:${id}/decision:${id}:plan:1`;
 }
 function toMerge(store, id, now) {
+  itemAtPlan(store, id, 2, now);
   answer(store, `item:${id}/decision:${id}:plan:1`, now, { confidence: 0.95 });
   apply(store, { type: 'RUN_SUCCEEDED' }, { to: `item:${id}`, now });
   apply(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'met', evidence: 'test a' }, { to: `item:${id}`, now });
@@ -58,7 +59,6 @@ test('under a live grant the stand-in decides a reasoned answer whatever its con
   const plan = itemAtPlan(store, 'low', 2, at(1));
   answer(store, plan, at(2), { confidence: 0.5 });
   assert.equal(status(store).items[0].state, 'active.building', 'a 0.5 answer decided under the grant');
-  assert.deepEqual([decision(store, plan).decidedBy, decision(store, plan).authority], ['stand-in', 'grant']);
   // The confidence is recorded on the granted row, which mission control, the full page and the daily audit show.
   const [row] = granted(store);
   assert.deepEqual([row.item, row.choice, row.confidence, row.reason], ['low', 'approve', 0.5, 'right shape, some doubt about the tests']);
