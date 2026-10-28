@@ -90,16 +90,28 @@ export function openStore(dir) {
         if (e.code !== 'ENOENT') throw e;
       }
       // A stale lock is removed only by the writer that first claims that lock (a file named after its inode and
-      // time), so a writer that found it stale after another took the lock again cannot remove the new one.
-      if (found && Date.now() - found.mtimeMs > STALE_LOCK_MS) {
-        const claim = `lock.${found.ino}-${found.mtimeMs}`;
-        try {
-          closeSync(openSync(file(claim), 'wx'));
-        } catch {
-          throw new Error(`another writer holds ${lock}`); // rule: oneWriter
+      // time), so a writer that found it stale after another took the lock again cannot remove the new one. A claim
+      // is stale on the same terms (its claimant crashed before it removed the lock), and is taken over the same way:
+      // by the writer that first claims the claim.
+      const stale = (s) => Date.now() - s.mtimeMs > STALE_LOCK_MS;
+      if (found && stale(found)) {
+        let claim = lock;
+        for (let s = found; ; ) {
+          claim += `.${s.ino}-${s.mtimeMs}`;
+          try {
+            closeSync(openSync(claim, 'wx'));
+            break;
+          } catch {}
+          try {
+            s = statSync(claim);
+          } catch {
+            s = null;
+          }
+          if (!s || !stale(s)) throw new Error(`another writer holds ${lock}`); // rule: oneWriter
         }
         // Claims on earlier locks are no longer needed: each was broken before this lock was taken, over 60s ago.
-        for (const n of readdirSync(dir)) if (n.startsWith('lock.') && n !== claim) rmSync(file(n), { force: true });
+        // This lock's claims (the start of this claim's name) stay, so a writer that found it stale is refused.
+        for (const n of readdirSync(dir)) if (n.startsWith('lock.') && !claim.startsWith(file(n))) rmSync(file(n), { force: true });
         rmSync(lock, { force: true });
       }
       let fd;
