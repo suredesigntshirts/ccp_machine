@@ -5,6 +5,10 @@
     "allow": [
       "Edit(/.claude/settings.json)",
       "Write(/.claude/settings.json)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)",
+      "Edit(~/.claude/settings.json)",
+      "Write(~/.claude/settings.json)",
       "mcp__claude-code-remote__list_events",
       "Bash(node /home/user/harness-archive/tools/salvage.mjs page:*)",
       "Bash(node /home/user/harness-archive/tools/salvage.mjs finalize:*)"
