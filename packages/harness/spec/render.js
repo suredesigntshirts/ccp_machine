@@ -51,7 +51,9 @@ function states(node, path = [], rows = []) {
   for (const [key, child] of Object.entries(node.states ?? {})) {
     const p = [...path, key];
     const tags = (child.tags ?? []).map((t) => `\`${t}\``).join(', ');
-    if (child.description || tags) rows.push(`- \`${p.join('.')}\`${tags ? ` (tags: ${tags})` : ''}${child.description ? `: ${child.description}` : ''}`);
+    // meta.waitsOn: the effect that stays pending while the actor is in this state; harness doctor flags it missing.
+    const waits = child.meta?.waitsOn ? ` (waits on a pending \`${child.meta.waitsOn}\`)` : '';
+    if (child.description || tags || waits) rows.push(`- \`${p.join('.')}\`${tags ? ` (tags: ${tags})` : ''}${waits}${child.description ? `: ${child.description}` : ''}`);
     states(child, p, rows);
   }
   return rows;
@@ -94,6 +96,8 @@ export function renderSpec() {
     const invariants = Object.entries(config.meta?.invariants ?? {});
     if (invariants.length)
       out.push('Host invariants (refused or denied outside the machines; every such site in the code names one of these or a guard):', '', ...invariants.map(([k, v]) => `- \`${k}\`: ${v}`), '');
+    // The host footer the merge gate and doctor tolerate after a verdict review (meta.reviewFooter).
+    if (config.meta?.reviewFooter) out.push(`Review footer (\`reviewFooter\`): ${JSON.stringify(config.meta.reviewFooter.text)}. ${config.meta.reviewFooter.description}`, '');
     // The store layout pages read (meta.store) and how pages refresh (meta.pages).
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
     if (config.meta?.pages)

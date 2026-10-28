@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { apply } from './runtime.js';
 import { prKey, prMap, itemOf } from './pr-binding.js';
 import { restFetcher, ghPath, SHA } from './github-read.js';
+import { specs } from './machines.js';
 
 /** PASS or FAIL, from a verdict's first non-empty line ("PASS", "Verdict: FAIL", "**PASS** ..."), else null. */
 export const verdictOf = (text) => /^[#>*\s]*(?:verdict\s*:\s*)?\**\s*(PASS|FAIL)\b/i.exec(String(text ?? '').trim().split('\n')[0] ?? '')?.[1]?.toUpperCase() ?? null;
@@ -14,6 +15,16 @@ const contextOf = (store, item) => store.read()?.snapshot.children?.[item]?.snap
 const pullPath = (key) => { const [repo, n] = key.split('#'); return `repos/${repo}/pulls/${n}`; };
 /** The item's latest VERDICT_GIVEN row for head `sha`, or null. */
 const verdictRow = (events, item, sha) => events.findLast((e) => itemOf(e.to) === item && e.event?.type === 'VERDICT_GIVEN' && e.event.sha === sha) ?? null;
+
+/**
+ * Review `r` carries the store's verdict `row` on `sha` (reviewOnHead): the review id the store holds, on that sha,
+ * COMMENTED, its body the stored text verbatim or followed by exactly the host's footer (harness meta.reviewFooter).
+ */
+const carries = (r, row, sha) => {
+  const body = String(r?.body ?? '').trim();
+  const text = String(row?.event.text ?? '').trim();
+  return r?.id === row?.event.review && r.commit_id === sha && r.state === 'COMMENTED' && (body === text || body === text + specs.harness.meta.reviewFooter.text);
+};
 
 /** POST JSON to a REST path with gh (by absolute path), or with fetch and GH_TOKEN when there is no gh. */
 export async function restPost(path, body, { gh = ghPath(), token = process.env.GH_TOKEN, fetchImpl = globalThis.fetch } = {}) {
@@ -76,14 +87,14 @@ export async function mergeGate(store, { pr, sha }, { fetcher = restFetcher } = 
   } catch (e) {
     return { allow: false, rule: 'reviewOnHead', item, why: `cannot read ${key}'s reviews from GitHub: ${e.message}` };
   }
-  const on = reviews.find((r) => r?.id === row?.event.review && r.commit_id === sha && r.state === 'COMMENTED' && String(r.body ?? '').trim() === String(row?.event.text ?? '').trim());
+  const on = reviews.find((r) => carries(r, row, sha));
   if (!on) return { allow: false, rule: 'reviewOnHead', item, why: `${key} carries no review ${row?.event.review ?? ''} on ${sha.slice(0, 7)} with the PASS verdict the store holds` };
   return { allow: true, item, why: `item ${item}'s verifier passed ${sha.slice(0, 7)}, and review ${on.id} carries it on that sha` };
 }
 
 /**
  * Doctor's audit: every PR bound to an item that GitHub says is merged needs the item's latest verdict on its merge
- * head to be PASS in the store, and a PASS review on GitHub on that sha. [{result: ok|problem|unreachable, pr, item, why?}]
+ * head to be PASS in the store, and GitHub to carry it as a review on that sha, compared as the merge gate does. [{result: ok|problem|unreachable, pr, item, why?}]
  */
 export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   const events = store.events();
@@ -94,9 +105,10 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
       if (p?.merged !== true) continue;
       const head = String(p.head?.sha ?? '');
       const why = [];
-      if (verdictRow(events, item, head)?.event.verdict !== 'PASS') why.push(`the store holds no verifier PASS for its merge head ${head.slice(0, 7)}`);
+      const row = verdictRow(events, item, head);
+      if (row?.event.verdict !== 'PASS') why.push(`the store holds no verifier PASS for its merge head ${head.slice(0, 7)}`);
       const reviews = [].concat(await fetcher(`${pullPath(key)}/reviews?per_page=100`));
-      if (!reviews.some((r) => r?.commit_id === head && verdictOf(r.body) === 'PASS')) why.push(`GitHub has no PASS review on ${head.slice(0, 7)}`);
+      if (!reviews.some((r) => carries(r, row, head))) why.push(`GitHub has no PASS review on ${head.slice(0, 7)} carrying the verdict the store holds`);
       out.push({ result: why.length ? 'problem' : 'ok', pr: key, item, ...(why.length && { why: why.join('; ') }) });
     } catch (e) {
       out.push({ result: 'unreachable', pr: key, item, why: e.message });
