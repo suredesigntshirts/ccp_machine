@@ -43,7 +43,8 @@ function waitingOnNothing(snapshot, pending, src = 'harness', path = []) {
  * verify-facts with `fetcher`, and every merged PR of an item against its verifier's PASS (gates.js verifyMerges).
  * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
  * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable, warnings
- * (an untested class) and admittedThen (events the rules have changed for since they were written) leave `ok` true.
+ * (an untested class), admittedThen (events the rules have changed for since they were written) and recoveredStarts
+ * (agents whose window starts at a first start recovered from their transcript) leave `ok` true.
  * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], checked: object}>}
  */
 export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, ledgers, fetcher, verify = true, refreshes } = {}) {
@@ -98,8 +99,10 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   const merges = verify ? await verifyMerges(store, fetcher ? { fetcher } : {}) : [];
   for (const r of merges.filter((r) => !['ok', 'outOfBand'].includes(r.result))) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
   // Work done outside the gates (history.schema.json OUT_OF_BAND): listed, never a problem by itself.
+  // Agents whose window starts at a first start recovered from their session's transcript (history AGENT_STARTED): listed.
+  const recoveredStarts = actors.filter((r) => r.recovered).map((r) => `${r.id} started ${r.recovered.at} (recovered from ${r.recovered.ref}${r.recovered.line ? ` line ${r.recovered.line}` : ''}), before its hook record ${r.recovered.hooked}`);
   const outOfBandRows = outOfBand(events).map(
     (o) => `${o.id}: ${o.what} (${[o.pr && prKey(o.pr), o.to, o.sha && `at ${o.sha.slice(0, 7)}`].filter(Boolean).join(' ')}), ordered by ${o.orderedBy.kind}:${o.orderedBy.id}, skipped ${o.skipped.join(', ')}`
   );
-  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, admittedThen, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
+  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, admittedThen, recoveredStarts, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
 }

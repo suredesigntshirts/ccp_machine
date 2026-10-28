@@ -131,6 +131,18 @@
       "WORKER_SPAWNED": { "v": 1, "required": ["role"] },
       "WORKER_STARTED": { "v": 1 },
       "WRAP_UP": { "v": 1 },
+      "AGENT_STARTED": {
+        "v": 1,
+        "required": ["agent", "agentType"],
+        "description": "An agent's first start where the SubagentStart hook's record lost it: a resume before #82 rewrote the record with a later time (#50). History only, recovered from the session transcript the platform kept (the from line points at it); no machine takes it. harness verify-actors starts the agent's window at it when it is earlier than every start a hook recorded, never later, and harness doctor lists each one it used (recoveredStarts). Rows live in scripts/history/recovered/, which doctor reads for every store, since an agent id names one agent anywhere.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "agent": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+            "agentType": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
       "OUT_OF_BAND": {
         "v": 1,
         "required": ["orderedBy", "message", "what", "skipped"],

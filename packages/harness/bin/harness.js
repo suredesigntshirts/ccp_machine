@@ -150,6 +150,8 @@ const HELP = `harness <command> [options]
                                  GitHub unreachable or a ledger not filed for a session's event under 10
                                  minutes old is listed as unverifiable, exit 0. An event the rules changed
                                  for since it was written is listed as admittedThen, with its release, exit 0.
+                                 An agent whose window starts at a first start recovered from its session's
+                                 transcript (history AGENT_STARTED) is listed as recoveredStarts, exit 0.
                                  --refreshes: a page's refresh rows (ArtifactData out_dir or list text);
                                  each one slower than the spec's refreshSlowMs is a warning
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also

@@ -2,7 +2,7 @@
 // reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), placeholders()
 // counts the legacy values doctor reports, factKey() and dedupe() apply its identity rules, and checkLogNeeds()
 // holds a history to a view's needs file. The schema is a subset of JSON Schema, and so is the checker below.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { specs } from './machines.js';
 
 export const HISTORY = JSON.parse(readFileSync(new URL('../spec/history.schema.json', import.meta.url), 'utf8'));
@@ -79,6 +79,14 @@ export function placeholders(rows) {
     }
   return out;
 }
+
+// History no store recorded, recovered from transcripts, GitHub or the Library and shipped with the code
+// (scripts/history/recovered/*.jsonl). Only rows that are valid history rows are read.
+const RECOVERED = new URL('../scripts/history/recovered/', import.meta.url);
+export const recoveredRows = () =>
+  readdirSync(RECOVERED).filter((f) => f.endsWith('.jsonl')).sort()
+    .flatMap((f) => readFileSync(new URL(f, RECOVERED), 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l)))
+    .filter((r) => !validate(r).length);
 
 /** The out-of-band rows, for doctor to list: who ordered what, by which message, skipping which gates. */
 export const outOfBand = (rows) => rows.filter((r) => r.event.type === 'OUT_OF_BAND').map((r) => ({ id: r.id, at: r.at, to: r.to, ...r.event }));

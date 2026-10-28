@@ -33,11 +33,11 @@ test('C5: it covers every era and origin, one placeholder of each kind, an out-o
   assert.ok(dedupe(rows).dropped.length >= 1, 'no fact from two sources');
 });
 
-test('C2: the schema declares every event the machines take, and nothing the machines do not, but OUT_OF_BAND', () => {
+test('C2: the schema declares every event the machines take, and nothing the machines do not, but the history-only OUT_OF_BAND and AGENT_STARTED', () => {
   const taken = eventsWhere(() => true);
   const declared = new Set(Object.keys(HISTORY.events.types));
   for (const t of taken) assert.ok(declared.has(t), `the machines take ${t}, which history.schema.json does not declare`);
-  for (const t of declared) assert.ok(taken.has(t) || t === 'OUT_OF_BAND', `history.schema.json declares ${t}, which no machine takes`);
+  for (const t of declared) assert.ok(taken.has(t) || ['OUT_OF_BAND', 'AGENT_STARTED'].includes(t), `history.schema.json declares ${t}, which no machine takes`);
   for (const [t, d] of Object.entries(HISTORY.events.types)) assert.equal(d.v, 1, `${t} is at v${d.v} with no declared conversion`);
 });
 

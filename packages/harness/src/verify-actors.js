@@ -6,6 +6,7 @@
 // SubagentStart hook's record beside its session's ledger. It reads the log and the ledgers only, and never writes.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { recoveredRows } from './history.js';
 
 /** Where the Stop hook files session ledgers (HARNESS_LIBRARY_DIR as plugins/harness/scripts/host.js reads it). */
 export const ledgerDir = () => join(process.env.HARNESS_LIBRARY_DIR ?? '/mnt/project-files/harness', 'ledger', 'sessions');
@@ -31,9 +32,13 @@ const within = (rows, start, end, toleranceMs, base) => {
  * is checked against the SubagentStart hook's record, <dir>/<session_id>/agents/<agent_id>.json: its window runs
  * from the agent's earliest recorded start (that record's, or its bind's start call <dir>/<session_id>/calls/
  * start-<agent_id>.json, whichever is earlier) to its session's last filed turn, and its agent_type must be the
- * recorded one.
+ * recorded one. A first start recovered from the session's transcript (an AGENT_STARTED row in `starts`: by default the
+ * recovered rows shipped in scripts/history/recovered/ and the store's own) starts the window when it is earlier still,
+ * and the result names it (recovered: {at, ref, line}) for doctor to list.
  */
-export function verifyActors(store, { dir = ledgerDir(), toleranceMs = WINDOW_TOLERANCE_MS } = {}) {
+export function verifyActors(store, { dir = ledgerDir(), toleranceMs = WINDOW_TOLERANCE_MS, starts = [...recoveredRows(), ...store.events()] } = {}) {
+  const firstStart = new Map();
+  for (const r of starts) if (r.event?.type === 'AGENT_STARTED' && !(Date.parse(firstStart.get(r.event.agent)?.at) <= Date.parse(r.at))) firstStart.set(r.event.agent, r);
   const byActor = new Map();
   for (const row of store.events())
     if (['session', 'agent'].includes(row.actor?.kind)) byActor.set(`${row.actor.kind}:${row.actor.id}`, [...(byActor.get(`${row.actor.kind}:${row.actor.id}`) ?? []), row]);
@@ -54,8 +59,11 @@ export function verifyActors(store, { dir = ledgerDir(), toleranceMs = WINDOW_TO
       if (session?.sessionId !== sid || !(Date.parse(session.end) >= Date.parse(session.start))) return no(`no ${join(dir, `${sid}.json`)} holding its session's window`);
       // The bind's start call (plugin agent-actor.js) is the other hook record of this agent's start.
       const call = readJson(join(dir, sid, 'calls', `start-${aid}.json`));
-      const started = call?.kind === 'start' && call.sessionId === sid && call.agent === `${sid}/${aid}` && Date.parse(call.at) < Date.parse(record.at) ? call.at : record.at;
-      return within(rows, started, session.end, toleranceMs, base);
+      const hooked = call?.kind === 'start' && call.sessionId === sid && call.agent === `${sid}/${aid}` && Date.parse(call.at) < Date.parse(record.at) ? call.at : record.at;
+      // A resume before #82 rewrote some records later: a first start recovered from the transcript is earlier (AGENT_STARTED).
+      const found = firstStart.get(id);
+      const recovered = found && Date.parse(found.at) < Date.parse(hooked) ? { at: found.at, hooked, ref: found.provenance?.from?.ref ?? 'the store', line: found.provenance?.from?.line ?? null } : null;
+      return { ...within(rows, recovered?.at ?? hooked, session.end, toleranceMs, base), ...(recovered && { recovered }) };
     }
     if (!SAFE.test(String(id))) return { ...base, result: 'no ledger', why: 'the id cannot name a ledger file' };
     const file = join(dir, `${id}.json`);

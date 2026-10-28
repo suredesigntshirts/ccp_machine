@@ -91,14 +91,20 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
   each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted;
-  with `--outbox <source outbox.jsonl>`, each row takes the route its logged effects took, as replay does),
+  with `--outbox <source outbox.jsonl>`, each row takes the route its logged effects took, as replay does; a
+  join of a store whose rules changed since needs it: without it, every row takes today's route, and on dogfood2
+  after #83 one later row finds no decision and is refused),
   and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
   An OUT_OF_BAND row is history only (no machine takes it), so the replay lists it among the rows today's rules
   refuse (`admittedThen`).
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
   `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
-  GitHub record. Join it with dogfood2's extracted rows.
+  GitHub record. Join it with dogfood2's extracted rows. `recovered/dogfood.jsonl` holds the first starts of the
+  two agents of the retired dogfood store whose SubagentStart records a resume rewrote before #82 (#50):
+  `AGENT_STARTED` rows read from the lead session's transcript in the archive
+  (`sessions/session_01KfkB5JrJtRHxr12jv9nkHq/events.jsonl.gz`, the platform's `background_tasks_changed` line
+  that launched each agent). verify-actors reads every recovered `AGENT_STARTED` row, whatever the store.
   Point them at a copy of a store, never the live one. `test/history-tracer.test.js` runs both on the golden
   history and, when `HARNESS_DOGFOOD2_DIR` names a store, on a copy of it.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":
@@ -284,7 +290,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (`ledger/sessions/<session_id>/agents/<agent_id>.json`): `ok`, `no record` (no such subagent started in that
   session, another agent_type, or no session ledger yet) or `outside window` (before the subagent started or
   after the session's last filed turn). The start is the earliest one a hook recorded: that record's `at`, or the
-  bind's call record `ledger/sessions/<session_id>/calls/start-<agent_id>.json`. It exits 1 on any failure and never writes; run it once the sessions'
+  bind's call record `ledger/sessions/<session_id>/calls/start-<agent_id>.json`, or an earlier first start
+  recovered from the session's transcript (an `AGENT_STARTED` history row in `scripts/history/recovered/` or the
+  store, where a resume before #82 rewrote the record), which `harness doctor` lists as `recoveredStarts` with
+  the archive file and line. A recovered start only moves a window earlier. It exits 1 on any failure and never writes; run it once the sessions'
   turns have ended.
 - Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
   stand-in answerers by actor, a session or an agent (a subagent), and refuses an event from an actor that
