@@ -122,7 +122,8 @@ export function dedupe(rows) {
 
 /**
  * Everything that breaks a log view's needs file against the schema and, given rows, against a history: each line
- * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each.
+ * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each: every row
+ * of the type must carry each field, as a value or a legacy placeholder, and at least one row a value.
  */
 export function checkLogNeeds(needs, rows) {
   const out = [];
@@ -134,7 +135,11 @@ export function checkLogNeeds(needs, rows) {
   for (const [type, fields] of Object.entries(needs.events)) {
     const of = rows.filter((r) => type === '*' || r.event.type === type);
     if (!of.length) { say(`reads ${type} events, and this history has none`); continue; }
-    for (const f of fields) if (!of.some((r) => get(r, f) !== undefined && !isLegacy(get(r, f)))) say(`reads ${type} field ${f}, which no ${type} event in this history has`);
+    for (const f of fields) {
+      const lack = of.filter((r) => get(r, f) === undefined).map((r) => r.id);
+      if (!of.some((r) => get(r, f) !== undefined && !isLegacy(get(r, f)))) say(`reads ${type} field ${f}, which no ${type} event in this history has`);
+      else if (lack.length) say(`reads ${type} field ${f}, which ${lack.length === 1 ? 'row' : 'rows'} ${lack.join(', ')} ${lack.length === 1 ? 'lacks' : 'lack'}`);
+    }
   }
   return out;
 }

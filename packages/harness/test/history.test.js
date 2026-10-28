@@ -108,6 +108,9 @@ test('C3: every log view declares what it reads, and the golden history has all 
 test('C3: a field a view reads that the history lacks fails, naming the view and the field', () => {
   const rows = golden().map((r) => (r.event.type === 'WORKER_SPAWNED' ? { ...r, event: { ...r.event, model: undefined } } : r));
   assert.deepEqual(checkPage('ledger', { history: rows }), ['ledger: reads WORKER_SPAWNED field event.model, which no WORKER_SPAWNED event in this history has']);
+  // One row without a field its view reads fails too, naming the row; a placeholder there would be counted, not missing.
+  const one = golden().map((r) => (r.id === 'run-issue36' ? { ...r, event: { ...r.event, pr: undefined } } : r));
+  assert.deepEqual(checkPage('ledger', { history: one }), ['ledger: reads RUN_SUCCEEDED field event.pr, which row run-issue36 lacks']);
   const needs = structuredClone(loadNeeds('design-log'));
   needs.events.DECISION_TAKEN = ['at'];
   assert.ok(checkLogNeeds(needs).includes('design-log: reads DECISION_TAKEN, which history.schema.json does not declare'));

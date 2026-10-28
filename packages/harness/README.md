@@ -67,6 +67,14 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   fixture) and fails naming the page and the missing piece: a spec state or event a page names, a field no row of
   its kind has, a field the renderer reads that the needs file does not declare, or a view state missing from the
   needs spec list.
+- `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
+  with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
+  `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
+  `meta.sources`, `placeholders` and `outOfBand` list what doctor will report, and `dedupe` applies the identity
+  rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
+  design log) declares the event types and fields it reads instead of state fields, and `checkPage` holds it to the
+  schema and, given rows, to that history. `test/history.test.js` checks all of it against the golden history,
+  `test/fixtures/history-golden/events.jsonl`.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":
   the request (`request.expect` if given, else its title), triage's criteria each with its latest check,
   how it ended (state, CI, acceptance, PR),

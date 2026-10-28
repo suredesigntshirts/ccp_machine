@@ -436,6 +436,7 @@ Events: Every event type the history holds, with its current version and the pay
 - `REASK_UNDER_GRANT` v1, needs `decision`
 - `REQUEST_RECEIVED` v1, needs `request`
 - `STAND_IN_ANSWERED` v1, needs `answer`
+- `SPAWN_CLOSED` v1, needs `toolUseId`
 - `TRIAGED` v1, needs `tier`
 - `VERIFIER_BRIEF_FIXED` v1, needs `sha256`
 - `WIP_SET` v1, needs `limit`

@@ -119,6 +119,7 @@
       "STAND_IN_ANSWERED": { "v": 1, "required": ["answer"] },
       "STAND_IN_FAILED": { "v": 1 },
       "STAND_IN_RECORDED": { "v": 1 },
+      "SPAWN_CLOSED": { "v": 1, "required": ["toolUseId"] },
       "START": { "v": 1 },
       "TICK": { "v": 1 },
       "TRIAGED": { "v": 1, "required": ["tier"] },
