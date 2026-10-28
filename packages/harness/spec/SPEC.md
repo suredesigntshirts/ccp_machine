@@ -407,3 +407,35 @@ Refused (nothing changes and nothing is written):
 Effects and context updates: `addToInbox`, `openAudit`, `openGrantAsk`, `publishDigest`, `recordBudgetMode`, `recordGrant`, `recordGrantDecision`, `recordMessageGrant`, `recordOrchestrator`, `recordWipLimit`, `releaseSlot`, `removeFromInbox`, `spawnWorkItem`, `startReadyItems`, `wrapUpInFlight`
 
 Guards: `auditOverreaches`, `fromOutside`, `inboxEmpty`, `messageGrantOverreaches`, `modeIs`, `notFromOrchestrator`, `requestOverreaches`, `unattested`, `wipOutOfRange`
+
+## History (schema v1)
+
+One row of the one history (epic #59): today's event envelope plus where the row came from (provenance). Every row from every era (main, dogfood, dogfood2, sessions, GitHub, the live runtime) has this shape. A field that could not be recovered holds a legacy placeholder, never an invented value, and provenance.placeholders lists its path. Rows are never edited: a format change adds an event version and a declared conversion. src/history.js reads this file; nothing restates it.
+
+Provenance: `origin` is one of `live`, `migrated`, `recovered`. live: the runtime wrote it into this history. migrated: copied from an older store, upcast. recovered: reconstructed from a session transcript, GitHub or the Library, where no store recorded it. `from.source` is one of `store`, `session`, `github`, `library`, `artifact`. Paths in this row (actor, harness, event.sha, ...) that hold a legacy placeholder. Exactly those, no more and no fewer. A placeholder for a value that could not be recovered.
+
+Events: Every event type the history holds, with its current version and the payload fields it needs to mean anything (a weak schema: the rest are optional, because eras differ). Every type the machines take is here, and OUT_OF_BAND records work done outside the gates. A version above 1 needs a declared conversion from each earlier one.
+
+- `CARD_POSTED` v1, needs `card`
+- `CHECKS_FAILED` v1, needs `pr`
+- `CHECKS_PASSED` v1, needs `pr`
+- `CRITERION_CHECKED` v1, needs `criterion`, `verdict`
+- `MERGED` v1, needs `pr`
+- `PERSON_DECIDED` v1, needs `choice`
+- `REQUEST_RECEIVED` v1, needs `request`
+- `STAND_IN_ANSWERED` v1, needs `answer`
+- `TRIAGED` v1, needs `tier`
+- `VERIFIER_BRIEF_FIXED` v1, needs `sha256`
+- `WIP_SET` v1, needs `limit`
+- `WORKER_SPAWNED` v1, needs `role`
+- `OUT_OF_BAND` v1, needs `orderedBy`, `message`, `what`, `skipped`: Work done outside the gates on someone's order (a merge by hand on the person's say-so, #46 and #52). It is history, never a reason for a new store: who ordered it, the message that did, what was done and which gates or states were skipped. harness doctor lists every one.
+
+Identity: How the merger knows two rows describe one fact (C4). The first rule whose types include the row's type gives its key: the values at the listed paths, joined. A row missing any key path keeps a key of its own and is never merged. Of rows with one key, the one whose provenance.from.source is the rule's owner is kept (else the earliest), and the others' from go to its provenance.also. Rows with one key that disagree on a payload field both have are a conflict the merger reports, never merges silently.
+
+- merge (`MERGED`): key `event.pr`, owner github. A PR merges once; GitHub owns that fact.
+- checks (`CHECKS_PASSED`, `CHECKS_FAILED`): key `event.type` + `event.pr` + `event.sha`, owner github. CI on one head of one PR; GitHub owns it.
+- request (`REQUEST_RECEIVED`): key `event.request.id`, owner store. An item id is filed once.
+- decision (`STAND_IN_ANSWERED`, `CARD_POSTED`, `PERSON_DECIDED`): key `event.type` + `to`, owner store. The decision address is item + class + attempt; the store owns machine decisions.
+- spawn (`WORKER_SPAWNED`): key `event.toolUseId`, owner store. One Agent tool call is one spawn.
+- out-of-band (`OUT_OF_BAND`): key `event.message` + `event.what`, owner session. The order is a message the session read.
+- otherwise: key `provenance.from.ref` + `id`. Any other row is its own fact within its source.
