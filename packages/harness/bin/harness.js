@@ -81,9 +81,10 @@ const HELP = `harness <command> [options]
                                  time). "Stop asking" is every kind:<class> and one-way. It replaces any earlier
                                  grant; verify-taps lists it with its message id
   answer <item> --approve|--reject --reason TEXT --confidence N
-                                 answer the item's pending stand-in question: send STAND_IN_ANSWERED to its
-                                 decision (id standin-<ask's effect id>, so a re-ask's answer is new and a
-                                 retried call a duplicate, which acks nothing), ack the ask and log the precedent. Autonomy
+                                 answer the pending stand-in question of the item's live decision (never an
+                                 ask left by a stopped one): send STAND_IN_ANSWERED to that decision (id
+                                 standin-<ask's effect id>, so a re-ask's answer is new and a retried call a
+                                 duplicate, which acks nothing), ack the ask and log the precedent. Autonomy
                                  and threshold are the decision's; only the stand-in may answer, never the
                                  orchestrator or the item's worker; it decides an accept alone only when
                                  every criterion was checked met (expectationsMet), else the person does

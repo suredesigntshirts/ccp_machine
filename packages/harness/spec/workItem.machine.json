@@ -481,7 +481,13 @@
           },
           "exit": [
             {
-              "type": "withdrawDecision"
+              "type": "withdrawDecision",
+              "params": {
+                "closes": [
+                  "askStandIn",
+                  "postDecisionCard"
+                ]
+              }
             }
           ]
         },
@@ -864,7 +870,7 @@
           "description": "expectationsMet is true only when every criterion's latest CRITERION_CHECKED says met, with evidence, from an actor who is neither the orchestrator nor one of the item's workers now. Unmet, unclear, unchecked or no criteria are not met. The accept decision opens with the answer, and when it is false the stand-in cannot decide it, so the person does."
         },
         "awaitingAcceptance": {
-          "description": "Evidence against each acceptance criterion: is the work doing what the person expected? A criterion checked now takes the item back through acceptGate, which withdraws this decision and opens a new one with the new answer.",
+          "description": "Evidence against each acceptance criterion: is the work doing what the person expected? A criterion checked now is recorded; when it leaves expectationsMet as the open decision has it, that decision stays open, its ask and card as they are. Only a check that changes expectationsMet takes the item back through acceptGate, which withdraws this decision and opens a new one with the new answer, so N checks open at most one new decision per change and leave one live decision. Leaving this state withdraws the decision (withdrawDecision), and withdrawing closes the decision's pending askStandIn and postDecisionCard effects (params closes; outcome withdrawn, harness meta.store closes), so no ask is left that no decision can take. Only a check received at or after since (when this rule came in: issue #84) can keep the decision; an older one always went back through acceptGate, the rule it was logged under, so replay routes an older log as it was routed.",
           "tags": [
             "gated"
           ],
@@ -942,6 +948,19 @@
                   "type": "checkOverreaches"
                 },
                 "description": "Refused unless criterion is one of the item's criteria, verdict is met, unmet or unclear, and a met verdict carries evidence (a non-empty string)."
+              },
+              {
+                "guard": {
+                  "type": "expectationsUnchanged",
+                  "params": {
+                    "since": "2026-10-28T16:10:00.000Z"
+                  }
+                },
+                "actions": [
+                  {
+                    "type": "recordCheck"
+                  }
+                ]
               },
               {
                 "target": "acceptGate",
@@ -1033,7 +1052,13 @@
           },
           "exit": [
             {
-              "type": "withdrawDecision"
+              "type": "withdrawDecision",
+              "params": {
+                "closes": [
+                  "askStandIn",
+                  "postDecisionCard"
+                ]
+              }
             }
           ]
         },
@@ -1192,7 +1217,13 @@
           },
           "exit": [
             {
-              "type": "withdrawDecision"
+              "type": "withdrawDecision",
+              "params": {
+                "closes": [
+                  "askStandIn",
+                  "postDecisionCard"
+                ]
+              }
             }
           ]
         },

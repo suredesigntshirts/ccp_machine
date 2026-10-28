@@ -8,7 +8,9 @@ else the item's machine holds is refused. A triager, who is not the requester, t
 sends `TRIAGED {tier, criteria}`; until it does, nothing leaves triage, and with no criteria the item waits
 for the person (`needsCriteria`, tagged `needs-human`) and only a cancel ends it. A reviewer, who is neither
 the orchestrator nor a worker, sends `CRITERION_CHECKED {criterion, verdict, evidence}` per criterion; a new
-build clears them. An item with a verifier brief leaves verifying only when CI has passed and the verifier's
+build clears them. A check while the accept decision is open keeps that decision when it leaves
+`expectationsMet` as the decision has it, and reopens it once when it changes it (spec workItem,
+`awaitingAcceptance`), so N checks leave one live accept decision and one pending ask. An item with a verifier brief leaves verifying only when CI has passed and the verifier's
 verdict is recorded for the same head, in either order (spec workItem, `verifying`), so the verifier's checks
 count before the accept decision opens. A FAIL verdict sends the item back to building, keeping its roles,
 workers and verifier brief hash, so the same builder reports its next round's run and a verifier with the
@@ -23,6 +25,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `test/spec.test.js` fails when a name in the JSON has no implementation here, or the other way round.
 - `src/runtime.js`: the backend-workflow loop. Every wake restores the root actor from the store,
   applies one event, persists, and queues the effects that event asked for. Event ids make it idempotent.
+  A machine closes its own pending effects the same way (harness `meta.store` closes): when an item stops a
+  decision that has not decided, the decision's pending `askStandIn` and `postDecisionCard` are acked in the
+  same write, outcome `withdrawn`, so the outbox keeps no ask that no decision can take (#84).
   An event the addressed actor would not take (`snapshot.can`) is refused: nothing is written and the
   result says `refused: <EVENT> in <state>`. An item's PR is bound once, by the first event that names it
   (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a

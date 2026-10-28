@@ -76,6 +76,10 @@ const spentShare = (c, u) => u.spentToday / c.dailyShare;
 
 const isText = (s) => typeof s === 'string' && s.trim() !== '';
 export const VERDICTS = ['met', 'unmet', 'unclear'];
+// The item's checks with event e's check recorded.
+const withCheck = (c, e) => ({ ...c.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } });
+// The effect a machine sends to close its own pending effects of one subject (harness meta.store closes); the runtime carries it out.
+export const CLOSE_EFFECTS = 'closeEffects';
 /** Every criterion's latest check says met, with evidence, from neither the orchestrator nor a worker on the item now. */
 export const expectationsMet = ({ context: c }) =>
   c.criteria.length > 0 &&
@@ -335,6 +339,10 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       checkOverreaches: ({ context, event: e }) =>
         !context.criteria.includes(e.criterion) || !VERDICTS.includes(e.verdict) || (e.verdict === 'met' && !isText(e.evidence)) || (e.evidence != null && typeof e.evidence !== 'string'),
       expectationsMet,
+      // The check, once recorded, leaves expectationsMet as the open accept decision has it (recorded when acceptGate opened
+      // it). A check received before since reopened the decision whatever it changed, the rule it was logged under.
+      expectationsUnchanged: ({ context: c, event: e }, { since }) =>
+        !(Date.parse(e.receivedAt) < Date.parse(since)) && expectationsMet({ context: { ...c, checks: withCheck(c, e) } }) === (c.expectationsMet === true),
       retriesLeft: ({ context }, params) => context.retries < params.max,
       tierBelow: ({ context }, params) => typeof context.tier === 'number' && context.tier < params.tier,
       choiceIs: ({ event }, params) => event.choice === params.choice
@@ -343,7 +351,7 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       recordOrchestrator: assign({ orchestrator: ({ event }) => event.orchestrator }),
       ...workerActions,
       recordTriage: assign(({ context, event }) => ({ tier: event.tier, criteria: [...new Set(event.criteria ?? [])], checks: {}, triagers: asSession(context.triagers, event.actor) })),
-      recordCheck: assign(({ context, event: e }) => ({ checks: { ...context.checks, [e.criterion]: { verdict: e.verdict, evidence: e.evidence ?? '', by: e.actor?.id ?? null } }, checkers: asSession(context.checkers, e.actor) })),
+      recordCheck: assign(({ context, event: e }) => ({ checks: withCheck(context, e), checkers: asSession(context.checkers, e.actor) })),
       recordAnswerer: assign({ answerers: ({ context, event }) => [...new Set([...(context.answerers ?? []), event.by])] }),
       clearChecks: assign({ checks: {}, checksPassed: null }),
       recordExpectations: assign((_, params) => ({ expectationsMet: params.met })),
@@ -366,8 +374,12 @@ export function createMachines(sink = () => {}, { rung } = {}) {
       forwardReask: enqueueActions(({ enqueue, context, event }) => {
         if (context.decisionId && context.decisionId === event.decision) enqueue.sendTo(context.decisionId, { type: 'REASK_UNDER_GRANT' });
       }),
-      withdrawDecision: enqueueActions(({ enqueue, context }) => {
-        if (context.decisionId) enqueue.stopChild(context.decisionId);
+      // params.closes: a decision stopped before it decided (the item leaves on any event but its DECISION_MADE) has
+      // these effects closed if still pending (harness meta.store closes). A decided one's ask is its answer's to ack.
+      withdrawDecision: enqueueActions(({ enqueue, context, event, self }, params) => {
+        const id = context.decisionId;
+        if (id) enqueue.stopChild(id);
+        if (id && event.type !== 'DECISION_MADE' && params?.closes?.length) enqueue(() => sink({ name: CLOSE_EFFECTS, actor: self.id, params: { names: params.closes }, subject: id, detail: {} }));
         enqueue.assign({ decisionId: null });
       }),
       // needsCriteria: the item waits on the person, in the person's inbox, and gives its slot back.

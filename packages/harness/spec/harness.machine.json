@@ -73,7 +73,8 @@
     "store": {
       "schemaVersion": 1,
       "absentMeans": 1,
-      "description": "The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads."
+      "description": "The layout of a store's state.json. Every write records the spec's schemaVersion beside the snapshot; a state.json without one was written before the field and has layout absentMeans. A page declares the range it reads (pages/<page>/needs.json, reads.schemaVersion) and, on a store outside it, shows a red banner naming the mismatch and no data. Raise it when a change moves or renames anything a page reads.",
+      "closes": "A machine closes its own pending effects: an action may ask the runtime to close the pending effects of one subject by name (closeEffects). workItem's withdrawDecision asks for it, with its params closes, when it stops a decision that has not decided: the item leaves the gate on any event but that decision's own DECISION_MADE (a decided decision's ask is acked by its answer). runtime.apply writes an ack for each such effect still pending, outcome withdrawn, its note naming the subject and the event that withdrew it, in the same write as the event; it queues no effect for it. Nothing else closes an effect but the host's ack."
     },
     "pages": {
       "refreshSlowMs": 3000,
