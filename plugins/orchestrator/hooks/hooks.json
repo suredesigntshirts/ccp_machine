@@ -1,0 +1,4 @@
+{
+  "description": "The orchestrator's host: registers start, return and wait tools and one hidden agent type per session kind; runs packages/orchestrator's step for every decision. Does nothing until mcp__orchestrator__start is called.",
+  "modules": ["./host.js"]
+}

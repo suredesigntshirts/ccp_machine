@@ -8,6 +8,7 @@
     "briefs": null,
     "pr": null,
     "verdict": null,
+    "failure": null,
     "decision": null,
     "merge": null,
     "builds": 0
@@ -21,7 +22,7 @@
         "src": "brief",
         "input": { "issue": "context.issue", "why": "context.why" },
         "onDone": { "target": "building", "actions": [{ "type": "set", "params": { "briefs": "event.output" } }] },
-        "onError": "replanning"
+        "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       }
     },
     "building": {
@@ -34,9 +35,9 @@
           "target": "verifying",
           "actions": [{ "type": "set", "params": { "pr": "event.output.pr" } }, { "type": "inc", "params": "builds" }]
         },
-        "onError": "replanning"
+        "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       },
-      "after": { "buildTimeout": "replanning" }
+      "after": { "buildTimeout": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": { "value": "the build outlived buildTimeout" } } }] } }
     },
     "verifying": {
       "meta": { "needs": ["hasBriefs", "hasPr"] },
@@ -49,7 +50,7 @@
           { "target": "building", "guard": "failed", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
           { "target": "replanning", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] }
         ],
-        "onError": "replanning"
+        "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       },
       "on": { "pr.pushed": { "target": "verifying", "reenter": true, "actions": [{ "type": "set", "params": { "pr.headSha": "event.headSha" } }] } }
     },
@@ -63,7 +64,7 @@
           { "target": "merging", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] },
           { "target": "replanning", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] }
         ],
-        "onError": "replanning"
+        "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       },
       "on": { "pr.pushed": { "target": "verifying", "actions": [{ "type": "set", "params": { "pr.headSha": "event.headSha" } }] } }
     },
@@ -74,19 +75,19 @@
         "src": "merge",
         "input": { "pr": "context.pr", "sha": "context.verdict.sha" },
         "onDone": { "target": "done", "actions": [{ "type": "set", "params": { "merge": "event.output" } }] },
-        "onError": "replanning"
+        "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       }
     },
     "replanning": {
       "invoke": {
         "id": "ask",
         "src": "ask",
-        "input": { "question": { "value": "This item stalled. Replan it with a written five whys, or drop it?" }, "choices": { "value": ["replan", "drop"] }, "verdict": "context.verdict" },
+        "input": { "question": { "value": "This item stalled. Replan it with a written five whys, or drop it?" }, "choices": { "value": ["replan", "drop"] }, "verdict": "context.verdict", "failure": "context.failure" },
         "onDone": [
           {
             "target": "briefing",
             "guard": "replan",
-            "actions": [{ "type": "set", "params": { "why": "event.output.why", "builds": { "value": 0 }, "verdict": { "value": null } } }]
+            "actions": [{ "type": "set", "params": { "why": "event.output.why", "builds": { "value": 0 }, "verdict": { "value": null }, "failure": { "value": null } } }]
           },
           { "target": "dropped", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] }
         ],

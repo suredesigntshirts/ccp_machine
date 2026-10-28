@@ -1,10 +1,10 @@
-// One headless Claude session (claude -p) run to a schema-checked result: how agent actors run outside Projects.
+// Sessions as headless Claude runs (claude -p): the sessions port outside Projects. Each job runs in its
+// own session with exactly the job's tools, all allowed, and Claude Code holds the claim to the schema.
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
-/** Resolves { output, source } with output checked by Claude Code against schema; source names the session.
- * The session has exactly the tools named, all allowed, and no others. */
-export const claude = ({ prompt, schema, cwd, model = 'haiku', tools = ['Read', 'Glob', 'Grep'], signal }) =>
+/** The sessions port: (job, { signal }) => { claim, source }, source naming the session. */
+export const claudeSessions = ({ model = 'haiku' } = {}) => ({ prompt, cwd, tools, schema }, { signal }) =>
   new Promise((resolve, reject) => {
     const session = randomUUID();
     const args = ['-p', prompt, '--model', model, '--session-id', session, '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--tools', tools.join(','), ...(tools.length ? ['--allowedTools', ...tools] : [])];
@@ -16,7 +16,7 @@ export const claude = ({ prompt, schema, cwd, model = 'haiku', tools = ['Read', 
       try {
         const result = JSON.parse(stdout);
         if (result.is_error || !result.structured_output) throw new Error(result.result || `claude exited with ${code}`);
-        resolve({ output: result.structured_output, source: `claude:${session}` });
+        resolve({ claim: result.structured_output, source: `claude:${session}` });
       } catch (err) {
         reject(err);
       }

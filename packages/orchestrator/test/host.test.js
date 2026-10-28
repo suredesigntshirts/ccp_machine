@@ -112,6 +112,7 @@ test('a build that outlives its timer goes to replanning, and its run is stopped
   const fired = accept(host, { event: timer.event, source: 'timer' });
   assert.equal(host.snapshot.value, 'replanning');
   assert.deepEqual(fired.effects.map((e) => e.type), ['stop', 'run']);
+  assert.equal(openRun(host, 'ask').input.failure, 'the build outlived buildTimeout');
   assert.match(accept(host, { event: timer.event, source: 'timer' }).reason, /no timer/);
 });
 

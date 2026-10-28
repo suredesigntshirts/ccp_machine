@@ -7,6 +7,7 @@ const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8',
 export const gitForge = (repo) => ({
   repo,
   head: (ref) => git(repo, 'rev-parse', ref),
+  branchOf: (cwd) => git(cwd, 'rev-parse', '--abbrev-ref', 'HEAD'),
   diff: (sha) => git(repo, 'diff', `main...${sha}`),
   url: (branch) => `file://${repo}#${branch}`,
   /** A worktree at path: on branch (made from main when new), or detached at a commit. */

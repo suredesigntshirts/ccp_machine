@@ -92,5 +92,19 @@ test('an actor that throws sends its error event, and a refused input is logged,
   assert.equal((await settled).value, 'dropped');
   const error = item.host.journal.find((e) => e.event.type === 'xstate.error.actor.build');
   assert.equal(error.event.error, 'no network');
+  assert.equal(item.host.journal.at(-1).event.output.choice, 'drop');
+  assert.equal(item.host.snapshot.context.failure, 'no network');
   assert.match(logged.find((x) => x.refused).refused, /not taken in "briefing"/);
+});
+
+test('idle comes once only sessions are left: an answered session runs on first', async () => {
+  const item = tempItem();
+  const agent = (claim) => ({ claim: { type: 'object' }, tools: [], prepare: () => ({ prompt: 'p' }), finish: () => claim });
+  const parked = [];
+  const sessions = (job, { run }) => (run.endsWith('build') ? Promise.resolve({ claim: {}, source: 'answered' }) : (parked.push(run), new Promise(() => {})));
+  const driver = drive({ ...item, sessions, clock: fakeClock(), actors: actors({ build: agent({ pr: { branch: 'b', headSha: sha('a'), url: 'u' } }), verify: agent({}) }) });
+  driver.send(INIT);
+  const snapshot = await driver.idle();
+  assert.equal(snapshot.value, 'verifying');
+  assert.deepEqual(parked, ['2.verify']);
 });

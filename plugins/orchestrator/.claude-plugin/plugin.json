@@ -1,0 +1,7 @@
+{
+  "name": "orchestrator",
+  "version": "0.1.0",
+  "description": "Walking skeleton of the XState orchestrator's host as a Claude Code mod: starts the sessions a work item waits on as subagents and feeds their claims back. Inert until a session calls mcp__orchestrator__start.",
+  "author": { "name": "suredesigntshirts" },
+  "license": "UNLICENSED"
+}
