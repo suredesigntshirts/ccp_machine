@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempDir } from './tmp.js';
-import { readFileSync, writeFileSync, appendFileSync, utimesSync, closeSync, openSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, utimesSync, closeSync, openSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { openStore, init, status, doctor, repair } from '../src/index.js';
@@ -59,26 +59,57 @@ test('a fresh lock refuses a second writer', () => {
   assert.equal(status(store).items.length, 0);
 });
 
+// A writer process: it applies n events as session writer-<tag>, sending each one again while the store refuses
+// it because another writer holds the lock. It writes a line for each refusal, so a test can count them, with a
+// blocking write: a reader that falls behind slows the writer, instead of lines queueing in a loop that never yields.
+const runtime = new URL('../src/index.js', import.meta.url).href;
+const writer = (store, tag, { n = 8, onRefused = () => {} } = {}) =>
+  new Promise((resolve, reject) => {
+    const code = `
+      const { writeSync } = await import('node:fs');
+      const { openStore, apply } = await import(${JSON.stringify(runtime)});
+      const store = openStore(${JSON.stringify(store.dir)});
+      for (let i = 0; i < ${n}; i++) {
+        for (let tries = 0; ; tries++) {
+          try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i }, actor: { kind: 'session', id: 'writer-${tag}' }, source: { kind: 'cli', ref: 'test' } }, { id: 'req-${tag}' + i }); break; }
+          catch (e) { if (tries > 2000 || !/another writer|state changed/.test(e.message)) throw e; writeSync(1, 'refused\\n'); }
+        }
+      }`;
+    const p = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let err = '';
+    let refused = 0;
+    p.stdout.on('data', (d) => {
+      for (const c of String(d)) if (c === '\n') onRefused(++refused);
+    });
+    p.stderr.on('data', (d) => (err += d));
+    p.on('exit', (c) => (c === 0 ? resolve(refused) : reject(new Error(`writer-${tag} exited ${c} after ${refused} refusals: ${err}`))));
+  });
+
+test('a writer held off by the lock lands its events once the holder lets go, however long it held it', async () => {
+  const store = fresh();
+  const lock = join(store.dir, 'lock');
+  // The test is the other writer: it takes the lock and lets go only after HOLD refusals in a row, a hold
+  // counted in the waiting writer's own tries, so no machine is too fast or too slow for it.
+  const held = openSync(lock, 'wx');
+  const HOLD = 5000;
+  let whileHeld;
+  await writer(store, 'x', {
+    n: 2,
+    onRefused: (count) => {
+      if (count !== HOLD) return;
+      whileHeld = { events: store.events().length, version: store.read().version };
+      closeSync(held);
+      unlinkSync(lock);
+    }
+  });
+  assert.deepEqual(whileHeld, { events: 1, version: 2 }, 'refused, the writer wrote nothing while the lock was held');
+  assert.deepEqual(store.events().map((e) => [e.id, e.version]), [['orchestrator-started', 2], ['req-x0', 3], ['req-x1', 4]]);
+  assert.deepEqual((await problems(store, Date.now())), []);
+});
+
 test('two writer processes at once: every event lands once and the log stays contiguous', async () => {
   const store = fresh();
-  const runtime = new URL('../src/index.js', import.meta.url).href;
-  const writer = (tag) =>
-    new Promise((resolve, reject) => {
-      const code = `
-        const { openStore, apply } = await import(${JSON.stringify(runtime)});
-        const store = openStore(${JSON.stringify(store.dir)});
-        for (let i = 0; i < 8; i++) {
-          for (let tries = 0; ; tries++) {
-            try { apply(store, { type: 'REQUEST_RECEIVED', request: { id: '${tag}' + i }, actor: { kind: 'session', id: 'writer-${tag}' }, source: { kind: 'cli', ref: 'test' } }, { id: 'req-${tag}' + i }); break; }
-            catch (e) { if (tries > 2000 || !/another writer|state changed/.test(e.message)) throw e; }
-          }
-        }`;
-      const p = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'ignore', 'pipe'] });
-      let err = '';
-      p.stderr.on('data', (d) => (err += d));
-      p.on('exit', (c) => (c === 0 ? resolve() : reject(new Error(err))));
-    });
-  await Promise.all([writer('x'), writer('y')]);
+  await Promise.all([writer(store, 'x'), writer(store, 'y')]);
   const events = store.events();
   assert.equal(events.length, 17, 'the orchestrator starting, then 8 from each writer');
   assert.equal(new Set(events.map((e) => e.id)).size, 17);
