@@ -52,7 +52,7 @@
   },
   "states": {
     "askingStandIn": {
-      "description": "The stand-in is asked: the askStandIn effect stays pending until its answer is recorded (harness answer acks it only then). A decision here with no pending askStandIn effect for it is stuck, and harness doctor names it (meta.waitsOn).",
+      "description": "The stand-in is asked: the askStandIn effect stays pending until its answer is recorded (harness answer acks it only then), or until the item withdraws the decision, which closes it (spec workItem, withdrawDecision closes). A decision here with no pending askStandIn effect for it is stuck, and harness doctor names it (meta.waitsOn).",
       "meta": {
         "waitsOn": "askStandIn"
       },

@@ -89,14 +89,21 @@ test('harness answer skips a pending ask whose decision has no actor (a store fr
   const { dir, store } = accepting();
   // A store written before #84 holds asks of decisions the item stopped; they come first in its outbox.
   const file = join(dir, 'outbox.jsonl');
-  const stale = { id: 'e9.0', eventId: 'e9', at: '2026-10-28T00:00:00.000Z', name: 'askStandIn', actor: 'x:0', params: null, subject: 'decision:x:accept:1', detail: { item: 'x', address: 'item:x/decision:x:accept:1' } };
+  const stale = { id: 'legacy-stale.0', eventId: 'legacy-stale', at: '2026-10-28T00:00:00.000Z', name: 'askStandIn', actor: 'x:0', params: null, subject: 'decision:x:accept:1', detail: { item: 'x', address: 'item:x/decision:x:accept:1' } };
   writeFileSync(file, JSON.stringify(stale) + '\n' + readFileSync(file, 'utf8'));
   const out = harness(dir, 'answer', 'x', '--approve', '--reason', 'looks done', '--confidence', '0.9', '--actor', 'session:stand-in');
   assert.equal(out.status, 0, out.stderr);
   assert.equal(JSON.parse(out.stdout).subject, 'decision:x:accept:2');
-  assert.deepEqual(asks(store).map((e) => e.id), ['e9.0'], 'the stale ask is left as it was: nothing acks it by hand');
+  assert.deepEqual(asks(store).map((e) => e.id), ['legacy-stale.0'], 'the stale ask is left as it was: nothing acks it by hand');
   // With no live decision waiting on the stand-in, answer is refused naming why.
   const again = harness(dir, 'answer', 'x', '--approve', '--reason', 'again', '--confidence', '0.9', '--actor', 'session:stand-in');
   assert.notEqual(again.status, 0);
   assert.match(again.stderr, /no pending stand-in question/);
+});
+
+test('a check logged before the rule came in (since) reopens the decision as it did, so replay routes old logs as they ran', () => {
+  const { store } = accepting();
+  const before = '2026-10-28T16:00:00.000Z';
+  apply(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'unclear', actor: { kind: 'session', id: 'reviewer' }, source: { kind: 'cli', ref: 'harness send' } }, { to: 'item:x', now: before });
+  assert.equal(liveAccepts(store)[0].id, 'decision:x:accept:3', 'reopened under the old rule');
 });
