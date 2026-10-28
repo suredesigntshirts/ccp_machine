@@ -23,7 +23,8 @@
     "answerers": [],
     "verifierBrief": null,
     "spawns": [],
-    "verdicts": {}
+    "verdicts": {},
+    "checksPassed": null
   },
   "on": {
     "CANCEL": {
@@ -625,7 +626,7 @@
           }
         },
         "verifying": {
-          "description": "CI, spec checks and a reviewer run against the acceptance criteria. The reviewer sends one CRITERION_CHECKED {criterion, verdict, evidence} per criterion; the latest verdict for a criterion counts.",
+          "description": "CI, spec checks and a reviewer run against the acceptance criteria. The reviewer sends one CRITERION_CHECKED {criterion, verdict, evidence} per criterion; the latest verdict for a criterion counts. The item leaves verifying only when both CI has passed and the verifier's verdict is recorded for the same head, in whichever order they arrive: CI that passes first while the item has a verifier brief and no verdict on CI's head (awaitsVerdict; CI's sha is a prefix of the verdict's) is kept (recordChecksPassed: checksPassed, its head) and the item stays for the verdict; a verdict that comes before CI passed on its head (awaitsChecks) is recorded and the item stays for CI. The other half arriving moves it to acceptGate. Why this and not checks after CI: the accept decision then opens once, with the verifier's checks already counted in expectationsMet, so the stand-in is asked one question and can decide it under the grant; a check that arrived after CI would have reopened the decision with a new ask (issue #71). The verifier sends its criterion checks before its verdict, which ends verifying. An item with no verifier brief fixed can be given no verdict (verdictOverreaches), so its CI does not wait for one. A new build clears checksPassed with the checks.",
           "entry": [
             {
               "type": "dispatchRun",
@@ -645,6 +646,16 @@
                   }
                 },
                 "description": "Refused unless a CI result comes from GitHub: actor github, source github-wake, with the GitHub fact as ref. The machine checks the kinds and that a ref is there; harness from-github sends it only after reading the PR from GitHub's REST API and finding the same result, which the ref names."
+              },
+              {
+                "guard": {
+                  "type": "awaitsVerdict"
+                },
+                "actions": [
+                  {
+                    "type": "recordChecksPassed"
+                  }
+                ]
               },
               {
                 "target": "acceptGate"
@@ -779,6 +790,17 @@
                 "description": "Refused unless verdict is PASS or FAIL, sha is a full 40-character head sha, review is the id of the GitHub review that carries it, and text is the verdict as posted, ending with the item's verifier brief sha256."
               },
               {
+                "guard": {
+                  "type": "awaitsChecks"
+                },
+                "actions": [
+                  {
+                    "type": "recordVerdict"
+                  }
+                ]
+              },
+              {
+                "target": "acceptGate",
                 "actions": [
                   {
                     "type": "recordVerdict"
