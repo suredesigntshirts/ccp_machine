@@ -117,6 +117,19 @@ test('T: extract skips a row it cannot turn, naming the line and why; join refus
   assert.deepEqual(readdirSync(store), ['events.jsonl']);
 });
 
+test('T: extract-store lists a legacy placeholder in provenance.placeholders and still skips one the schema does not allow', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
+  const { provenance, ...stored } = rowsOf(readFileSync(RECOVERED, 'utf8'))[0];
+  const dir = join(tmp, 'store');
+  mkdirSync(dir);
+  const bad = { ...stored, id: 'bad-placeholder', at: { legacy: 'no time was recorded' } };
+  writeFileSync(join(dir, 'events.jsonl'), [stored, bad].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const ex = extract(dir, 'fixture/events.jsonl', tmp);
+  assert.deepEqual(ex.rows.map((r) => [r.id, r.provenance.placeholders]), [[stored.id, ['event.message']]]);
+  assert.deepEqual(ex.skips.map((s) => s.skip.line), [2], 'a placeholder in a field the schema does not allow one in is skipped');
+  assert.match(ex.skips[0].reason, /at:/);
+});
+
 test('T: dogfood2 goes through both scripts into a store that replays, passes doctor and shows the same stages', { skip: !DOGFOOD2 && 'the dogfood2 case did not run: HARNESS_DOGFOOD2_DIR names no store (CI has no Library). Run it against a path to dogfood2; it works on a copy' }, async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
   const original = shaDir(DOGFOOD2);
