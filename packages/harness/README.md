@@ -144,10 +144,23 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   record's index; actor, source and harness `legacy` placeholders, since GitHub holds none). Each PR goes to its
   item by the store's PR binding (`src/pr-binding.js`: a branch naming an item filed in the repo's issues, else the
   Item id line of an issue it closes; one PR to one item, once) or to "no item" with why; stderr lists every PR,
-  every skipped record with why, and the count, which must equal the pulls pages'. Both extractors write through
-  one candidate writer, `candidates.mjs`, which adds provenance, lists placeholders, validates and reports skips.
-  Where a store and GitHub both hold a landing or a CI result, the join keeps the store's row and puts GitHub's
-  source in its `provenance.also` (identity rules in `spec/SPEC.md`, History). `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
+  every skipped record with why, and the count, which must equal the pulls pages'.
+  `extract-session.mjs <archive session dir> <archive ref>` (E2) reads one session's folder of the session archive
+  (`harness/archive/sessions/<session id>/`), refusing it, with nothing written, unless `events.jsonl.gz` matches
+  the manifest's gzSha256, sha256 and count, and prints a WORKER_SPAWNED row per Agent call (toolUseId, agent type,
+  model, the sha256 of the brief as sent; role and item from its `Harness-Role:` line), a CARD_POSTED row per
+  decision card posted (its message id, question, options and recommended index), a PERSON_DECIDED row per tap on
+  one of those cards that reached the session (a `decision-chosen` wake, tied to its card by the `decision_id` it
+  names) and a MERGED row per merge_pull_request call whose result says it landed (the PR, the pinned head, the
+  merge commit), each `recovered` with `from` the archive ref and the line. What the session does not hold (the
+  harness release and source, an item no `Harness-Role:` line names, the actor of a subagent's call) is a `legacy`
+  placeholder. stderr lists every Agent, request_decision and merge_pull_request call and every tap with its row id
+  or why it was skipped (a call the platform refused, a tap on a card the session did not post), and the counts.
+  All three extractors write through one candidate writer, `candidates.mjs`, which adds provenance, lists
+  placeholders, validates and reports skips. Where a store and GitHub or a session hold one fact, the join keeps the
+  store's row (for a landing no store holds, GitHub's) and puts the other sources in its `provenance.also`: a spawn
+  by its toolUseId, a landing by its PR, a card by its message id and a tap by the card it answers (identity rules
+  in `spec/SPEC.md`, History). `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
   each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted; a

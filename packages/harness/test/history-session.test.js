@@ -112,8 +112,8 @@ test('E2: an Agent call is one WORKER_SPAWNED, its role and item from the Harnes
   for (const x of rows) {
     assert.equal(x.provenance.origin, 'recovered');
     assert.equal(x.provenance.from.source, 'session');
-    // No harness applied a recovered row, and no harness source read it.
-    for (const p of ['source', 'harness']) {
+    // No harness applied a recovered row, and no harness source read a call (a tap's source is its card).
+    for (const p of x.event.type === 'PERSON_DECIDED' ? ['harness'] : ['source', 'harness']) {
       assert.ok(x.provenance.placeholders.includes(p), `${x.id} lists no ${p} placeholder`);
       assert.match(x[p].legacy, /session/);
     }
