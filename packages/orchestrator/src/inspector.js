@@ -337,6 +337,7 @@ code{font-family:var(--mono);font-size:12.5px}
 h2{font:600 11.5px var(--body);margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
 button,select{font:500 13px var(--body);color:var(--fg);background:var(--panel);border:1px solid var(--nodeline);border-radius:6px;padding:5px 10px;cursor:pointer}
 button:hover{border-color:var(--fg)}
+button:disabled{opacity:.45;cursor:default} button:disabled:hover{border-color:var(--nodeline)}
 button:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible,.n:focus-visible,i.c:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 button.primary{background:var(--fg);color:var(--panel);border-color:var(--fg)}
 button.small{padding:1px 8px;font-size:12px}
@@ -457,6 +458,7 @@ table.holds{width:100%;border-collapse:collapse;font-size:13px;position:relative
 table.holds th,table.holds td{text-align:left;vertical-align:top;padding:3px 6px}
 table.holds tr.grp th{font:600 11px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding-top:12px}
 table.holds tr.grp .ny{display:none;text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px}
+table.holds tr.grp .clr{text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px}
 table.holds tr.grp.touched th,table.holds tr.solo.touched td.k{color:var(--fg)}
 table.holds tr.part td.k{padding-left:18px}
 table.holds tr.solo td{padding-top:12px}
@@ -504,14 +506,22 @@ table.chap td button{margin-top:4px}
 .subtabs button[aria-pressed="true"]{background:var(--fg);color:var(--panel);border-color:var(--fg)}
 .subview{flex:1;min-height:0;display:flex;flex-direction:column}
 .subview[hidden]{display:none}
-.runline{flex:none;height:26px;line-height:25px;padding:0 14px;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line)}
+/* The step line: two fixed lines, the step's sentence first, then where it led. */
+.runline{flex:none;height:44px;padding:4px 14px;font-size:12.5px;line-height:18px;border-bottom:1px solid var(--line);overflow:hidden}
+.runline > span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .runline .muted{font-style:italic}
 .runkey{margin:4px 0 8px;font-size:12px;color:var(--muted);line-height:1.6}
 .runkey summary{cursor:pointer;font-size:12.5px}
 .runkey ul{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:3px 12px}
-.runkey li{white-space:nowrap;padding-top:6px}
+.runkey li{white-space:nowrap;padding-top:8px}
+.runkey ul.marks{gap:6px 16px}
 .runkey i.c{vertical-align:1px;margin-right:6px;cursor:default}
-ol.runlist{list-style:none;margin:0;padding:0}
+#runs-scroll{position:relative;--pitch:26px;--cw:23px}
+ol.runlist{list-style:none;margin:0;padding:0;position:relative;z-index:1}
+/* The band behind the step you point at or focus: a faint tint across every strip, never an outline. */
+.band{position:absolute;z-index:0;width:var(--pitch);background:var(--fg);opacity:.13;border-radius:3px;pointer-events:none}
+.band[hidden]{display:none}
+ol.runlist .ex{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid var(--nodeline);border-radius:8px;font:500 11px/16px var(--body);color:var(--muted);vertical-align:1px}
 ol.runlist li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:9px 4px 10px 10px;border-top:1px solid var(--line);align-items:start}
 ol.runlist li.isA{box-shadow:inset 3px 0 0 var(--fg)}
 ol.runlist .badge{margin:0 6px 0 0;text-decoration:none}
@@ -525,19 +535,21 @@ ol.runlist li.isA .cmpb{visibility:hidden}
 /* Strips on one grid: every cell is 23 px wide with a 3 px gap, chapters add no width, so step N sits in the same
    column in every run. A chapter's label is clipped to its own cells; a 1 px rule separates chapters. */
 .strip{display:flex;flex-wrap:nowrap;margin-top:10px;grid-column:1 / 3;min-width:0}
-.seg{display:flex;flex-direction:column;gap:4px;flex:none;position:relative}
+.seg{display:flex;flex-direction:column;gap:4px;flex:none;position:relative;width:calc(var(--n) * var(--pitch))}
 .seg + .seg::before{content:"";position:absolute;left:-2px;top:-3px;bottom:0;border-left:1px solid var(--nodeline)}
-.seg .cells{display:flex;gap:3px;padding-right:3px}
-.seg .sl{font:10.5px/13px var(--body);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 3px 0 1px}
-i.c{position:relative;font-style:normal;flex:none;width:23px;height:19px;display:inline-flex;align-items:center;justify-content:center;font:600 10.5px var(--mono);border-radius:3px;background:var(--raised);color:var(--fg);border:1px solid var(--nodeline);cursor:pointer}
+.seg .cells{display:flex;gap:calc(var(--pitch) - var(--cw));padding-right:calc(var(--pitch) - var(--cw))}
+.seg .sl{font:10.5px/13px var(--body);color:var(--muted);white-space:nowrap;overflow:hidden;padding:0 3px 0 1px}
+i.c{position:relative;font-style:normal;flex:none;width:var(--cw);height:19px;display:inline-flex;align-items:center;justify-content:center;font:600 10.5px var(--mono);border-radius:3px;background:var(--raised);color:var(--fg);border:1px solid var(--nodeline);cursor:pointer}
 i.c.tone-back{background:var(--backbg);border:1px dashed var(--back)}
 i.c.tone-fail{background:var(--badbg);border-color:var(--bad)}
 i.c.ok{background:var(--okbg);border-color:var(--ok)}
 /* Marks added to a cell never replace its colour: hover and the column under the pointer get a thin inner line, A's
    step now gets the drawing's ring, and where a run first differs from A gets a caret above it. */
-i.c:hover,i.c.col{box-shadow:inset 0 0 0 1px var(--fg)}
+i.c:hover{box-shadow:inset 0 0 0 1px var(--fg)}
 i.c.at{box-shadow:0 0 0 1px var(--panel),0 0 0 3px var(--fg)}
-i.c.at:hover,i.c.at.col{box-shadow:inset 0 0 0 1px var(--fg),0 0 0 1px var(--panel),0 0 0 3px var(--fg)}
+i.c.at:hover{box-shadow:inset 0 0 0 1px var(--fg),0 0 0 1px var(--panel),0 0 0 3px var(--fg)}
+.runkey i.band-s{background:none;border:0;box-shadow:none;position:relative}
+.runkey i.band-s::after{content:"";position:absolute;inset:-3px -2px;background:var(--fg);opacity:.13;border-radius:3px}
 i.c.differs::before{content:"";position:absolute;left:50%;top:-9px;margin-left:-5px;border:5px solid transparent;border-bottom:0;border-top:6px solid var(--fg)}
 
 /* Phone: the story stays on top, the transport is a bar fixed to the bottom, and one region at a time fills
@@ -572,9 +584,20 @@ i.c.differs::before{content:"";position:absolute;left:50%;top:-9px;margin-left:-
   .detail .tabs button{padding:0 6px;font-size:12.5px}
   table.holds td.k{width:6.5em}
   table.holds tr.folded{display:none}
+  /* A long value goes under its key, at full width. */
+  table.holds,table.holds tbody{display:block}
+  table.holds tr{display:grid;grid-template-columns:1.6em 6.5em minmax(0,1fr)}
+  table.holds tr.solo{grid-template-columns:1.6em max-content minmax(0,1fr)}
+  table.holds tr.solo td.k{width:auto;padding-right:10px}
+  table.holds tr.grp,table.holds tr.long{grid-template-columns:1.6em minmax(0,1fr)}
+  table.holds tr.long td.m{grid-row:span 2}
+  table.holds tr.long td.k{width:auto}
+  table.holds tr.long td.v{grid-column:2;padding-left:18px}
+  table.holds tr.solo.long td.v{padding-left:6px}
+  .runkey li{white-space:normal}
   table.holds tr.grp.fold .ny{display:inline}
 }
-@media (max-width:360px){#first,#last{display:none}}
+@media (max-width:360px){#first,#last{display:none} #runs-scroll{--pitch:21px;--cw:19px} i.c{font-size:9.5px}}
 </style>
 
 <div class="app" id="app" data-shows="detail">
@@ -681,6 +704,7 @@ i.c.differs::before{content:"";position:absolute;left:50%;top:-9px;margin-left:-
       <div class="runline" id="runline" aria-live="polite"></div>
       <div class="scroll" id="runs-scroll">
         <details class="runkey" id="runkeyd"><summary>What the cells mean</summary><div id="runkey"></div></details>
+        <div class="band" id="band" hidden></div>
         <ol class="runlist" id="runlist"></ol>
       </div>
       </div>
@@ -779,7 +803,7 @@ const fields = []; // one per field: its label, its rows, and its group header r
     if (parts) {
       const tr = document.createElement('tr');
       tr.className = 'grp';
-      tr.innerHTML = '<td class="m"></td><th colspan="2"><span class="gl">' + esc(field.label) + '</span><span class="ny">none yet</span></th>';
+      tr.innerHTML = '<td class="m"></td><th colspan="2"><span class="gl">' + esc(field.label) + '</span><span class="ny">none yet</span><span class="clr"></span></th>';
       body.appendChild(tr);
       field.head = tr;
     }
@@ -828,16 +852,24 @@ function showHolds(step) {
   // The answer group takes the name of the question that set it, as the story's cells do.
   const ans = fields.find((f) => f.key === 'decision');
   if (ans) {
-    let from = null;
-    for (let k = 0; k <= cur && k < steps.length; k++) if (JSON.stringify(steps[k].context.decision ?? null) !== JSON.stringify(k ? steps[k - 1].context.decision ?? null : null)) from = steps[k].context.decision ? steps[k].from : null;
+    // It keeps the last question's name when the answer is cleared, and says why it is empty.
+    let from = null, cleared = null;
+    for (let k = 0; k <= cur && k < steps.length; k++) {
+      const now = steps[k].context.decision ?? null, was = k ? steps[k - 1].context.decision ?? null : null;
+      if (JSON.stringify(now) === JSON.stringify(was)) continue;
+      if (now) { from = steps[k].from; cleared = null; } else cleared = steps[k];
+    }
     ans.label = from === 'awaitingMerge' ? 'Merge approval' : from === 'replanning' ? 'Replan answer' : FIELDS.decision?.label || 'decision';
-    if (ans.head) ans.head.querySelector('.gl').textContent = ans.label;
+    if (ans.head) {
+      ans.head.querySelector('.gl').textContent = ans.label;
+      ans.head.querySelector('.clr').textContent = cleared ? (cleared.what === 'brief done' ? 'cleared when the briefs were rewritten' : 'cleared at step ' + (steps.indexOf(cleared) + 1)) : '';
+    }
   }
   const chips = [];
   for (const f of fields) {
     const fold = f.head && f.rows.every((r) => r.kind === 'empty');
     const touched = f.rows.some((r) => MARK[r.kind]);
-    for (const r of f.rows) r.tr.className = (r.part ? 'part ' : 'solo ') + r.kind + (MARK[r.kind] ? ' touched' : '') + (fold ? ' folded' : '');
+    for (const r of f.rows) r.tr.className = (r.part ? 'part ' : 'solo ') + r.kind + (MARK[r.kind] ? ' touched' : '') + (fold ? ' folded' : '') + (r.v.textContent.length > 22 ? ' long' : '');
     if (f.head) f.head.className = 'grp' + (touched ? ' touched' : '') + (fold ? ' fold' : '');
     const chip = chipOf(f);
     if (chip) chips.push(chip);
@@ -877,11 +909,13 @@ function followChange() {
   const changed = rows.filter((r) => MARK[r.kind]);
   if (!changed.length) return;
   const bb = box.getBoundingClientRect();
-  const seen = changed.some((r) => { const rr = r.tr.getBoundingClientRect(); return rr.bottom > bb.top + 4 && rr.top < bb.bottom - 4; });
+  // A changed row counts as seen only when its label is wholly in view; otherwise its group's heading goes to the top.
+  const seen = changed.some((r) => { const k = r.tr.cells[1].getBoundingClientRect(); return k.height > 0 && k.top >= bb.top && k.bottom <= bb.bottom; });
   if (seen) return;
-  const r = changed[0], top = (r.owner.head || r.tr).getBoundingClientRect().top, bottom = r.tr.getBoundingClientRect().bottom;
-  if (top < bb.top) box.scrollTop += top - bb.top - 6;
-  else box.scrollTop += Math.min(bottom - bb.bottom + 10, top - bb.top - 6);
+  const r = changed[0];
+  box.scrollTop += (r.owner.head || r.tr).getBoundingClientRect().top - bb.top - 6;
+  const k = r.tr.cells[1].getBoundingClientRect(); // a group taller than the box: the row's label wins over its heading
+  if (k.bottom > bb.bottom) box.scrollTop += k.bottom - bb.bottom + 6;
 }
 function jumpToRow(i) {
   const box = $('holds-scroll'), r = rows[i];
@@ -1130,53 +1164,96 @@ function showEntry(step) {
   $('entry').textContent = step ? JSON.stringify(step.entry, null, 2).replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1…') : 'No journal was given.';
 }
 
-// ---- Compare runs: A's and B's chapters side by side, lined up by title (a longest common subsequence), so equal
-// chapters share a row and a chapter only one run had gets a row of its own.
+// ---- Compare runs: A's and B's chapters side by side. Repeated chapters are numbered (Replanning 1, 2), Build n
+// is pinned to Build n, and the rest line up by name between them, so equal chapters share a row.
+function chapterNames(r) {
+  const seen = {}, total = {};
+  for (const ch of r.chapters) total[ch.title] = (total[ch.title] || 0) + 1;
+  return r.chapters.map((ch) => {
+    const k = seen[ch.title] = (seen[ch.title] || 0) + 1;
+    const label = total[ch.title] > 1 && !/^Build \d/.test(ch.title) ? ch.title + ' ' + k : ch.title;
+    const short = /^Build (\d+)/.test(ch.title) ? 'B' + ch.title.slice(6) : ch.title === 'Replanning' ? 'R' + k : ch.title === 'Briefing again' ? 'Br' + (k + 1) : ch.title === 'Briefing' ? 'Br1' : ch.title.slice(0, 3);
+    return { key: ch.title + '#' + k, label, short };
+  });
+}
+const NAMES = runs.map(chapterNames);
+// Chapters are the same when they took the same path and got the same results; commit names do not count.
+const masked = (t) => (t || '').replace(/\b[0-9a-f]{7}\b/g, '#');
 function alignChapters(A, B) {
-  const a = A?.chapters || [], b = B?.chapters || [];
-  if (!B) return a.map((x) => ({ a: x, b: null }));
+  const ai = runs.indexOf(A), bi = runs.indexOf(B);
+  const a = (A?.chapters || []).map((ch, k) => ({ ch, ...NAMES[ai][k] })), b = (B?.chapters || []).map((ch, k) => ({ ch, ...NAMES[bi][k] }));
+  if (!B) return a.map((x) => ({ a: x, b: null, differs: false }));
+  // A weighted longest common subsequence on the numbered names, where a Build pairing outweighs all others.
+  const w = (x) => (/^Build \d/.test(x.ch.title) ? 1000 : 1);
   const L = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) L[i][j] = a[i].title === b[j].title ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--)
+    L[i][j] = Math.max(L[i + 1][j], L[i][j + 1], a[i].key === b[j].key ? L[i + 1][j + 1] + w(a[i]) : -1);
   const rows = [];
   let i = 0, j = 0;
   while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && a[i].title === b[j].title) rows.push({ a: a[i++], b: b[j++] });
+    if (i < a.length && j < b.length && a[i].key === b[j].key && L[i][j] === L[i + 1][j + 1] + w(a[i])) rows.push({ a: a[i++], b: b[j++] });
     else if (j >= b.length || (i < a.length && L[i + 1][j] >= L[i][j + 1])) rows.push({ a: a[i++], b: null });
     else rows.push({ a: null, b: b[j++] });
   }
-  return rows.map((r) => ({ ...r, differs: !r.a || !r.b || r.a.summary !== r.b.summary }));
+  return rows.map((r) => ({ ...r, differs: !r.a || !r.b || masked(r.a.ch.summary) !== masked(r.b.ch.summary), commitsOnly: !!(r.a && r.b && masked(r.a.ch.summary) === masked(r.b.ch.summary) && r.a.ch.summary !== r.b.ch.summary) }));
 }
-// A chapter's summary marks, in words: "after build 1 crashed, the person replanned".
-const MARKWORDS = [
-  [/^briefs written$/, 'the briefs were written'], [/^commit (\w+)$/, 'the builder made commit $1'], [/^crashed$/, 'the build crashed'],
-  [/^PASS$/, 'it got a PASS'], [/^FAIL$/, 'it got a FAIL'], [/^PASS on an old commit$/, 'it got a PASS on an old commit'],
-  [/^verifier crashed$/, 'the verifier crashed'], [/^pushed (\w+)$/, '$1 was pushed'], [/^approved$/, 'it was approved'], [/^rejected$/, 'it was rejected'],
-  [/^replanned by (.+)$/, '$1 replanned'], [/^dropped by (.+)$/, '$1 dropped it'], [/^no answer, dropped$/, 'nobody answered, so it was dropped'],
-  [/^approval question failed$/, 'the approval question failed'], [/^merged$/, 'it was merged'], [/^hit its time limit$/, 'it hit its time limit']
+// A chapter in words, with the commit as the subject: "76173d9 passed, was approved and merged".
+const COMMITVERB = { PASS: 'passed', FAIL: 'got a FAIL', approved: 'was approved', rejected: 'was rejected', merged: 'merged' };
+const OTHERWORDS = [
+  [/^briefs written$/, 'the briefs were written'], [/^briefing failed$/, 'briefing failed'], [/^crashed$/, 'the build crashed'],
+  [/^verifier crashed$/, 'the verifier crashed'], [/^replanned by (.+)$/, '$1 replanned'], [/^dropped by (.+)$/, '$1 dropped it'],
+  [/^no answer, dropped$/, 'nobody answered, so it was dropped'], [/^approval question failed$/, 'the approval question failed'],
+  [/^merge failed$/, 'the merge failed'], [/^hit its time limit$/, 'the build hit its time limit'],
+  [/^PASS$/, 'it passed'], [/^FAIL$/, 'it got a FAIL'], [/^approved$/, 'it was approved'], [/^rejected$/, 'it was rejected'], [/^merged$/, 'it merged']
 ];
 const listWords = (xs) => (xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs.at(-1));
 function chapterWords(ch) {
   const marks = (ch.summary || '').split(' · ').filter(Boolean);
-  const after = marks.filter((m) => m.startsWith('after ')), rest = marks.filter((m) => !m.startsWith('after '));
-  const said = rest.map((m) => { for (const [re, w] of MARKWORDS) if (re.test(m)) return m.replace(re, w); return m; });
-  return (after.length ? after.join(', ') + ', ' : '') + (listWords(said) || 'nothing happened');
+  const after = marks.filter((m) => m.startsWith('after '));
+  const clauses = [];
+  let subj = null, verbs = [], older = null;
+  const flush = () => { if (subj) clauses.push(verbs.length ? subj + ' ' + listWords(verbs) : 'the builder made commit ' + subj); subj = null; verbs = []; };
+  for (const m of marks.filter((x) => !x.startsWith('after '))) {
+    let x;
+    if ((x = /^commit (\w+)$/.exec(m))) { flush(); subj = x[1]; }
+    else if ((x = /^pushed (\w+)$/.exec(m))) { older = subj || older; flush(); subj = x[1]; verbs = ['was pushed']; }
+    // A PASS on an old commit is the older commit's, not the one just pushed.
+    else if (m === 'PASS on an old commit') { const head = subj; flush(); clauses.push((older || 'an older commit') + ' passed, but ' + (head ? head + ' was the PR head by then' : 'the PR head had moved on')); }
+    else if (subj && COMMITVERB[m]) verbs.push(COMMITVERB[m]);
+    else { flush(); let said = m; for (const [re, t] of OTHERWORDS) if (re.test(m)) { said = m.replace(re, t); break; } clauses.push(said); }
+  }
+  flush();
+  return (after.length ? after.join(', ') + ', ' : '') + (clauses.join(', then ') || 'nothing happened');
 }
-const endWord1 = (r) => (r.end === 'merged' ? 'merged' : r.end === 'dropped' ? 'was dropped' : 'is not finished');
-const replanWords = (r) => (r.replans.length ? 'after ' + plural(r.replans.length, 'replan') + ', because ' + r.replans.join(' and ') : 'with no replan');
+const ENDED = { merged: 'merged', dropped: 'was dropped', open: 'is not finished' };
+const times = (n) => (n === 1 ? 'once' : n === 2 ? 'twice' : n + ' times');
+// The first sentence states only the ends and the replan counts; the causes are in the outcome lines below it.
 function diffSentence(A, B, rows) {
   const parts = [];
-  if (A.end === B.end && A.replans.join() === B.replans.join()) parts.push('Both ' + (A.end === 'merged' ? 'merged' : A.end === 'dropped' ? 'were dropped' : 'are unfinished') + ' ' + replanWords(A) + '.');
-  else parts.push('In A the item ' + endWord1(A) + ' ' + replanWords(A) + '; in B it ' + endWord1(B) + ' ' + replanWords(B) + '.');
-  const r = rows.find((x) => x.differs);
-  if (!r) parts.push('Their chapters are the same, with the same results.');
-  else if (r.a && r.b) parts.push('They first differ in ' + r.a.title + ': in A, ' + chapterWords(r.a) + '; in B, ' + chapterWords(r.b) + '.');
-  else { const x = r.a || r.b, who = r.a ? 'A' : 'B'; parts.push('They first differ at ' + x.title + ', which only ' + who + ' had: in ' + who + ', ' + chapterWords(x) + '.'); }
+  parts.push(A.end === B.end ? 'Both ' + { merged: 'merged', dropped: 'were dropped', open: 'are unfinished' }[A.end] + '.' : 'A ' + ENDED[A.end] + ' and B ' + ENDED[B.end] + '.');
+  const na = A.replans.length, nb = B.replans.length;
+  if (na === nb && na) parts.push('Each was replanned ' + times(na) + '.');
+  else if (na && nb) parts.push('A was replanned ' + times(na) + ', B ' + times(nb) + '.');
+  else if (na) parts.push('A was replanned ' + times(na) + ', B never.');
+  else if (nb) parts.push('B was replanned ' + times(nb) + ', A never.');
+  const k = rows.findIndex((x) => x.differs), r = rows[k];
+  if (r && r.a && r.b) parts.push('They first differ in ' + r.a.label + ': in A, ' + chapterWords(r.a.ch) + '; in B, ' + chapterWords(r.b.ch) + '.');
+  else if (r) {
+    const x = r.a || r.b, who = r.a ? 'A' : 'B', other = r.a ? 'B' : 'A', prev = rows[k - 1], next = rows.slice(k + 1).find((y) => y[other.toLowerCase()]);
+    parts.push('They first differ ' + (prev ? 'after ' + (prev.a || prev.b).label : 'at the start') + ': ' + who + ' goes on to ' + x.label + ', where ' + chapterWords(x.ch) + '; ' +
+      (next ? other + ' goes on to ' + next[other.toLowerCase()].label : other + ' had ended') + '.');
+  } else {
+    const only = rows.filter((x) => x.commitsOnly);
+    const shas = (side) => [...new Set(only.flatMap((x) => x[side].ch.summary.match(/\b[0-9a-f]{7}\b/g) || []))].join(', ');
+    parts.push(only.length ? 'Same path and results; only the commits differ (' + shas('a') + ' in A, ' + shas('b') + ' in B).' : 'Same path and results, chapter by chapter.');
+  }
   return parts.join(' ');
 }
 function showCompare() {
   const A = runs[ri], B = cmpB != null ? runs[cmpB] : null;
   const sel = $('cmpB');
-  sel.innerHTML = '<option value="">Pick a run to compare with A…</option>' + runs.map((r, i) => i === ri ? '' : '<option value="' + i + '">' + esc(r.name) + '</option>').join('');
+  const opts = (ex) => runs.map((r, i) => i === ri || !!r.example !== ex ? '' : '<option value="' + i + '">' + esc(r.name) + '</option>').join('');
+  sel.innerHTML = '<option value="">Pick a run to compare with A…</option>' + (runs.some((r) => r.example) && runs.some((r) => !r.example) ? '<optgroup label="Real runs">' + opts(false) + '</optgroup><optgroup label="Examples">' + opts(true) + '</optgroup>' : opts(false) + opts(true));
   sel.value = cmpB == null ? '' : String(cmpB);
   sel.title = B ? B.name : '';
   $('cmpSwap').disabled = !B;
@@ -1188,15 +1265,22 @@ function showCompare() {
   $('cB-out').innerHTML = B ? endHtml(B) + ' (' + esc(B.counts) + ')' : '';
   const rows = alignChapters(A, B);
   $('cSum').innerHTML = !A ? '' : B ? toned(diffSentence(A, B, rows)) : esc('Pick a run as B, here or with Compare in All runs. Its chapters line up beside A\'s, and the drawing dots the lines only B took.');
-  const lastA = rows.map((r) => !!r.a).lastIndexOf(true), lastB = rows.map((r) => !!r.b).lastIndexOf(true);
-  const gap = (who, k, last) => '<td><span class="gap">' + (k > last ? who + ' had ended' : 'not in ' + who) + '</span>';
-  const cell = (ch, here) => '<td' + (here ? ' class="here"' : '') + '><span class="ct">' + esc(ch.title) + '</span><span class="cs">' + toned(ch.summary) + '</span>';
+  const last = { a: rows.map((r) => !!r.a).lastIndexOf(true), b: rows.map((r) => !!r.b).lastIndexOf(true) };
+  // An empty side says why: the run had ended (said once, with how), or it has that chapter in another row, or not at all.
+  const gap = (side, k) => {
+    const who = side.toUpperCase(), run = side === 'a' ? A : B, here = rows[k][side === 'a' ? 'b' : 'a'];
+    if (k > last[side]) return k === last[side] + 1 ? '<td><span class="gap">' + who + ' had ended (' + { merged: 'merged', dropped: 'dropped', open: 'not finished' }[run.end] + ')</span>' : '<td><span class="gap">—</span>';
+    const there = rows.findIndex((r) => r[side] && r[side].ch.title === here.ch.title);
+    if (there >= 0) { const d = there - k; return '<td><span class="gap">' + who + '\'s ' + esc(rows[there][side].label) + ': ' + Math.abs(d) + (Math.abs(d) === 1 ? ' row ' : ' rows ') + (d > 0 ? 'down' : 'up') + '</span>'; }
+    return '<td><span class="gap">not in ' + who + '</span>';
+  };
+  const cell = (x, here) => '<td' + (here ? ' class="here"' : '') + '><span class="ct">' + esc(x.label) + '</span><span class="cs">' + toned(x.ch.summary) + '</span>';
   const curCh = A?.chapters[steps[cur]?.chapter];
   $('chapRows').innerHTML = rows.map((r, k) => {
     const differs = B && r.differs;
     return '<tr class="' + (differs ? 'differs' : '') + '"><td class="m"' + (differs ? ' title="A and B differ here"' : '') + '>' + (differs ? '≠' : '') + '</td>' +
-      (r.a ? cell(r.a, r.a === curCh) + (differs ? '<br><button type="button" class="small" data-goto="' + r.a.first + '">Show in A</button>' : '') : gap('A', k, lastA)) + '</td>' +
-      (B ? (r.b ? cell(r.b, false) : gap('B', k, lastB)) + '</td>' : '<td></td>') + '</tr>';
+      (r.a ? cell(r.a, r.a.ch === curCh) + (differs ? '<br><button type="button" class="small" data-goto="' + r.a.ch.first + '">Show in A</button>' : '') : gap('a', k)) + '</td>' +
+      (B ? (r.b ? cell(r.b, false) : gap('b', k)) + '</td>' : '<td></td>') + '</tr>';
   }).join('');
 }
 
@@ -1216,36 +1300,56 @@ const CODE = (() => {
 })();
 const sameStep = (x, y) => x && y && x.state === y.state && x.edge === y.edge;
 const differsAt = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if (!sameStep(a[i], b[i])) return i; return -1; };
-const PITCH = 26; // a cell (23 px) and its gap (3 px): the strips' common grid
 const stepLine = (r, j) => { const s = r.steps[j]; return 'Step ' + (j + 1) + ' → ' + nameOf(s.state) + ': ' + (s.sentence || s.what); };
 const cellHtml = (s, i, j) => '<i class="c tone-' + toneOf(s) + (s.state === 'done' ? ' ok' : '') + '" tabindex="-1" role="button" data-run="' + i + '" data-step="' + j + '" title="' + esc(stepLine(runs[i], j)) + '" aria-label="' + esc(runs[i].name + ', ' + stepLine(runs[i], j)) + '">' + esc(CODE[s.state] || '?') + '</i>';
+const TOUCH = matchMedia('(pointer: coarse)').matches;
 (function buildRuns() {
   const seen = new Set(runs.flatMap((r) => r.steps.map((s) => s.state)));
   const sample = (cls, t) => '<i class="c ' + cls + '" aria-hidden="true">' + t + '</i>';
   $('runkey').innerHTML = 'One cell per step, under the chapter it happened in, lettered by where the step led (the → in Steps):<ul>' +
     graph.nodes.filter((n) => seen.has(n.id)).map((n) => '<li>' + sample('', esc(CODE[n.id])) + esc(nameOf(n.id)) + '</li>').join('') + '</ul><ul>' +
-    '<li>' + sample('', 'Bu') + 'forward</li><li>' + sample('tone-back', 'Bu') + 'dashed blue: back, to try again</li><li>' + sample('tone-fail', 'Re') + 'red: to Replanning or Dropped</li><li>' + sample('ok', '✓') + 'green: merged</li>' +
-    '<li>' + sample('at', 'Ve') + 'ringed: A\'s step now, as in the drawing</li><li>' + sample('differs', 'Bu') + 'caret: where a run first differs from A (it may reach the same state by another line)</li></ul>' +
-    'Point at or focus a cell to read its step above the list. Click or press Enter to open it; ← → move along a strip, ↑ ↓ between runs.';
+    '<li>' + sample('', 'Bu') + 'forward</li><li>' + sample('tone-back', 'Bu') + 'dashed blue: back, to try again</li><li>' + sample('tone-fail', 'Re') + 'red: to Replanning or Dropped</li><li>' + sample('ok', '✓') + 'green: merged</li></ul><ul class="marks">' +
+    '<li>' + sample('at', 'Ve') + 'ringed: A\'s step now, as in the drawing</li><li>' + sample('differs', 'Bu') + 'caret: where a run first differs from A</li><li>' + sample('band-s', '') + 'band: the step you ' + (TOUCH ? 'last opened' : 'point at or focus') + '</li></ul>' +
+    '<ul><li>Short chapter names under narrow chapters: B1 = Build 1, R1 = Replanning 1, Br2 = Briefing again (the second briefing).</li></ul>' +
+    (TOUCH ? 'Tap a cell to open that step.' : 'Point at or focus a cell to read its step above the list. Click or press Enter to open it; ← → move along a strip, ↑ ↓ between runs.');
   $('runkeyd').open = innerWidth > 760;
   $('runlist').innerHTML = runs.map((r, i) => '<li data-run="' + i + '">' +
     '<div><button type="button" class="nm" data-pick="' + i + '" title="' + esc(r.about || 'Step through this run') + '"><span class="tag"></span><span class="nmt">' + esc(r.name) + '</span></button>' +
+    (r.example ? '<span class="ex" title="A made-up run, written to show this case">example</span>' : '') +
     '<div class="oc">' + endHtml(r) + '</div><div class="ct">' + esc(r.counts) + '</div></div>' +
     '<button type="button" class="small cmpb" data-asb="' + i + '" aria-pressed="false">Compare</button>' +
-    '<div class="strip">' + r.chapters.map((ch) => '<span class="seg" style="width:' + (ch.last - ch.first + 1) * PITCH + 'px" title="' + esc(ch.title + ': ' + ch.summary) + '"><span class="cells">' +
-      r.steps.slice(ch.first, ch.last + 1).map((s, k) => cellHtml(s, i, ch.first + k)).join('') + '</span><span class="sl">' + esc(ch.title) + '</span></span>').join('') + '</div></li>').join('') ||
+    '<div class="strip">' + r.chapters.map((ch, k) => '<span class="seg" style="--n:' + (ch.last - ch.first + 1) + '" title="' + esc(NAMES[i][k].label + ': ' + ch.summary) + '"><span class="cells">' +
+      r.steps.slice(ch.first, ch.last + 1).map((s, m) => cellHtml(s, i, ch.first + m)).join('') + '</span><span class="sl" data-full="' + esc(NAMES[i][k].label) + '" data-short="' + esc(NAMES[i][k].short) + '"></span></span>').join('') + '</div></li>').join('') ||
     '<li class="muted">No runs.</li>';
   runLine(null);
 })();
+// A chapter label that does not fit its cells takes its short form (B1, R1, Br2), never a clipped word.
+function fitLabels() {
+  if (!$('runlist').clientWidth) return; // only while the list is on screen
+  for (const sl of $('runlist').querySelectorAll('.sl')) {
+    sl.textContent = sl.dataset.full;
+    if (sl.scrollWidth > sl.clientWidth + 1) sl.textContent = sl.dataset.short;
+    if (sl.scrollWidth > sl.clientWidth + 1) sl.textContent = '';
+  }
+}
+// The step line: the step's sentence first, then where it led, in two fixed lines.
 function runLine(cell) {
   const line = $('runline');
-  if (!cell) { line.innerHTML = '<span class="muted">Point at a cell to read its step here.</span>'; line.title = ''; return; }
-  const r = runs[Number(cell.dataset.run)], j = Number(cell.dataset.step);
-  line.innerHTML = '<b>' + esc(r.name) + '</b> · ' + toned(stepLine(r, j));
+  if (!cell) { line.innerHTML = '<span class="muted">' + (TOUCH ? 'Tap a cell to open that step.' : 'Point at a cell, or focus one, to read its step here.') + '</span>'; line.title = ''; return; }
+  const r = runs[Number(cell.dataset.run)], j = Number(cell.dataset.step), st = r.steps[j];
+  line.innerHTML = '<span>' + toned(st.sentence || st.what) + ' <span class="muted">· step ' + (j + 1) + ' → ' + esc(nameOf(st.state)) + '</span></span>';
   line.title = r.name + ' · ' + stepLine(r, j);
 }
-// The column under the pointer or the focus is marked in every strip, so one step can be read across runs.
-function markColumn(j) { for (const c of $('runlist').querySelectorAll('i.c')) c.classList.toggle('col', j != null && Number(c.dataset.step) === j); }
+// The step under the pointer or the focus gets a faint band across every strip, so one step can be read across runs.
+function markColumn(j) {
+  const band = $('band'), list = $('runlist'), cell = j == null ? null : list.querySelector('i.c[data-step="' + j + '"]');
+  if (!cell) { band.hidden = true; return; }
+  const box = $('runs-scroll'), cr = cell.getBoundingClientRect(), br = box.getBoundingClientRect(), pitch = parseFloat(getComputedStyle(box).getPropertyValue('--pitch'));
+  band.hidden = false;
+  band.style.left = (cr.left - br.left + box.scrollLeft - (pitch - cr.width) / 2) + 'px';
+  band.style.top = list.offsetTop + 'px';
+  band.style.height = list.offsetHeight + 'px';
+}
 function showRuns() {
   const A = runs[ri];
   const active = document.activeElement;
@@ -1264,17 +1368,17 @@ function showRuns() {
     const k = i === ri ? -1 : differsAt(A?.steps || [], r.steps);
     const cells = [...li.querySelectorAll('i.c')];
     cells.forEach((cell, j) => { cell.classList.toggle('differs', j === k); cell.classList.toggle('at', i === ri && j === cur); });
-    // One tab stop per strip (A's step now, or where the run first differs), unless the reader is already in it.
-    if (!li.contains(active)) cells.forEach((cell, j) => { cell.tabIndex = j === (i === ri ? cur : Math.max(0, k)) ? 0 : -1; });
+    // One tab stop per strip: A's step now, or where the run first differs. A strip whose cell has focus keeps it.
+    if (!(active?.matches?.('i.c') && li.contains(active))) cells.forEach((cell, j) => { cell.tabIndex = j === (i === ri ? cur : Math.max(0, Math.min(k, cells.length - 1))) ? 0 : -1; });
   }
 }
-// Like the step list: when A changes or Runs opens, bring A's row into the list's box if it is not in view.
+// When A changes or Runs opens and A's row is out of view (or low in the box), put it about a third of the way down.
 function keepAInView() {
   const box = $('runs-scroll'), row = $('runlist').querySelector('li.isA');
   if (!row || !box.clientHeight) return;
   const b = box.getBoundingClientRect(), r = row.getBoundingClientRect();
-  if (r.top >= b.top && r.bottom <= b.bottom) return;
-  box.scrollTop += r.top < b.top || r.height > b.height ? r.top - b.top - 4 : r.bottom - b.bottom + 4;
+  if (r.top >= b.top && r.bottom <= b.bottom && r.top <= b.top + b.height * 0.55) return;
+  box.scrollTop += r.top - b.top - Math.max(4, Math.min(b.height / 3, b.height - r.height - 4));
 }
 function setSub(name) {
   sub = name;
@@ -1282,6 +1386,7 @@ function setSub(name) {
   $('subAB').setAttribute('aria-pressed', String(name === 'ab'));
   $('runs-view').hidden = name !== 'runs';
   $('ab-view').hidden = name !== 'ab';
+  if (name === 'runs') fitLabels();
   keepAInView();
 }
 
@@ -1321,7 +1426,7 @@ function setTab(name) {
   for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const t of ['step', 'state', 'entry', 'cmp']) $('tab-' + t).hidden = t !== name;
   paint();
-  if (name === 'cmp') keepAInView();
+  if (name === 'cmp') { fitLabels(); keepAInView(); }
 }
 function setView(name) {
   $('app').dataset.shows = name;
@@ -1329,6 +1434,7 @@ function setView(name) {
   keepInView();
   followChange();
   followRing(steps[cur]);
+  fitLabels();
   keepAInView();
 }
 
@@ -1394,7 +1500,7 @@ $('runlist').addEventListener('click', (ev) => {
     if (cmpB === i) { cmpB = null; paint(); cb.focus(); } // pressed again: stop comparing
     else { cmpB = i; setSub('ab'); paint(); $('subAB').focus(); }
   }
-  else if (cell) { openCell(cell); $('runlist').querySelector('li.isA .nm')?.focus(); }
+  else if (cell) { const j = Number(cell.dataset.step); openCell(cell); $('runlist').querySelector('li.isA .nm')?.focus(); if (TOUCH) markColumn(j); }
 });
 function openCell(cell) { const i = Number(cell.dataset.run), j = Number(cell.dataset.step); stop(); if (i === ri) go(j); else { load(i, j); say(); } }
 // In a strip: ← → move along it, Home and End to its ends, ↑ ↓ to the same step in the run above or below, Enter
@@ -1416,9 +1522,14 @@ $('runlist').addEventListener('keydown', (ev) => {
   else return;
   ev.preventDefault();
   ev.stopPropagation();
-  if (to) { cells.forEach((c) => { c.tabIndex = -1; }); to.closest('li').querySelectorAll('i.c').forEach((c) => { c.tabIndex = -1; }); to.tabIndex = 0; to.focus(); }
+  if (to && to !== cell) {
+    if (to.closest('li') === li) cells.forEach((c) => { c.tabIndex = -1; }); // along a strip the stop moves with focus
+    else to.closest('li').querySelectorAll('i.c').forEach((c) => { c.tabIndex = -1; }); // between strips the old one keeps its stop
+    to.tabIndex = 0;
+    to.focus();
+  }
 });
-const over = (ev) => { const cell = ev.target.closest?.('i.c[data-run]'); if (cell) { runLine(cell); markColumn(Number(cell.dataset.step)); } };
+const over = (ev) => { const cell = ev.target.closest?.('i.c[data-run]'); if (cell && !(TOUCH && ev.type === 'mouseover')) { runLine(cell); markColumn(Number(cell.dataset.step)); } };
 $('runlist').addEventListener('mouseover', over);
 $('runlist').addEventListener('focusin', over);
 $('runlist').addEventListener('mouseleave', () => { const f = document.activeElement?.closest?.('i.c[data-run]'); runLine(f || null); markColumn(f ? Number(f.dataset.step) : null); });
@@ -1456,8 +1567,8 @@ document.addEventListener('keydown', (ev) => {
 
 load(0, Infinity); // the first run opens on its last step, so the whole path it walked shows at rest
 sizeOutcome();
-document.fonts?.ready.then(sizeOutcome);
-addEventListener('resize', () => { sizeOutcome(); followChange(); followRing(steps[cur]); });
+document.fonts?.ready.then(() => { sizeOutcome(); fitLabels(); });
+addEventListener('resize', () => { fitLabels(); sizeOutcome(); followChange(); followRing(steps[cur]); });
 try { draw(); } catch (err) { $('diagram').innerHTML = '<p class="muted">The graph could not be drawn (' + esc(err.message) + '). The steps and data still work.</p>'; }
 </script>
 `;
