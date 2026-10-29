@@ -13,15 +13,16 @@
 // - SubagentStart: files { sessionId, agentId, agentType, at } at
 //   $HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json, which harness verify-actors checks, and binds
 //   the agent to the newest spawn of its agent type that the spawn gate recorded for this session and the store took,
-//   when that spawn is unbound (WORKER_STARTED; spec workItem, Workers; harness meta.invariants oneUnboundSpawn). The
+//   read from the store's state.json, when that spawn is unbound (WORKER_STARTED; spec workItem, Workers; harness
+//   meta.invariants oneUnboundSpawn). The
 //   bind's result is added to the agent's record as bind { item, spawn, result }. A resumed agent starts again: its
 //   record keeps its first at and bind, the new start time is added to resumes, and nothing is bound.
 // It does nothing unless the project has installed the harness (host.js), and on its own failure it prints
 // nothing and exits 0.
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { gate, libraryDir, deny, enforced, safeId, writeCall, callsDir, runHarness } from './host.js';
+import { gate, libraryDir, deny, enforced, safeId, writeCall, callsDir, runHarness, storeDir } from './host.js';
 
 // Setting, exporting, clearing or passing HARNESS_AGENT or HARNESS_CALL, inline, by export/declare/unset or through env.
 const SETS = /HARNESS_(AGENT|CALL)\s*\+?=|\b(export|unset|declare|typeset|local|readonly|env)\b[^\n;&|]*\bHARNESS_(AGENT|CALL)\b/;
@@ -76,20 +77,27 @@ process.exit(0);
 
 // The spawn this agent belongs to is the session's newest spawn of its agent type that the store took: a session has
 // at most one waiting per type (spec harness meta.invariants oneUnboundSpawn), and one already bound means the agent
-// has no item role. The store judges the bind. Only a bind it takes is written on the spawn's record, so a refused
-// one never overwrites another agent's; the result goes on this agent's own record. Returns it, or null.
+// has no item role. It is read from the store's state (state.json, the one file every write replaces), never from the
+// session's calls folder, which grows with every recorded call on a slow mount: a fixed number of reads. The store
+// judges the bind. Only a bind it takes is written on the spawn's call record, so a refused one never overwrites
+// another agent's; the result goes on this agent's own record. Returns it, or null.
 function bind(session, agent, agentType, cwd) {
-  const dir = callsDir(session);
   let last;
   try {
-    [last] = readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')))
-      .filter((r) => r.kind === 'spawn' && r.recorded === true && r.agentType === agentType)
+    const { snapshot } = JSON.parse(readFileSync(join(storeDir(cwd), 'state.json'), 'utf8'));
+    [last] = Object.values(snapshot.children ?? {}).filter((c) => c?.src === 'workItem')
+      .flatMap((c) => (c.snapshot.context.spawns ?? []).map((s) => ({ ...s, item: c.snapshot.context.id })))
+      .filter((s) => s.agentType === agentType && (s.by === session || String(s.by).startsWith(`${session}/`)))
       .sort((a, b) => String(b.at).localeCompare(String(a.at)));
   } catch {}
-  if (!last || last.boundAgent) return null;
+  if (!last || last.agent) return null;
   const call = writeCall(session, `start-${agent}`, { kind: 'start', agentId: null, agentType: null, item: last.item, agent: `${session}/${agent}` });
   const r = runHarness(['send', JSON.stringify({ type: 'WORKER_STARTED', agent: `${session}/${agent}`, agentType }), '--to', `item:${last.item}`, '--id', `start-${agent}`], { session, call, cwd });
   const ok = r.status === 0 && !r.out?.refused;
-  if (ok) writeCall(session, last.toolUseId, { ...last, boundAgent: `${session}/${agent}`, bindResult: 'bound' });
+  if (ok && last.toolUseId) {
+    let record = {};
+    try { record = JSON.parse(readFileSync(join(callsDir(session), `${id(last.toolUseId)}.json`), 'utf8')); } catch {}
+    writeCall(session, last.toolUseId, { ...record, boundAgent: `${session}/${agent}`, bindResult: 'bound' });
+  }
   return { item: last.item, spawn: last.toolUseId, result: ok ? 'bound' : r.out?.why ?? r.err };
 }

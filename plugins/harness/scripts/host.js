@@ -6,7 +6,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -201,6 +201,9 @@ export function writeCall(session, call, record) {
   renameSync(tmp, join(dir, `${safeId(call)}.json`));
   return `${safeId(call)}:${key}`;
 }
+
+/** The store the harness CLI run from `cwd` uses: $HARNESS_DIR, else .harness, resolved against `cwd` when it exists. */
+export const storeDir = (cwd) => resolve(cwd && existsSync(cwd) ? cwd : '.', process.env.HARNESS_DIR ?? '.harness');
 
 /** The harness CLI: HARNESS_BIN, else packages/harness/bin/harness.js of the checkout the plugin sits in. */
 export const harnessBin = () => process.env.HARNESS_BIN ?? join(pluginRoot(), '..', '..', 'packages', 'harness', 'bin', 'harness.js');

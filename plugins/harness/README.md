@@ -19,7 +19,11 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   sits in a checkout (the setup script's skills-dir link); a synced copy prints `unknown (no git)` and
   its version names the build. `behind` compares with origin/main by `git ls-remote` (2.5 s cap), else
   `unknown`. Without the marker it prints only `available but not installed`. It always exits 0 within
-  about 4 s.
+  about 4 s. With the marker it first warms the Library mount, which is slow when cold, and never waits for
+  it: it launches itself again as `session-start.js warm <folder>...`, a detached child (`detached: true`,
+  stdio ignored, `unref()`), that reads every file under this session's
+  `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>` and the store (`$HARNESS_DIR`, else `.harness` in the
+  session's folder) 16 at a time, and gives up after 10 minutes.
 - **UserPromptSubmit hook** (`scripts/notice-behind.js`): so a long-running session learns that its
   harness is old. At most once per 30 minutes per session (state in `$TMPDIR/harness-updates/<session>.json`,
   `updatesPath` in `host.js`; the check time is saved before any network call) and within about 3 s, it
@@ -68,7 +72,9 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   denied with the reason (`setsHarnessAgent`), from either. SubagentStart writes `{ sessionId, agentId,
   agentType, at }` to `$HARNESS_LIBRARY_DIR/ledger/sessions/<session>/agents/<agent>.json`, which
   `harness verify-actors` checks, and binds the agent to the newest spawn of its agent type the spawn gate
-  recorded for the session and the store took, when that spawn is unbound (`WORKER_STARTED`). Its input names
+  recorded for the session and the store took, when that spawn is unbound (`WORKER_STARTED`). It finds that
+  spawn in the store's `state.json`, never by listing the session's calls folder, which grows with every
+  recorded call: a fixed number of reads on the Library mount. Its input names
   the agent and its type but not the Agent call, so this is sound only because a session has at most one
   unbound spawn of a type at a time (`oneUnboundSpawn`, below). Only a bind the store takes is written on the
   spawn's call record; the result, taken or refused, is added to the agent's record as `bind`. A resumed agent
