@@ -8,7 +8,7 @@
 // route otherwise or close more for is listed (admittedThen), with the release that wrote it: not a problem.
 // With {steps: true} it also returns what each row did on the way (history.schema.json steps): the actors whose state
 // it changed and the context fields it changed (the scratch copy before and after the row), the effects it queued with
-// the store's acks for them, and its route; a row it cannot apply is a step with the reason it was refused.
+// their detail and the store's acks for them, and its route; a row it cannot apply is a step with the reason it was refused.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -93,7 +93,7 @@ export function replay(store, { steps: withSteps = false } = {}) {
       const twice = r?.duplicate && `replay applies one event per id, and row ${steps.find((s) => s.id === e.id)?.version ?? '?'} applied ${e.id} already`;
       if (!r || twice) return steps.push({ version: e.version, id: e.id, refused: twice || err.message, route: null, actors: [], context: [], effects: [] });
       const after = scratch.read().snapshot;
-      steps.push({ version: e.version, id: e.id, refused: null, route: r.route, ...changes(before, after), effects: r.effects.map((fx) => ({ id: fx.id, name: fx.name, subject: fx.subject ?? null, acks: acksOf(fx.id) })) });
+      steps.push({ version: e.version, id: e.id, refused: null, route: r.route, ...changes(before, after), effects: r.effects.map((fx) => ({ id: fx.id, name: fx.name, subject: fx.subject ?? null, detail: fx.detail ?? null, acks: acksOf(fx.id) })) });
       before = after;
     };
     for (const e of events) {

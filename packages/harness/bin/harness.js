@@ -151,7 +151,7 @@ const HELP = `harness <command> [options]
                                  It re-applies github refs as logged without reading GitHub: verify-facts
                                  re-checks them. --steps also writes steps.jsonl beside events.jsonl: for each
                                  row, the actors whose state it changed and the context fields it changed (before
-                                 and after), the effects it queued with the store's acks, and its route, or why
+                                 and after), the effects it queued with their detail and the store's acks, and its route, or why
                                  it could not be applied (history.schema.json steps; the flow replay page reads it)
   doctor [--refreshes PATH]      check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore), verify-actors,

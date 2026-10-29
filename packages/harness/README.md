@@ -122,8 +122,17 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   address; rows with no item address have a group of their own). Each step shows the row's type, time, sender
   (actor and source) and provenance origin and source, and what the row did, from `steps.jsonl` beside the history
   (#124; written by replay's `--steps`, see `src/replay.js`; history.schema.json `steps`): each actor whose state it changed, before
-  and after, the context fields it changed, the effects it queued with their acks, and its route; a step that changed
-  nothing says so, and a row replay could not apply shows why. Its needs file declares the step fields it reads
+  and after, the context fields it changed, the effects it queued with their detail and acks, and its route; a step that changed
+  nothing says so, and a row replay could not apply shows why. A value that is an object or array (a context value,
+  an effect's detail) is pretty-printed in a scrollable monospace block; a scalar stays inline. Above the step, an
+  architecture diagram of the harness (#130) lights, for the row shown, the box that sent it (the first sender rule
+  its actor, source and type match), the actors whose state or context it changed, the store files it wrote (events
+  always, state when applied, outbox when it queued effects, acks when one has an ack) and the arrows between them;
+  clicking or focusing a box shows what it is and its repo path. The diagram is data, `pages/flow-replay/diagram.json`,
+  which the needs file names (`diagram`): zones, boxes (id, label, zone, what this is, repo path, position), arrows,
+  sender rules, actor kinds and writes. `checkPage` fails naming the box when a box's path does not exist or an arrow
+  or rule names an undeclared box; `lights()` in `src/live.js` computes each card's `data-lit`, and the inlined
+  `step()` lights the SVG from it. Its needs file declares the step fields it reads
   (`reads.with`), and Refresh reads both files; without the steps, or with the steps of another history, the page
   shows the banner and says how to build them. The design log lists, newest first, the out-of-band rows (who ordered each, the message, what
   was done, the gates it skipped) and the requests, stand-in answers (choice and reason), the person's decisions and
@@ -137,6 +146,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   replay's steps, refusals, changed actors and effects too). `test/history-pages.test.js` builds the steps of the
   golden history, the contract history and, with `HARNESS_DOGFOOD2_DIR` set, a joined copy of dogfood2, renders both
   pages on each and checks every count against the rows and the steps, and that every row is a step or a refusal.
+  `test/flow-replay-diagram.test.js` checks the pretty-printed values, the diagram data against the repo, what each
+  step lights, and the inlined `step()` lighting and explaining boxes.
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
@@ -236,7 +247,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
   `harness replay --steps` also writes `steps.jsonl` beside `events.jsonl` (history.schema.json `steps`), from the
   same replay: for each row, the actors whose state it changed and the context fields it changed (the scratch copy
-  before and after the row), the effects it queued with the store's acks for them, and its route; a row it cannot
+  before and after the row), the effects it queued with their detail and the store's acks for them, and its route; a row it cannot
   apply, or a second row of an id it applied already, is a step with the reason and no changes. Run on a history
   `join.mjs` made, it gives the flow replay page what each row did.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
