@@ -77,6 +77,29 @@
           }
         ]
       }
+    ],
+    "OUT_OF_BAND": [
+      {
+        "guard": {
+          "type": "unattested",
+          "params": {
+            "actor": "session"
+          }
+        },
+        "admission": true,
+        "description": "Refused unless a session sends it: the session that read the order and records it. An agent, the person, GitHub or a timer cannot."
+      },
+      {
+        "guard": {
+          "type": "unrecordable"
+        },
+        "admission": true,
+        "description": "Refused unless the event holds what history.schema.json declares for OUT_OF_BAND: who ordered it (orderedBy, an actor), the message that did, what was done, the gates it skipped and the PR (pr), and, when it names the head that landed (sha), all 40 hex digits of it."
+      },
+      {
+        "record": true,
+        "description": "Work done outside the gates, taken as a fact in any state of the item, done, failed and cancelled included (harness meta.store records): no state change, no effects. The log row is the record, and harness doctor lists it, with a landing it records out of band rather than as a problem (harness meta.invariants reviewOnHead)."
+      }
     ]
   },
   "states": {

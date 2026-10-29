@@ -13,7 +13,12 @@
       "Write(plugins/harness/hooks/status.tsx)",
       "mcp__claude-code-remote__list_events",
       "Bash(node /home/user/harness-archive/tools/salvage.mjs page:*)",
-      "Bash(node /home/user/harness-archive/tools/salvage.mjs finalize:*)"
+      "Bash(node /home/user/harness-archive/tools/salvage.mjs finalize:*)",
+      "Bash(HARNESS_DIR=/mnt/project-files/harness/state/dogfood2 HARNESS_LIBRARY_DIR=/mnt/project-files/harness node /home/user/harness-run/packages/harness/bin/harness.js:*)",
+      "Bash(node /home/user/harness-run/packages/harness/bin/harness.js:*)",
+      "Agent(claude)",
+      "Agent(harness:builder)",
+      "Agent(harness:verifier)"
     ]
   },
   "autoMode": {
@@ -21,7 +26,10 @@
       "$defaults",
       "Reading this project's own Claude session transcripts with mcp__claude-code-remote__list_events (read-only paging by session_id and before_id) is allowed: the project owner authorized copying them into a local archive on 2026-10-28.",
       "Running node /home/user/harness-archive/tools/salvage.mjs page|finalize is allowed: it only writes gzipped copies with sha256 hashes under /home/user/harness-archive/data, never the original sessions.",
-      "Editing, committing and opening PRs for plugins/harness/hooks/status.tsx (the harness Claude mod) in suredesigntshirts/ccp_machine"
+      "Editing, committing and opening PRs for plugins/harness/hooks/status.tsx (the harness Claude mod) in suredesigntshirts/ccp_machine",
+      "A harness stand-in subagent spawned from a Library brief (notes/harness-reflection/briefs/<item>/stand-in-*.md) may run `harness.js answer <item> --approve|--revise|--reject` on plan, accept and landing decisions for suredesigntshirts/ccp_machine items: the project owner granted stand-ins these decisions, landings (one-way doors) included, on 2026-10-29.",
+      "The harness lead session may spawn stand-in, builder and verifier subagents from Library briefs, and may write the harness store at /mnt/project-files/harness/state/dogfood2 with harness.js (send, from-github, ack, handoff, doctor, verdict, answer).",
+      "Reading the harness source in /home/user/harness-run and /home/user/ccp_machine is allowed."
     ]
   },
   "hooks": {

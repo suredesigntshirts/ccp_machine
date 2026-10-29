@@ -32,6 +32,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   result says `refused: <EVENT> in <state>`. An item's PR is bound once, by the first event that names it
   (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a
   bound item, or a PR bound to another item, is refused the same way with the binding in the reason.
+  A transition marked `"record": true` (harness `meta.store` records) takes its event as a fact in any state,
+  a finished one included: the log row is written, and nothing else changes. An item takes `OUT_OF_BAND` so
+  (#102): a session records work done outside the gates, such as a PR landed by GitHub's button, on the item
+  even once it is done or cancelled, with the fields history.schema.json declares (`orderedBy`, `message`,
+  `what`, `skipped`, `pr`, and the landed `sha`); from any other actor, or without one of them, it is refused.
 - The envelope: every event carries `actor` {kind: person|session|agent|github|timer, id} (the kinds and their
   id forms are the spec's, `harness.machine.json` `meta.actors`; an agent is `<session_id>/<agent_id>`) and `source`
   {kind: tap|github-wake|cli|timer, ref}; one without them is refused, and so is one carrying `person`
@@ -119,8 +124,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   recorded takes the route its logged effects took, as replay does),
   and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
-  An OUT_OF_BAND row is history only (no machine takes it), so the replay lists it among the rows today's rules
-  refuse (`admittedThen`).
+  An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
   `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
   GitHub record. Join it with dogfood2's extracted rows.
@@ -201,7 +205,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
   `test/chaos.test.js` injects each fault: a crash, a stale lock, racing writer processes, a writer held off by
   the lock (refused, it writes nothing, and lands once the holder lets go), repair held off by a writer and a
-  writer held off by repair, two writers finding one stale lock, duplicates, torn lines and a slow mount.
+  writer held off by repair, two writers finding one stale lock, a writer that crashes after claiming a stale
+  lock (its claim goes stale and the next writer takes it over), two writers finding one stale claim, a writer
+  that finds a stale lock and stalls while others break it and take the lock again (refused, the new lock stays),
+  duplicates, torn lines and a slow mount.
 - `src/canary.js`: `harness canary` files the day's canary item (bump `canary/last.txt`, PR, CI,
   merge) once per UTC day, with no tier: its triager gives it tier 0. `harness canary --check` times each stage and exits 1 with one attention line
   when the canary failed or is not merged 2 hours after the request. The digest leads with the canary when

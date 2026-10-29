@@ -1,12 +1,14 @@
 // The one history (epic #59): every era's events in one shape, spec/history.schema.json. This module only
-// reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), placeholders()
+// reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), eventProblems()
+// holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), placeholders()
 // counts the legacy values doctor reports, factKey() and dedupe() apply its identity rules, and checkLogNeeds()
 // holds a history to a view's needs file. The schema is a subset of JSON Schema, and so is the checker below.
 import { readFileSync } from 'node:fs';
 import { specs } from './machines.js';
 
 export const HISTORY = JSON.parse(readFileSync(new URL('../spec/history.schema.json', import.meta.url), 'utf8'));
-const META = specs.harness.meta;
+// Read when used, not at load: machines.js imports this module for its guards.
+const META = () => specs.harness.meta;
 
 const get = (o, path) => path.split('.').reduce((x, k) => (x == null ? undefined : x[k]), o);
 const typeOf = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : Number.isInteger(v) ? 'integer' : typeof v);
@@ -48,25 +50,30 @@ function legacyPaths(v, path = '', out = []) {
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
 export function validate(row) {
   const out = check(HISTORY, row, '', []);
-  const type = row?.event?.type;
-  const decl = HISTORY.events.types[type];
-  if (type && !decl) out.push(`event.type: ${type} is not declared in history.schema.json events`);
-  if (decl) {
-    if ((row.event.v ?? 1) > decl.v) out.push(`event.v: ${row.event.v} is newer than ${type} v${decl.v}`);
-    for (const k of decl.required ?? []) if (row.event[k] === undefined) out.push(`event.${k}: missing (${type} needs it)`);
-    if (decl.schema) check(decl.schema, row.event, 'event', out);
-  }
+  if (row?.event?.type) out.push(...eventProblems(row.event));
   if (typeOf(row?.actor) === 'object' && !isLegacy(row.actor)) {
-    const a = META.actors[row.actor.kind];
+    const a = META().actors[row.actor.kind];
     if (!a) out.push(`actor.kind: ${row.actor.kind} is not a harness actor kind`);
     else if (a.id && !new RegExp(a.id).test(row.actor.id)) out.push(`actor.id: ${row.actor.id} is not a ${row.actor.kind} id`);
   }
-  if (typeOf(row?.source) === 'object' && !isLegacy(row.source) && !META.sources[row.source.kind]) out.push(`source.kind: ${row.source.kind} is not a harness source kind`);
+  if (typeOf(row?.source) === 'object' && !isLegacy(row.source) && !META().sources[row.source.kind]) out.push(`source.kind: ${row.source.kind} is not a harness source kind`);
   const listed = row?.provenance?.placeholders ?? [];
   const found = legacyPaths(row ?? {});
   for (const p of found) if (!listed.includes(p)) out.push(`${p}: holds a legacy placeholder that provenance.placeholders does not list`);
   for (const p of listed) if (!found.includes(p)) out.push(`${p}: listed in provenance.placeholders but holds no legacy placeholder`);
   return out.map((p) => `${row?.id ?? '(no id)'}: ${p}`);
+}
+
+/** What is wrong with an event's payload against its type's declaration (events.types): [] when it holds to it. */
+export function eventProblems(event) {
+  const { type } = event;
+  const decl = HISTORY.events.types[type];
+  if (!decl) return [`event.type: ${type} is not declared in history.schema.json events`];
+  const out = [];
+  if ((event.v ?? 1) > decl.v) out.push(`event.v: ${event.v} is newer than ${type} v${decl.v}`);
+  for (const k of decl.required ?? []) if (event[k] === undefined) out.push(`event.${k}: missing (${type} needs it)`);
+  if (decl.schema) check(decl.schema, event, 'event', out);
+  return out;
 }
 
 /** Legacy placeholders by source store or archive ref, then by path: { [ref]: { [path]: count } }. */
