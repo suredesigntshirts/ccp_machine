@@ -235,7 +235,7 @@ test('each flow replay step shows its row and what it did: changed actors before
     const page = shown(html);
     for (const b of ['first', 'prev', 'next', 'last']) assert.match(page, new RegExp(`data-step="${b}"`));
     assert.match(page, /<span class="m" data-pos>1 \/ \d+<\/span>/);
-    const cards = [...page.matchAll(/<div class="card step" data-version="\d+" data-group="[^"]+"( hidden)?>/g)];
+    const cards = [...page.matchAll(/<div class="card step" data-version="\d+" data-group="[^"]+" data-lit="[^"]*"( hidden)?>/g)];
     assert.equal(cards.length, built.rows.length);
     assert.equal(cards.filter(([, h]) => !h).length, 1, 'one row shown at a time');
     assert.equal(cards[0][1], undefined, 'the first row is shown first');
@@ -253,7 +253,7 @@ test('each flow replay step shows its row and what it did: changed actors before
         assert.ok(li, `row ${s.version}: ${a.address} not shown`);
         for (const v of [a.before, a.after]) assert.ok(v == null ? li.includes('none') : li.includes(v), `row ${s.version}: ${a.address} ${v} not in ${li}`);
       }
-      const asText = (v) => (v == null ? 'none' : typeof v === 'string' ? v : JSON.stringify(v));
+      const asText = (v) => (v == null ? 'none' : typeof v === 'string' ? v : JSON.stringify(v, null, 2)); // objects pretty-printed (#130)
       for (const c of s.context) assert.ok(text.includes(`data-field="${c.address} ${c.field}"`) && text.includes(asText(c.before).slice(0, 40)) && text.includes(asText(c.after).slice(0, 40)), `row ${s.version}: ${c.address} ${c.field}`);
       for (const f of s.effects) assert.ok(text.includes(`data-effect="${f.id}"`) && text.includes(f.name), `row ${s.version}: effect ${f.id}`);
       for (const id of s.route ?? []) assert.ok(text.includes(id), `row ${s.version}: route ${id}`);
@@ -272,7 +272,7 @@ test('the page script follows one item or the whole history: first, previous, ne
   const pos = { textContent: '1 / 6' };
   const following = { textContent: '' };
   const follows = ['', 'item:a', 'item:b', '(no item)'].map((f) => ({ dataset: { follow: f }, pressed: null, setAttribute(k, v) { this.pressed = v; } }));
-  const section = { dataset: { steps: '' }, querySelectorAll: (sel) => (sel === '[data-version]' ? cards : follows), querySelector: (sel) => (sel === '[data-pos]' ? pos : following) };
+  const section = { dataset: { steps: '' }, querySelectorAll: (sel) => (sel === '[data-version]' ? cards : sel === '[data-follow]' ? follows : []), querySelector: (sel) => (sel === '[data-pos]' ? pos : following) };
   const press = (dataset) => step({ target: { closest: () => ({ dataset, closest: () => section }) } });
   const shownNow = () => cards.filter((r) => !r.hidden).map((r) => r.v);
   // The whole history, in time order across items.

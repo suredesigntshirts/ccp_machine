@@ -1,12 +1,13 @@
 {
   "page": "flow-replay",
   "title": "Flow replay",
-  "description": "Every event in time order, stepped through the machines one at a time, across the whole history or along one item, so the person can watch an item move from request to the end. Reads every row's envelope from the history and, beside it, the row's step from steps.jsonl (harness replay --steps; history.schema.json steps): each actor whose state it changed, before and after, the context fields it changed, the effects it queued with their acks, its route, or why replay could not apply it (V2).",
+  "description": "Every event in time order, stepped through the machines one at a time, across the whole history or along one item, so the person can watch an item move from request to the end. Reads every row's envelope from the history and, beside it, the row's step from steps.jsonl (harness replay --steps; history.schema.json steps): each actor whose state it changed, before and after, the context fields it changed, the effects it queued with their acks, its route, or why replay could not apply it (V2). Above the step, the harness as an architecture diagram (#130), declared in diagram.json beside this file: its zones, boxes (what each is and its repo path) and arrows, which box sends a row (senders, by its actor, source and type), which box an actor address is (actors, by the kind of its last segment) and which store files a step writes (writes); each step lights those boxes and the arrows between them.",
+  "diagram": "diagram.json",
   "reads": {
     "file": "events.jsonl",
     "schemaVersion": { "min": 1, "max": 1 },
     "with": {
-      "steps.jsonl": ["refused", "route", "actors.address", "actors.before", "actors.after", "context.address", "context.field", "context.before", "context.after", "effects.id", "effects.name", "effects.subject", "effects.acks"]
+      "steps.jsonl": ["refused", "route", "actors.address", "actors.before", "actors.after", "context.address", "context.field", "context.before", "context.after", "effects.id", "effects.name", "effects.subject", "effects.detail", "effects.acks"]
     }
   },
   "events": {

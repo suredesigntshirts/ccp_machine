@@ -323,11 +323,66 @@ export function renderLedger(rows, needs) {
 }
 
 /**
+ * The diagram boxes a row's step lights (pages/flow-replay/diagram.json): the boxes of the first sender rule its row
+ * matches (by the actor's kind, the source's kind and the event type), the box of each actor whose state or context
+ * it changed (by the kind of the address's last segment), and the store files it wrote (writes), each once.
+ */
+export function lights(r, d) {
+  const list = (v) => (Array.isArray(v) ? v : []);
+  const kind = (v) => (v && typeof v === 'object' && !isLegacy(v) ? v.kind : undefined);
+  const fits = (want, v) => !want || want.includes(v);
+  const rule = list(d.senders).find((x) => fits(x.actor, kind(r.actor)) && fits(x.source, kind(r.source)) && fits(x.event, r.event.type));
+  const s = r.step;
+  const applied = Boolean(s) && s.refused == null;
+  const changed = applied ? [...list(s.actors), ...list(s.context)].map((c) => d.actors[String(c.address).split('/').pop().split(':')[0]]) : [];
+  const effects = applied ? list(s.effects) : [];
+  const when = { always: true, applied, effects: effects.length > 0, acks: effects.some((f) => list(f.acks).length > 0) };
+  const writes = Object.entries(d.writes ?? {}).filter(([, w]) => when[w]).map(([box]) => box);
+  return [...new Set([...(rule ? rule.boxes : []), ...changed, ...writes].filter(Boolean))];
+}
+
+// The point on box b's edge toward p: straight up, down or across where p is level with b, else toward b's centre.
+function edgeTo(b, [px, py]) {
+  if (px >= b.x && px <= b.x + b.w) return [px, py < b.y ? b.y : b.y + b.h];
+  if (py >= b.y && py <= b.y + b.h) return [px < b.x ? b.x : b.x + b.w, py];
+  const [cx, cy] = [b.x + b.w / 2, b.y + b.h / 2];
+  const t = Math.min(b.w / 2 / Math.abs(px - cx), b.h / 2 / Math.abs(py - cy));
+  return [cx + (px - cx) * t, cy + (py - cy) * t];
+}
+// An arrow's points: through its via points, else straight between the two boxes where they face each other.
+function route(a, b, via) {
+  if (via && via.length) return [edgeTo(a, via[0]), ...via, edgeTo(b, via[via.length - 1])];
+  const mid = (lo, hi) => (lo + hi) / 2;
+  const [x0, x1, y0, y1] = [Math.max(a.x, b.x), Math.min(a.x + a.w, b.x + b.w), Math.max(a.y, b.y), Math.min(a.y + a.h, b.y + b.h)];
+  if (x0 <= x1) return [edgeTo(a, [mid(x0, x1), b.y + b.h / 2]), edgeTo(b, [mid(x0, x1), a.y + a.h / 2])];
+  if (y0 <= y1) return [edgeTo(a, [b.x + b.w / 2, mid(y0, y1)]), edgeTo(b, [a.x + a.w / 2, mid(y0, y1)])];
+  return [edgeTo(a, [b.x + b.w / 2, b.y + b.h / 2]), edgeTo(b, [a.x + a.w / 2, a.y + a.h / 2])];
+}
+
+// The architecture diagram (diagram.json) lit for one row: each zone, each arrow (lit when both its boxes are) and
+// each box, a focusable group carrying what it is and its repo path, which step() shows.
+function renderDiagram(d, on) {
+  const lit = new Set(on);
+  const by = new Map(d.boxes.map((b) => [b.id, b]));
+  const [w, h] = d.viewBox;
+  const head = (id) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z"/></marker>`;
+  const zone = (z) => `<rect class="zone" x="${z.x}" y="${z.y}" width="${z.w}" height="${z.h}" rx="10"/><text class="zl" x="${z.x + z.w - 12}" y="${z.y + 16}" text-anchor="end">${esc(z.label)}</text>`;
+  const arrow = (a) => `<g class="arrow${lit.has(a.from) && lit.has(a.to) ? ' on' : ''}" data-arrow="${esc(a.from)} ${esc(a.to)}"><title>${esc(a.label)}</title><polyline points="${route(by.get(a.from), by.get(a.to), a.via).map((p) => p.map(Math.round).join(',')).join(' ')}"/></g>`;
+  const box = (b) => `<g class="box${lit.has(b.id) ? ' on' : ''}" data-box="${esc(b.id)}" data-label="${esc(b.label)}" data-what="${esc(b.what)}" data-path="${esc(b.path)}" tabindex="0" role="button" aria-label="${esc(`${b.label}: ${b.what}`)}">` +
+    `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="8"/><text x="${b.x + b.w / 2}" y="${b.y + b.h / 2}" text-anchor="middle" dominant-baseline="central">${esc(b.label)}</text></g>`;
+  return `<div class="diagram"><svg viewBox="0 0 ${w} ${h}" role="group" aria-label="The harness: the person and GitHub, the lead's thread and its agents and hooks, the harness CLI and its actors, and the store">` +
+    `<defs>${head('fr-ah')}${head('fr-ah-on')}</defs>${d.zones.map(zone).join('')}${d.arrows.filter((a) => by.has(a.from) && by.has(a.to)).map(arrow).join('')}${d.boxes.map(box).join('')}</svg></div>
+<p class="m">Lit for the row shown: the box that sent it, the actors whose state or context it changed, the store files it wrote, and the arrows between them.</p>
+<div class="about" data-about role="status">Click or focus a box to see what it is and where it lives in the repo.</div>`;
+}
+
+/**
  * Flow replay: every row in time order, stepped one at a time through the whole history or through one item's rows
  * (the to address; rows with no item address are a group of their own). Each step shows the row's type, time, sender
  * and provenance and, from its step (steps.jsonl), each actor whose state it changed, before and after, the context
- * fields it changed, the effects it queued with their acks, and its route; a step that changed nothing says so, and
- * one replay could not apply says why. Every count carries data-count.
+ * fields it changed, the effects it queued with their detail and acks, and its route; a step that changed nothing
+ * says so, and one replay could not apply says why. An object or array value is pretty-printed in a block. Above the
+ * step, the architecture diagram (needs.diagram) lit for it (lights(), each card's data-lit). Every count carries data-count.
  */
 export function renderFlowReplay(rows, needs) {
   const sorted = [...rows].sort(timeOrder);
@@ -345,7 +400,11 @@ export function renderFlowReplay(rows, needs) {
     const applied = steps.filter((s) => s.refused == null);
     return { rows: list.length, placeholders: list.reduce((n, r) => n + ownLegacies(r), 0), steps: applied.length, refused: steps.length - applied.length, actors: applied.reduce((n, s) => n + many(s.actors).length, 0), effects: applied.reduce((n, s) => n + many(s.effects).length, 0) };
   };
-  const value = (v) => (v == null ? '<i class="m">none</i>' : `<code>${esc(typeof v === 'string' ? v : JSON.stringify(v))}</code>`);
+  const value = (v) => {
+    if (v == null) return '<i class="m">none</i>';
+    const t = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v);
+    return t.includes('\n') ? `<pre class="json">${esc(t)}</pre>` : `<code>${esc(t)}</code>`;
+  };
   const ack = (a) => `${esc(a.outcome)}${a.at ? ` ${esc(clock(a.at))}` : ''}${a.note ? ` (${esc(a.note)})` : ''}`;
   const changed = (s) => {
     if (!s) return '';
@@ -354,13 +413,15 @@ export function renderFlowReplay(rows, needs) {
     const parts = [
       actors.length && `<h4>Actors</h4><ul>${actors.map((a) => `<li data-actor="${esc(a.address)}"><b>${esc(a.address)}</b>: <span data-before>${value(a.before)}</span> → <span data-after>${value(a.after)}</span></li>`).join('')}</ul>`,
       context.length && `<h4>Context</h4><ul>${context.map((c) => `<li data-field="${esc(c.address)} ${esc(c.field)}">${esc(c.address)} <b>${esc(c.field)}</b>: <span data-before>${value(c.before)}</span> → <span data-after>${value(c.after)}</span></li>`).join('')}</ul>`,
-      effects.length && `<h4>Effects queued</h4><ul>${effects.map((f) => `<li data-effect="${esc(f.id)}"><b>${esc(f.name)}</b>${f.subject ? ` ${esc(f.subject)}` : ''} <span class="m">${esc(f.id)} · ${many(f.acks).length ? `acked ${many(f.acks).map(ack).join(', ')}` : 'no ack in this store'}</span></li>`).join('')}</ul>`
+      effects.length && `<h4>Effects queued</h4><ul>${effects.map((f) => `<li data-effect="${esc(f.id)}"><b>${esc(f.name)}</b>${f.subject ? ` ${esc(f.subject)}` : ''} <span class="m">${esc(f.id)} · ${many(f.acks).length ? `acked ${many(f.acks).map(ack).join(', ')}` : 'no ack in this store'}</span>${f.detail != null ? value(f.detail) : ''}</li>`).join('')}</ul>`
     ].filter(Boolean);
     const route = `<div class="m">Route: ${many(s.route).length ? many(s.route).map(esc).join(' → ') : 'none'}</div>`;
     return `${parts.length ? parts.join('') : '<div class="m" data-unchanged>This step changed nothing: no actor\'s state, no context field, no effect.</div>'}${route}`;
   };
+  const diagram = needs.diagram;
+  const lit = (r) => (diagram ? lights(r, diagram) : []);
   const card = (r, i) =>
-    `<div class="card step" data-version="${esc(r.version)}" data-group="${esc(groupOf(r))}"${i ? ' hidden' : ''}><span class="eyebrow">row ${esc(r.version)} · to ${shownAs(r.to)}</span><b>${esc(r.event.type)}</b>` +
+    `<div class="card step" data-version="${esc(r.version)}" data-group="${esc(groupOf(r))}" data-lit="${esc(lit(r).join(' '))}"${i ? ' hidden' : ''}><span class="eyebrow">row ${esc(r.version)} · to ${shownAs(r.to)}</span><b>${esc(r.event.type)}</b>` +
     `<div class="m">${shownAs(r.at)} · sent by ${party(r.actor)} via ${party(r.source)} · ${shownAs(at(r, 'provenance.origin'))} from ${shownAs(at(r, 'provenance.from.source'))} · id ${shownAs(r.id)}</div>${changed(r.step)}</div>`;
   const button = (step, label) => `<button type="button" data-step="${step}">${label}</button>`;
   const all = tally(sorted);
@@ -376,23 +437,32 @@ export function renderFlowReplay(rows, needs) {
 <div class="tile"><span class="eyebrow">Effects</span>${count('effects', all.effects)}<small>queued, with the acks the store holds</small></div>
 <div class="tile"><span class="eyebrow">Placeholders</span>${count('placeholders', all.placeholders)}<small>values no source recorded, never shown</small></div>
 </div>
-<section class="replay" data-steps=""><h2>Step through</h2>
+<section class="replay" data-steps=""${diagram ? ` data-repo="${esc(diagram.repo)}"` : ''}><h2>Step through</h2>
 <div class="tablewrap"><table><thead><tr><th>Follow</th><th>Rows</th><th>Steps</th><th>Refused</th><th>Changed actors</th><th>Effects</th><th>Placeholders</th></tr></thead><tbody>
 <tr data-group=""><td><button type="button" data-follow="" aria-pressed="true">whole history</button></td><td colspan="6" class="m">every row in time order, across items</td></tr>
 ${[...groups].map(line).join('\n')}</tbody></table></div>
 <div class="stepper"><span data-following>Following the whole history</span>${button('first', 'First')}${button('prev', 'Previous')}<span class="m" data-pos>1 / ${sorted.length}</span>${button('next', 'Next')}${button('last', 'Last')}</div>
+${diagram ? renderDiagram(diagram, sorted.length ? lit(sorted[0]) : []) : ''}
 ${sorted.map(card).join('')}</section>`;
 }
 
 /**
- * Flow replay's controls, a click inside its data-steps section: a data-follow button follows one group (or, empty,
- * the whole history), keeping the row shown when it is in that group; a data-step button shows the first, previous,
- * next or last row of what is followed. One row is shown at a time, with its position.
+ * Flow replay's controls, a click or focus inside its data-steps section. A diagram box (click or focus) shows what it
+ * is and its repo path. On a click, a data-follow button follows one group (or, empty, the whole history), keeping
+ * the row shown when it is in that group, and a data-step button shows the first, previous, next or last row of what
+ * is followed. One row is shown at a time, with its position, and the diagram is lit for it (its card's data-lit).
  */
 export function step(e) {
-  const b = e.target && e.target.closest ? e.target.closest('[data-step], [data-follow]') : null;
+  const b = e.target && e.target.closest ? e.target.closest('[data-step], [data-follow], [data-box]') : null;
   const g = b && b.closest('[data-steps]');
   if (!g) return;
+  if (b.dataset.box) {
+    for (const x of g.querySelectorAll('[data-box]')) x.classList.toggle('sel', x.dataset.box === b.dataset.box);
+    const d = b.dataset;
+    g.querySelector('[data-about]').innerHTML = `<b>${esc(d.label)}</b> ${esc(d.what)} <a href="${esc((g.dataset.repo || '') + d.path)}"><code>${esc(d.path)}</code></a>`;
+    return;
+  }
+  if (e.type === 'focusin') return;
   if ('follow' in b.dataset) g.dataset.steps = b.dataset.follow;
   const follow = g.dataset.steps || '';
   const all = [...g.querySelectorAll('[data-version]')];
@@ -404,6 +474,9 @@ export function step(e) {
   g.querySelector('[data-pos]').textContent = `${to + 1} / ${list.length}`;
   g.querySelector('[data-following]').textContent = follow ? `Following ${follow}` : 'Following the whole history';
   for (const f of g.querySelectorAll('[data-follow]')) f.setAttribute('aria-pressed', String(f.dataset.follow === follow));
+  const on = new Set(String(list[to].dataset.lit || '').split(' ').filter(Boolean));
+  for (const x of g.querySelectorAll('[data-box]')) x.classList.toggle('on', on.has(x.dataset.box));
+  for (const x of g.querySelectorAll('[data-arrow]')) { const [from, into] = x.dataset.arrow.split(' '); x.classList.toggle('on', on.has(from) && on.has(into)); }
 }
 
 // The design log's page size: how many of its table's rows one page shows.
@@ -551,6 +624,7 @@ export function client(cfg, meta) {
   showAge();
   document.addEventListener('visibilitychange', showAge);
   $('view').addEventListener('click', step);
+  $('view').addEventListener('focusin', step);
   $('view').addEventListener('click', turn);
   const trend = async () => {
     const db = await use('db').catch(() => null);
