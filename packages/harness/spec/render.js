@@ -143,7 +143,7 @@ export function renderSpec() {
   out.push(`Events: ${HISTORY.events.description}`, '');
   out.push(...Object.entries(HISTORY.events.types).filter(([, d]) => d.required || d.description).map(([t, d]) => `- \`${t}\` v${d.v}${d.required ? `, needs ${d.required.map((f) => `\`${f}\``).join(', ')}` : ''}${d.description ? `: ${d.description}` : ''}`), '');
   out.push(`Identity: ${HISTORY.identity.description}`, '');
-  out.push(...HISTORY.identity.rules.map((r) => `- ${r.fact} (${r.types.map((t) => `\`${t}\``).join(', ')}): key ${r.key.map((k) => `\`${k}\``).join(' + ')}, owner ${r.owner}. ${r.why}`), `- otherwise: key ${HISTORY.identity.otherwise.key.map((k) => `\`${k}\``).join(' + ')}. ${HISTORY.identity.otherwise.why}`, '');
+  out.push(...HISTORY.identity.rules.map((r) => `- ${r.fact} (${r.types.map((t) => `\`${t}\``).join(', ')}): key ${r.key.map((k) => `\`${k}\`${r.abbrev?.[k] ? ` (first ${r.abbrev[k]} characters)` : ''}`).join(' + ')}, owner ${r.owner}. ${r.why}`), `- otherwise: key ${HISTORY.identity.otherwise.key.map((k) => `\`${k}\``).join(' + ')}. ${HISTORY.identity.otherwise.why}`, '');
   // What each row did, beside the history (steps.jsonl): its row's fields and what each list holds.
   const st = HISTORY.steps;
   out.push(`Steps (\`${st.file}\`, joined to the history by \`${st.key}\`): ${st.description}`, '');

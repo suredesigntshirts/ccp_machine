@@ -94,12 +94,16 @@ export function placeholders(rows) {
 /** The out-of-band rows, for doctor to list: who ordered what, by which message, skipping which gates. */
 export const outOfBand = (rows) => rows.filter((r) => r.event.type === 'OUT_OF_BAND').map((r) => ({ id: r.id, at: r.at, to: r.to, ...r.event }));
 
+const ruleOf = (type) => HISTORY.identity.rules.find((r) => r.types.includes(type));
+// A key path's value as its rule compares it: the first n characters where the rule abbreviates the path.
+const keyPart = (rule, path, x) => (typeof x === 'string' && rule?.abbrev?.[path] ? x.slice(0, rule.abbrev[path]) : x);
+
 /** The fact a row describes, as the first identity rule for its type keys it. */
 export function factKey(row) {
-  const rule = HISTORY.identity.rules.find((r) => r.types.includes(row.event.type));
+  const rule = ruleOf(row.event.type);
   const parts = (rule ?? HISTORY.identity.otherwise).key.map((p) => get(row, p));
   if (!rule || parts.some((x) => x === undefined || isLegacy(x))) return `own:${row.provenance.from.ref}:${row.id}`;
-  return `${rule.fact}:${parts.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('|')}`;
+  return `${rule.fact}:${parts.map((x, i) => keyPart(rule, rule.key[i], x)).map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join('|')}`;
 }
 
 /**
@@ -120,14 +124,15 @@ export function dedupe(rows) {
   }
   const kept = [], dropped = [], conflicts = [];
   for (const [key, group] of groups) {
-    const owner = HISTORY.identity.rules.find((r) => r.types.includes(group[0].event.type))?.owner;
+    const rule = ruleOf(group[0].event.type);
+    const owner = rule?.owner;
     const sorted = [...group].sort((a, b) => a.at.localeCompare(b.at));
     const keep = sorted.find((r) => r.provenance.from.source === owner) ?? sorted[0];
     const others = sorted.filter((r) => r !== keep);
     for (const o of others) {
       dropped.push({ id: o.id, from: o.provenance.from, kept: keep.id });
       for (const [f, v] of Object.entries(o.event))
-        if (keep.event[f] !== undefined && !isLegacy(v) && !isLegacy(keep.event[f]) && JSON.stringify(v) !== JSON.stringify(keep.event[f]))
+        if (keep.event[f] !== undefined && !isLegacy(v) && !isLegacy(keep.event[f]) && JSON.stringify(keyPart(rule, `event.${f}`, v)) !== JSON.stringify(keyPart(rule, `event.${f}`, keep.event[f])))
           conflicts.push({ fact: key, field: `event.${f}`, kept: keep.id, other: o.id });
     }
     kept.push(others.length ? { ...keep, provenance: { ...keep.provenance, also: [...(keep.provenance.also ?? []), ...others.map((o) => o.provenance.from)] } } : keep);
