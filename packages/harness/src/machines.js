@@ -156,8 +156,15 @@ const workers = {
   verdictIs: ({ event }, { verdict }) => event.verdict === verdict,
   // verifying waits for both CI and the verdict on one head (#71). CI names its head by a short sha, a prefix of the verdict's.
   awaitsVerdict: ({ context: c, event: e }) => c.verifierBrief != null && !(String(e.sha ?? '').length >= 7 && Object.keys(c.verdicts ?? {}).some((s) => s.startsWith(e.sha))),
-  awaitsChecks: ({ context: c, event: e }) => c.checksPassed == null || !e.sha.startsWith(c.checksPassed)
+  awaitsChecks: ({ context: c, event: e }) => c.checksPassed == null || !e.sha.startsWith(c.checksPassed),
+  // A PASS carries to a merge of main (#137), read from CI's head fact (from-github, GitHub's REST API): a merge of a
+  // commit on main and a parent whose latest verdict is PASS, with that parent's diff against the commit on main.
+  notMergeOfMain: ({ event: { sha, head: h } }) => !(HEX(40).test(String(h?.sha ?? '')) && String(sha ?? '').length >= 7 && h.sha.startsWith(sha) && h.parents?.length === 2 && h.parents.includes(h.onMain)),
+  parentNotVerified: ({ context, event: { head: h } }) => context.verdicts?.[verifiedParent(h)]?.verdict !== 'PASS',
+  diffChanged: ({ event: { head: h } }) => !HEX(64).test(String(h.diff?.[h.sha] ?? '')) || h.diff[h.sha] !== h.diff[verifiedParent(h)]
 };
+// The parent of a merge-of-main head that is not the commit on main.
+const verifiedParent = (h) => h.parents.find((p) => p !== h.onMain);
 const workerActions = {
   recordVerifierBrief: assign({ verifierBrief: ({ event }) => event.sha256 }),
   recordSpawn: assign({
@@ -179,7 +186,15 @@ const workerActions = {
     }
   }),
   recordChecksPassed: assign({ checksPassed: ({ event }) => String(event.sha ?? '') }),
-  recordVerdict: assign({ verdicts: ({ context, event: e }) => ({ ...context.verdicts, [e.sha]: { verdict: e.verdict, review: e.review, by: e.actor.id, at: e.receivedAt } }) })
+  recordVerdict: assign({ verdicts: ({ context, event: e }) => ({ ...context.verdicts, [e.sha]: { verdict: e.verdict, review: e.review, by: e.actor.id, at: e.receivedAt } }) }),
+  // The parent's PASS on the head, naming the sha the verifier gave it on (givenOn) and the fact that carried it.
+  carryVerdict: assign({
+    verdicts: ({ context, event: { head: h, source, receivedAt } }) => {
+      const from = context.verdicts[verifiedParent(h)];
+      const fact = { ref: source?.ref ?? null, parents: h.parents, onMain: h.onMain, diff: h.diff[h.sha] };
+      return { ...context.verdicts, [h.sha]: { verdict: 'PASS', review: from.review, by: from.by, at: receivedAt, givenOn: from.givenOn ?? verifiedParent(h), fact } };
+    }
+  })
 };
 
 // Who sent an event. runtime.apply() takes only events with an actor and a source; the machines send each

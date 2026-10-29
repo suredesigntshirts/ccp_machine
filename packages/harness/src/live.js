@@ -90,6 +90,13 @@ function storeProblem(state, needs, absentMeans) {
 const STAGE = (needs, state) => needs.view.stages.findIndex(([, states]) => states.includes(state));
 const leaf = (state) => String(state ?? '').split('.').pop();
 
+// The PASSes carried to a merge of main in an item's verdicts (spec workItem merging, carryVerdict), one line each, or
+// only those `before` did not hold: the sha the verifier gave the PASS on, the head it carried to, the fact that carried it.
+const carried = (verdicts, before = {}) =>
+  Object.entries(verdicts && typeof verdicts === 'object' ? verdicts : {})
+    .filter(([sha, v]) => v?.givenOn && !before?.[sha]?.givenOn)
+    .map(([sha, v]) => `PASS on ${String(v.givenOn).slice(0, 7)} carried to ${sha.slice(0, 7)} by ${v.fact?.ref ?? 'a GitHub fact'}`);
+
 function track(needs, item) {
   const stages = needs.view.stages;
   if (item.state === needs.view.merged) return `<div class="track ok" title="${esc(item.state)}">${stages.map(() => '<span></span>').join('')}</div>`;
@@ -130,7 +137,7 @@ export function renderView(view, needs) {
   const tone = v.scheduler.bad.includes(scheduler) ? 'halted' : v.scheduler.warn.includes(scheduler) ? 'draining' : '';
   const b = view.budget;
   const row = (i) =>
-    `<tr><td><b>${esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(needs, i)}<span class="m">${esc(leaf(i.state))}</span></td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${esc(i.retries)} retry)` : ''}</td><td class="m">${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`;
+    `<tr><td><b>${esc(i.id)}</b>${i.title ? `<br><span class="m">${esc(i.title)}</span>` : ''}</td><td class="m">${esc(i.project ?? '')}</td><td class="m">${esc(i.tier)}</td><td>${track(needs, i)}<span class="m">${esc(leaf(i.state))}</span>${carried(i.verdicts).map((l) => `<br><span class="m" data-carried>${esc(l)}</span>`).join('')}</td><td class="m">${esc(i.runs ?? 0)}${i.retries ? ` (${esc(i.retries)} retry)` : ''}</td><td class="m">${i.url ? `<a href="${esc(i.url)}">link</a>` : ''}</td></tr>`;
   const table = (rows) => `<div class="tablewrap"><table><thead><tr><th>Item</th><th>Project</th><th>Tier</th><th>Stage</th><th>Runs</th><th></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table></div>`;
   return `<div class="tiles">
 <div class="tile${asks.length ? ' ask' : ''}"><span class="eyebrow">Needs you</span><b>${asks.length}</b><small>${asks.length ? 'waiting below' : 'nothing to decide'}</small></div>
@@ -743,7 +750,7 @@ export function renderFlowReplay(rows, needs) {
     const [actors, context, effects] = [many(s.actors), many(s.context), many(s.effects)];
     const parts = [
       actors.length && `<h4>Actors</h4><ul>${actors.map((a) => `<li data-actor="${esc(a.address)}"><b>${esc(a.address)}</b>: <span data-before>${value(a.before)}</span> → <span data-after>${value(a.after)}</span></li>`).join('')}</ul>`,
-      context.length && `<h4>Context</h4><ul>${context.map((c) => `<li data-field="${esc(c.address)} ${esc(c.field)}">${esc(c.address)} <b>${esc(c.field)}</b>: <span data-before>${value(c.before)}</span> → <span data-after>${value(c.after)}</span></li>`).join('')}</ul>`,
+      context.length && `<h4>Context</h4><ul>${context.map((c) => `<li data-field="${esc(c.address)} ${esc(c.field)}">${esc(c.address)} <b>${esc(c.field)}</b>: <span data-before>${value(c.before)}</span> → <span data-after>${value(c.after)}</span>${c.field === 'verdicts' ? carried(c.after, c.before ?? {}).map((l) => `<br><b data-carried>${esc(l)}</b>`).join('') : ''}</li>`).join('')}</ul>`,
       effects.length && `<h4>Effects queued</h4><ul>${effects.map((f) => `<li data-effect="${esc(f.id)}"><b>${esc(f.name)}</b>${f.subject ? ` ${esc(f.subject)}` : ''} <span class="m">${esc(f.id)} · ${many(f.acks).length ? `acked ${many(f.acks).map(ack).join(', ')}` : 'no ack in this store'}</span>${f.detail != null ? value(f.detail) : ''}</li>`).join('')}</ul>`
     ].filter(Boolean);
     const route = `<div class="m">Route: ${many(s.route).length ? many(s.route).map(esc).join(' → ') : 'none'}</div>`;

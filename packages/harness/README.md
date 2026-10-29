@@ -87,6 +87,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   children told apart by spec machine id), and the spec states and events it names. `project()` copies only those
   fields; the renderer sees nothing else. `harness page --live --project chan_... --files-path <store path in the
   Library>` renders live mission control: the store as it was at render, how old that is, and a Refresh button.
+  An item's row names each PASS carried to a merge of main (its `verdicts`): the sha the verifier gave it on, the
+  head it carried to and the CI fact that carried it.
   Nothing reads the store until a viewer presses it; it then reads the file through the Artifact `files`
   capability, renders it, and adds one timing row (`{page, at, ms, storeVersion, schemaVersion, bytes, ok}`) to
   the `db` collection the spec names (`meta.pages`), and the page lists the recent rows. Publish it with
@@ -126,7 +128,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (actor and source) and provenance origin and source, and what the row did, from `steps.jsonl` beside the history
   (#124; written by replay's `--steps`, see `src/replay.js`; history.schema.json `steps`): each actor whose state it changed, before
   and after, the context fields it changed, the effects it queued with their detail and acks, and its route; a step that changed
-  nothing says so, and a row replay could not apply shows why. A value that is an object or array (a context value,
+  nothing says so, and a row replay could not apply shows why. A step that carried a PASS to a merge of main names
+  it under its `verdicts` change (the sha it was given on, the head, the fact). A value that is an object or array (a context value,
   an effect's detail) is pretty-printed in a scrollable monospace block; a scalar stays inline. Above the step, an
   architecture diagram of the harness (#130) lights, for the row shown, the box that sent it (the first sender rule
   its actor, source and type match), the actors whose state or context it changed, the store files it wrote (events
@@ -310,7 +313,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `verify-facts` (one async `doctor()`), lists every PR landed on main at or after the store's first event, in each repository the store names
   (its bound PRs' and its requests' issues'), bound to an item or not, and every landed PR bound to an item
   (its GitHub reads, and verify-facts', run `READS_AT_ONCE` at a time),
-  whose landed head has no verifier PASS in the store or no PASS review on GitHub on that sha; a PR bound to
+  whose landed head has no verifier PASS in the store (its own or one carried to it by a merge of main) or no PASS
+  review on GitHub on the sha it was given on; a PR bound to
   no item has no PASS (`src/gates.js` `verifyMerges`, GitHub's REST API only), and
   exits 1 on a problem: a mismatch, a merge without its PASS, or a session's missing ledger for
   an event 10 minutes old or more. What cannot be checked yet (GitHub unreachable, a ledger not filed for a
@@ -433,7 +437,15 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   40-character sha (no sha or a short one is refused) and the head's combined check-run conclusion must agree
   (more runs than one page, `total_count` over the runs returned, is pending); MERGED needs `merged: true`
   and an existing merge commit, and names the head GitHub merged (`sha`), which the item's machine takes only
-  when its verifier's latest verdict on that head is PASS; CANCEL needs the PR closed and not merged, after the same checks. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
+  when its latest verdict on that head is PASS; CANCEL needs the PR closed and not merged, after the same checks.
+  A CI pass also carries the head fact (`head`, `src/github-read.js` `headFact`), read from the same REST API and
+  never from the wake: the head's parents (`commits/<sha>`), the one parent `compare/<base>...<parent>` says is
+  reachable from the PR's base branch (`onMain`), and, for such a merge, the diff hash against that parent of the head
+  and of the other parent (`compare/<onMain>...<sha>`, `diffHash`: each file's added and removed lines, not the
+  context or line numbers, null past GitHub's 300 files). With it a verifier's PASS carries to a head that only
+  brings main in (spec workItem `merging`, #137): the merge of the passed sha and a commit on main, with the same
+  diff and CI green, records the PASS on the new head with the sha it was given on (`givenOn`) and the fact that
+  carried it, so it lands without a new verifier run; any other head still needs one. The ref is that fact (`owner/repo#N@<head sha>:checks=success`,
   `owner/repo#N:merged@<merge sha>`, `owner/repo#N` for a close). If GitHub disagrees or cannot be read, it refuses with the reason and
   writes nothing. `harness send` refuses `--actor github` and `--source github-wake`.
   `HARNESS_LIVE_GITHUB=1 npm test -w @ccp/harness` also reads the real PR #21.
@@ -445,10 +457,12 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   posted. (A `harness/verifier` commit status cannot be set: the session proxy refuses POST statuses with
   403, measured 2026-10-27.) `harness merge-gate --pr PR --sha SHA` is the plugin merge gate's question: the
   PR bound to an item, the head pinned, the item's machine taking `MERGED` of that head, and the PASS on
-  GitHub as that review on that sha; it exits 1 naming the rule, and never writes.
+  GitHub as that review on that sha (for a PASS carried to a merge of main, on the sha it was given on); it exits 1
+  naming the rule, and never writes.
 - `src/verify-facts.js`: `harness verify-facts [--store DIR]` re-reads GitHub for every github-wake event in
   the log and prints one line per fact: `ok`, `mismatch` (GitHub does not back the ref now: other checks, not
-  merged at that commit, a commit not on the PR, or a PR that is not the item's own) or `unreachable`. It
+  merged at that commit, a commit not on the PR, a CI pass's head fact that is not GitHub's, or a PR that is not
+  the item's own) or `unreachable`. It
   exits 1 on any mismatch (else 3 if any could not be read), never writes to the store, and takes the same
   injectable fetcher, so its tests run offline. Run it from outside the session that wrote the log. A
   `--store` with no `events.jsonl` is an error (exit 2) and no folder is made.

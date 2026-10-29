@@ -8,7 +8,7 @@ import { openStore, init, status, parseGithubEvent, mapGithubEvent, fromGithub, 
 import { readFact, combined, mapLimit, READS_AT_ONCE } from '../src/github-read.js';
 import { apply, start } from './send.js';
 import { verifyHead } from '../src/sim.js';
-import { fakeGithub, recorded, HEAD, MERGE } from './github-fake.js';
+import { fakeGithub, recorded, HEAD, MERGE, PARENT } from './github-fake.js';
 
 // PR o/r#7 is item x's: its branch names the item and it was opened after the request (12:00, before CREATED).
 const github = (o) => fakeGithub({ ref: 'feat/7-x', ...o });
@@ -78,10 +78,10 @@ test('each kind maps to its event; successes and other kinds are ignored', () =>
 test('the reader reads recorded REST responses for #21: the checks and the merge as GitHub states them', async () => {
   const fetcher = fakeGithub();
   const pr = 'suredesigntshirts/ccp_machine#21';
-  assert.deepEqual(await readFact({ type: 'CHECKS_PASSED', pr, sha: HEAD }, fetcher), { ref: `${pr}@${HEAD}:checks=success`, sha: HEAD });
+  assert.deepEqual(await readFact({ type: 'CHECKS_PASSED', pr, sha: HEAD }, fetcher), { ref: `${pr}@${HEAD}:checks=success`, sha: HEAD, head: { sha: HEAD, parents: [PARENT], onMain: null, diff: {} } });
   assert.deepEqual(await readFact({ type: 'MERGED', pr }, fetcher), { ref: `${pr}:merged@${MERGE}`, sha: HEAD });
   assert.ok(fetcher.calls.every((p) => p.startsWith('repos/suredesigntshirts/ccp_machine/')), `REST only: ${fetcher.calls}`);
-  assert.deepEqual(fetcher.calls, [`repos/suredesigntshirts/ccp_machine/pulls/21`, `repos/suredesigntshirts/ccp_machine/commits/${HEAD}/check-runs?per_page=100`, `repos/suredesigntshirts/ccp_machine/pulls/21`, `repos/suredesigntshirts/ccp_machine/commits/${MERGE}`]);
+  assert.deepEqual(fetcher.calls, [`repos/suredesigntshirts/ccp_machine/pulls/21`, `repos/suredesigntshirts/ccp_machine/commits/${HEAD}/check-runs?per_page=100`, `repos/suredesigntshirts/ccp_machine/commits/${HEAD}`, `repos/suredesigntshirts/ccp_machine/pulls/21`, `repos/suredesigntshirts/ccp_machine/commits/${MERGE}`]);
   assert.equal(combined(recorded.runs.check_runs), 'success');
   assert.equal(combined([{ status: 'completed', conclusion: 'success' }, { status: 'completed', conclusion: 'failure' }]), 'failure');
   assert.equal(combined([{ status: 'completed', conclusion: 'skipped' }, { status: 'in_progress', conclusion: null }]), 'pending');

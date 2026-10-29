@@ -9,7 +9,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openStore, init, status, fromGithub, mergeGate, verifyMerges, verifyFacts, renderLivePage } from '../src/index.js';
 import { diffHash, headFact } from '../src/github-read.js';
-import { parseLog } from '../src/live.js';
+import { parseLog, projectLog, renderData } from '../src/live.js';
+import { loadNeeds } from '../src/pages.js';
 import { apply, start } from './send.js';
 import { tempDir } from './tmp.js';
 
@@ -29,7 +30,7 @@ const ci = (sha, head, ref = `o/r#7@${sha}:checks=success`) => ({ type: 'CHECKS_
 const merged = (sha) => ({ type: 'MERGED', pr: PR, sha, actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: `o/r#7:merged@${'e'.repeat(40)}` } });
 const fact = (over = {}) => ({ sha: B, parents: [A, M], onMain: M, diff: { [B]: H, [A]: H }, ...over });
 const itemOf = (store) => status(store).items.find((i) => i.id === 'x');
-const ctx = (store) => store.read().snapshot.children['item:x'].snapshot.context;
+const ctx = (store) => store.read().snapshot.children.x.snapshot.context;
 
 // Item x (tier 0) on PR o/r#7, CI green and the verifier's PASS on A: merging.
 function merging() {
@@ -148,6 +149,7 @@ test('headFact reads the head, its parents, which parent is on main and the diff
   assert.ok(gh.calls.includes(`repos/o/r/compare/${M}...${B}`) && gh.calls.includes(`repos/o/r/compare/${M}...${A}`), 'both diffs against the commit on main');
   assert.deepEqual(await headFact('o/r', A, 'main', github()), { sha: A, parents: [M], onMain: null, diff: {} }, 'a non-merge head: its parents only');
   assert.deepEqual((await headFact('o/r', B, 'main', github({ onMain: [] }))).onMain, null, 'no parent on main');
+  assert.deepEqual(await headFact('o/r', B, 'main', github({ onMain: [A, M] }), M), await headFact('o/r', B, 'main', github()), 'read again once the PR landed and A is on main too');
   assert.ok(gh.calls.every((p) => !/graphql/i.test(p)), 'REST only');
 });
 
@@ -220,8 +222,9 @@ test('flow replay shows the carried PASS on the step of the fact that carried it
   assert.equal(step.refused, null);
   const field = step.context.find((c) => c.field === 'verdicts');
   assert.equal(field.after[B].givenOn, A);
-  const html = renderLivePage(rows, { page: 'flow-replay', also: { 'steps.jsonl': steps } });
-  const card = html.split('class="card step"').find((c) => c.includes('id <code>ci-b</code>') || c.includes('ci-b'));
+  const needs = loadNeeds('flow-replay');
+  const html = renderData(projectLog(rows, needs, { 'steps.jsonl': steps }), needs);
+  const card = html.split('class="card step"').find((c) => c.includes('· id ci-b<'));
   assert.match(card, /verdicts/);
   assert.match(card, /PASS on aaaaaaa carried to bbbbbbb/);
 });

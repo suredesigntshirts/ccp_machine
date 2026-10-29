@@ -13,6 +13,8 @@ export const verdictOf = (text) => /^[#>*\s]*(?:verdict\s*:\s*)?\**\s*(PASS|FAIL
 
 const contextOf = (store, item) => store.read()?.snapshot.children?.[item]?.snapshot.context ?? null;
 const pullPath = (key) => { const [repo, n] = key.split('#'); return `repos/${repo}/pulls/${n}`; };
+/** The sha whose verifier PASS head `sha` holds: the one a carried PASS was given on (workItem carryVerdict), else sha. */
+const givenOn = (store, item, sha) => (contextOf(store, item)?.verdicts?.[sha]?.givenOn ?? sha);
 /** The item's latest VERDICT_GIVEN row for head `sha`, or null. */
 const verdictRow = (events, item, sha) => events.findLast((e) => itemOf(e.to) === item && e.event?.type === 'VERDICT_GIVEN' && e.event.sha === sha) ?? null;
 
@@ -80,16 +82,19 @@ export async function mergeGate(store, { pr, sha }, { fetcher = restFetcher } = 
   const github = { actor: { kind: 'github', id: 'github' }, source: { kind: 'github-wake', ref: `merge-gate ${key}@${sha}` } };
   const dry = apply(store, { type: 'MERGED', pr: `https://github.com/${key.replace('#', '/pull/')}`, sha, ...github }, { to: `item:${item}`, dryRun: true });
   if (dry.refused) return { allow: false, rule: 'machine', item, why: `item ${item}'s machine would not take the merge of ${sha.slice(0, 7)}: ${dry.why}` };
-  const row = verdictRow(events, item, sha);
+  // A PASS carried to a merge of main (#137) is checked as a review on the sha the verifier gave it on.
+  const on = givenOn(store, item, sha);
+  const row = verdictRow(events, item, on);
   let reviews;
   try {
     reviews = [].concat(await fetcher(`${pullPath(key)}/reviews?per_page=100`));
   } catch (e) {
     return { allow: false, rule: 'reviewOnHead', item, why: `cannot read ${key}'s reviews from GitHub: ${e.message}` };
   }
-  const on = reviews.find((r) => carries(r, row, sha));
-  if (!on) return { allow: false, rule: 'reviewOnHead', item, why: `${key} carries no review ${row?.event.review ?? ''} on ${sha.slice(0, 7)} with the PASS verdict the store holds` };
-  return { allow: true, item, why: `item ${item}'s verifier passed ${sha.slice(0, 7)}, and review ${on.id} carries it on that sha` };
+  const review = reviews.find((r) => carries(r, row, on));
+  if (!review) return { allow: false, rule: 'reviewOnHead', item, why: `${key} carries no review ${row?.event.review ?? ''} on ${on.slice(0, 7)} with the PASS verdict the store holds` };
+  const carried = on !== sha ? `, carried to ${sha.slice(0, 7)} by a merge of main` : '';
+  return { allow: true, item, why: `item ${item}'s verifier passed ${on.slice(0, 7)}${carried}, and review ${review.id} carries it on that sha` };
 }
 
 /** The repositories the store names (owner/repo, lowercased): its bound PRs' and its requests' issues'. */
@@ -139,12 +144,13 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
         head = String(p.head?.sha ?? '');
       }
       const why = [];
-      const row = item && verdictRow(events, item, head);
+      const on = item && givenOn(store, item, head);
+      const row = item && verdictRow(events, item, on);
       if (!item) why.push(`bound to no item: the store holds no verifier PASS for its landed head ${head.slice(0, 7)}`);
       else {
         if (row?.event.verdict !== 'PASS') why.push(`the store holds no verifier PASS for its merge head ${head.slice(0, 7)}`);
         const reviews = [].concat(await fetcher(`${pullPath(key)}/reviews?per_page=100`));
-        if (!reviews.some((r) => carries(r, row, head))) why.push(`GitHub has no PASS review on ${head.slice(0, 7)} carrying the verdict the store holds`);
+        if (!reviews.some((r) => carries(r, row, on))) why.push(`GitHub has no PASS review on ${on.slice(0, 7)} carrying the verdict the store holds`);
       }
       // A landing an OUT_OF_BAND row of the history records is listed by doctor, not a problem (meta.invariants reviewOnHead).
       const oob = why.length && events.find((e) => e.event?.type === 'OUT_OF_BAND' && prKey(e.event.pr ?? '') === key && (!e.event.sha || e.event.sha === head));

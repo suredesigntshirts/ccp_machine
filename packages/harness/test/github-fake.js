@@ -10,6 +10,7 @@ export const HEAD = recorded.pull.head.sha;
 export const MERGE = recorded.pull.merge_commit_sha;
 export const CREATED = recorded.pull.created_at;
 export const BRANCH = recorded.pull.head.ref;
+export const PARENT = '0'.repeat(40);
 
 /**
  * A fetcher(path) answering for any PR; `calls` lists the paths it was asked for. `checks` is the conclusion
@@ -33,6 +34,8 @@ export function fakeGithub({ head = HEAD, ref = BRANCH, createdAt = CREATED, che
         return { ...recorded.runs, total_count: totalCount ?? runs.length, check_runs: runs };
       }
     if (path.endsWith(`/commits/${MERGE}`)) return recorded.commit;
+    // A head's commit (headFact): one parent, so no PASS carries to it (#137).
+    for (const sha of [head, ...earlier, ...offPr]) if (path.endsWith(`/commits/${sha}`)) return { sha, parents: [{ sha: PARENT }] };
     throw new Error(`gh: Not Found (HTTP 404) ${path}`);
   };
   fetcher.calls = calls;
