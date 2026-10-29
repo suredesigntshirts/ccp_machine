@@ -10,6 +10,8 @@
 // With {steps: true} it also returns what each row did on the way (history.schema.json steps): the actors whose state
 // it changed and the context fields it changed (the scratch copy before and after the row), the effects it queued with
 // their detail and the store's acks for them, and its route; a row it cannot apply is a step with the reason it was refused.
+// With {listed} ("<id>: <reason>" lines, as the join's report.json lists the rows it refused), a row refused for its
+// listed reason is known, not a divergence (meta.store.facts): it is returned in known.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -87,8 +89,8 @@ export function changes(before, after) {
   return { actors, context };
 }
 
-/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], admittedThen: object[], rebuilt: object, steps?: object[]}} rebuilt is the scratch state.json */
-export function replay(store, { steps: withSteps = false } = {}) {
+/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], admittedThen: object[], known: string[], rebuilt: object, steps?: object[]}} rebuilt is the scratch state.json */
+export function replay(store, { steps: withSteps = false, listed = [] } = {}) {
   const state = store.read();
   if (!state) return { ok: false, events: 0, firstDivergence: null, differences: ['no state.json'], notes: [], admittedThen: [] };
   const dir = mkdtempSync(join(tmpdir(), 'harness-replay-'));
@@ -100,6 +102,8 @@ export function replay(store, { steps: withSteps = false } = {}) {
     let firstDivergence = null;
     const notes = [];
     const admittedThen = [];
+    const known = [];
+    const isListed = new Set(listed);
     const events = store.events();
     // The host's acks, oldest first, go on the scratch copy as the log reached them; the withdrawn ones are the closes
     // replay writes itself, by the event that closed them ("<subject> withdrawn by <event id>").
@@ -164,7 +168,8 @@ export function replay(store, { steps: withSteps = false } = {}) {
         if (whys.length) admittedThen.push({ id: e.id, type: e.event.type, release: e.harness ?? null, why: whys.join('; ') });
         ({ effects } = r);
       } catch (err) {
-        firstDivergence ??= `${e.id}: ${err.message}`;
+        if (isListed.has(`${e.id}: ${err.message}`)) known.push(`${e.id}: ${err.message}`);
+        else firstDivergence ??= `${e.id}: ${err.message}`;
         if (withSteps) record(e, r, err);
         continue;
       }
@@ -173,7 +178,7 @@ export function replay(store, { steps: withSteps = false } = {}) {
     }
     const rebuilt = scratch.read();
     const { differences } = compare(state.snapshot, rebuilt.snapshot, 'harness', { differences: [], notes });
-    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, admittedThen, rebuilt, ...(withSteps && { steps }) };
+    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, admittedThen, known, rebuilt, ...(withSteps && { steps }) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
