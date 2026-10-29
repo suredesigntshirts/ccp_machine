@@ -1,8 +1,9 @@
 // The one history (epic #59): every era's events in one shape, spec/history.schema.json. This module only
 // reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), eventProblems()
 // holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), placeholders()
-// counts the legacy values doctor reports, factKey() and dedupe() apply its identity rules, and checkLogNeeds()
-// holds a history to a view's needs file. The schema is a subset of JSON Schema, and so is the checker below.
+// counts the legacy values doctor reports, factKey() and dedupe() apply its identity rules, stepProblems() holds a
+// step (steps, beside a history) to its row, and checkLogNeeds() holds a history and its steps to a view's needs
+// file. The schema is a subset of JSON Schema, and so is the checker below.
 import { readFileSync } from 'node:fs';
 import { specs } from './machines.js';
 
@@ -63,6 +64,9 @@ export function validate(row) {
   for (const p of listed) if (!found.includes(p)) out.push(`${p}: listed in provenance.placeholders but holds no legacy placeholder`);
   return out.map((p) => `${row?.id ?? '(no id)'}: ${p}`);
 }
+
+/** What is wrong with one step of a history's steps file (history.schema.json steps.row): [] when it is a valid step. */
+export const stepProblems = (step) => check(HISTORY.steps.row, step, '', []).map((p) => `step ${step?.version ?? '(no version)'}: ${p}`);
 
 /** What is wrong with an event's payload against its type's declaration (events.types): [] when it holds to it. */
 export function eventProblems(event) {
@@ -132,31 +136,44 @@ export function dedupe(rows) {
   return { rows: kept, dropped, conflicts };
 }
 
-// Whether the schema declares a field path for an event type: each segment a property (through $ref and anyOf), a
-// payload path in the envelope's event or in the type's own schema.
-function declares(schema, type, path) {
+// Whether the schema declares a field path: each segment a property (through $ref, anyOf and an array's items) of one
+// of the nodes it starts from.
+function declares(schema, nodes, path) {
   const ref = (n) => (n && n.$ref ? ref(n.$ref.slice(2).split('/').reduce((x, k) => x?.[k], schema)) : n);
-  const forms = (n) => { n = ref(n); return !n ? [] : n.anyOf ? n.anyOf.flatMap(forms) : [n]; };
-  const [head, ...rest] = path.split('.');
-  let nodes = [schema.properties?.[head], head === 'event' && type !== '*' && schema.events.types[type]?.schema].filter(Boolean);
-  for (const k of rest) nodes = nodes.flatMap(forms).map((n) => n.properties?.[k]).filter(Boolean);
+  const forms = (n) => { n = ref(n); return !n ? [] : n.anyOf ? n.anyOf.flatMap(forms) : n.items ? [n, ...forms(n.items)] : [n]; };
+  for (const k of path.split('.')) nodes = nodes.flatMap(forms).map((n) => n.properties?.[k]).filter(Boolean);
   return nodes.length > 0;
 }
+// A history field path for an event type: in the envelope, or for event.* in the type's own schema.
+const declaresLog = (schema, type, path) =>
+  declares(schema, [schema], path) || (path.startsWith('event.') && type !== '*' && Boolean(schema.events.types[type]?.schema) && declares(schema, [schema.events.types[type].schema], path.slice(6)));
+// The values at a path, through arrays: one per object the path reaches, undefined where that object lacks it.
+const valuesAt = (o, keys) => (!keys.length ? [o] : Array.isArray(o) ? o.flatMap((x) => valuesAt(x, keys)) : o == null || typeof o !== 'object' ? [undefined] : valuesAt(o[keys[0]], keys.slice(1)));
 
 /**
  * Everything that breaks a log view's needs file against the schema and, given rows, against a history: each line
  * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each: the schema
  * must declare each field, every row of the type must carry it, as a value or a legacy placeholder, and at least one
- * row a value.
+ * row a value. A file it reads beside the history (reads.with: the steps file) has its fields declared in the schema's
+ * steps.row, and, given that file's rows (also), every row and every element on the way carries each one.
  */
-export function checkLogNeeds(needs, rows, schema = HISTORY) {
+export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
   const out = [];
   const say = (m) => out.push(`${needs.page}: ${m}`);
   const range = needs.reads.schemaVersion;
   if (schema.schemaVersion < range.min || schema.schemaVersion > range.max) say(`reads history schema ${range.min}..${range.max}, and history.schema.json is ${schema.schemaVersion}`);
   for (const [type, fields] of Object.entries(needs.events)) {
     if (type !== '*' && !schema.events.types[type]) { say(`reads ${type}, which history.schema.json does not declare`); continue; }
-    for (const f of fields) if (!declares(schema, type, f)) say(`reads ${type} field ${f}, which history.schema.json does not declare`);
+    for (const f of fields) if (!declaresLog(schema, type, f)) say(`reads ${type} field ${f}, which history.schema.json does not declare`);
+  }
+  for (const [file, fields] of Object.entries(needs.reads.with ?? {})) {
+    if (file !== schema.steps?.file) { say(`reads ${file} beside the history, which history.schema.json does not declare`); continue; }
+    for (const f of fields) if (!declares(schema, [schema.steps.row], f)) say(`reads ${file} field ${f}, which history.schema.json steps does not declare`);
+    if (!also[file]) continue;
+    for (const f of fields) {
+      const lack = also[file].filter((s) => valuesAt(s, f.split('.')).includes(undefined)).map((s) => s.version);
+      if (lack.length) say(`reads ${file} field ${f}, which ${lack.length === 1 ? 'step' : 'steps'} ${lack.slice(0, 5).join(', ')}${lack.length > 5 ? ` and ${lack.length - 5} more` : ''} ${lack.length === 1 ? 'lacks' : 'lack'}`);
+    }
   }
   if (!rows) return out;
   for (const [type, fields] of Object.entries(needs.events)) {

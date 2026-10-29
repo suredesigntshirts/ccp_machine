@@ -2,7 +2,8 @@
 // events.jsonl), each a page that reads its file itself, but only when a viewer asks. Node imports this module to
 // render a page and to check it against its needs file; `harness page --live` also inlines its source in the page
 // (each `export ` dropped), so the refresh button and flow replay's step buttons run the same code. It has no imports and touches no Node API. Everything a page reads goes
-// through project() or projectLog(), which copy only the fields the page's needs file declares.
+// through project() or projectLog(), which copy only the fields the page's needs file declares, of its file and of the
+// file it reads beside it (reads.with: flow replay's steps.jsonl, which harness replay --steps writes).
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -71,8 +72,8 @@ export function project(state, needs) {
   };
 }
 
-/** Why the page cannot show this data (not the file it reads, or a schemaVersion outside the needs range), or null. */
-export const schemaProblem = (data, needs, absentMeans) => FORMATS[needs.reads.file].problem(data, needs, absentMeans);
+/** Why the page cannot show this data (not the file it reads, a schemaVersion outside the needs range, or a file it reads beside it missing or not of this data), or null. */
+export const schemaProblem = (data, needs, absentMeans, also = {}) => FORMATS[needs.reads.file].problem(data, needs, absentMeans, also);
 
 function storeProblem(state, needs, absentMeans) {
   const file = needs.reads.file;
@@ -169,7 +170,7 @@ const isLegacy = (v) => v != null && typeof v === 'object' && !Array.isArray(v) 
 const logFields = (needs, type) => [...(needs.events['*'] ?? []), ...(needs.events[type] ?? [])];
 const rowSchema = (r, absentMeans) => (r && r.schemaVersion !== undefined ? r.schemaVersion : absentMeans);
 
-function logProblem(rows, needs, absentMeans) {
+function logProblem(rows, needs, absentMeans, also = {}) {
   const { file } = needs.reads;
   const page = esc(needs.page);
   const none = 'Nothing from it is shown, so nothing here can be taken as complete.';
@@ -178,19 +179,50 @@ function logProblem(rows, needs, absentMeans) {
   if (bad >= 0) return `Line ${bad + 1} of this ${file} is ${rows[bad] && rows[bad].unreadable ? 'not JSON' : 'not a history row (no event or provenance, spec/history.schema.json)'}. ${none}`;
   const { min, max } = needs.reads.schemaVersion;
   const off = rows.findIndex((r) => { const v = rowSchema(r, absentMeans); return !(typeof v === 'number' && v >= min && v <= max); });
-  return off < 0 ? null : `This history's ${file} has schemaVersion ${esc(rowSchema(rows[off], absentMeans))} at line ${off + 1}; ${page} reads ${min} to ${max}. ${none}`;
+  if (off >= 0) return `This history's ${file} has schemaVersion ${esc(rowSchema(rows[off], absentMeans))} at line ${off + 1}; ${page} reads ${min} to ${max}. ${none}`;
+  // The file it reads beside the history (steps.jsonl): one step per row, joined by version and id.
+  for (const name of Object.keys(needs.reads.with ?? {})) {
+    const steps = also[name];
+    const again = `Build it again beside the history: harness replay --steps. ${none}`;
+    if (!Array.isArray(steps)) return `This page reads ${esc(name)} beside this ${file}, and there is none. ${again}`;
+    const bad = steps.findIndex((s) => !s || s.unreadable);
+    if (bad >= 0) return `Line ${bad + 1} of this ${esc(name)} is not JSON. ${again}`;
+    const by = new Map(steps.map((s) => [s.version, s]));
+    const lone = rows.find((r) => !by.has(r.version) || by.get(r.version).id !== r.id);
+    if (lone || steps.length !== rows.length)
+      return `This ${esc(name)} is not this history's: ${lone ? `row ${esc(lone.version)} (${esc(lone.id)}) has no step of its own` : `it has ${steps.length} steps for ${rows.length} rows`}. ${again}`;
+  }
+  return null;
 }
 
-/** The history as the page sees it: each row's type and only the fields `needs.events` declares for it ("*": every row). */
-export function projectLog(rows, needs) {
+// Only the values at the given paths; a path goes through an array element by element.
+function pick(o, paths) {
+  if (Array.isArray(o)) return o.map((x) => pick(x, paths));
+  if (o == null || typeof o !== 'object' || isLegacy(o)) return undefined;
+  const by = new Map();
+  for (const p of paths) {
+    const [head, ...rest] = p.split('.');
+    by.set(head, [...(by.get(head) ?? []), rest.join('.')]);
+  }
+  const out = {};
+  for (const [k, subs] of by) {
+    const v = subs.includes('') ? o[k] : pick(o[k], subs);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * The history as the page sees it: each row's type and only the fields `needs.events` declares for it ("*": every
+ * row), and, for a page that reads a file beside the history (reads.with), the row's step from it (by version), with
+ * only the fields declared for that file.
+ */
+export function projectLog(rows, needs, also = {}) {
+  const [name, fields] = Object.entries(needs.reads.with ?? {})[0] ?? [];
+  const steps = new Map((name && Array.isArray(also[name]) ? also[name] : []).map((s) => [s.version, s]));
   return rows.map((r) => {
-    const out = { event: { type: r.event.type } };
-    for (const p of logFields(needs, r.event.type)) {
-      const v = at(r, p);
-      if (v === undefined) continue;
-      const keys = p.split('.');
-      keys.slice(0, -1).reduce((o, k) => (o[k] ??= {}), out)[keys.at(-1)] = v;
-    }
+    const out = pick(r, ['event.type', ...logFields(needs, r.event.type)]);
+    if (name) out.step = steps.has(r.version) ? pick(steps.get(r.version), fields) : null;
     return out;
   });
 }
@@ -232,6 +264,8 @@ const shownAs = (v) => (isLegacy(v) ? PLACEHOLDER : esc(text(v)));
 // An actor (kind:id) or a source (kind:ref).
 const party = (v) => (v == null ? '' : isLegacy(v) ? PLACEHOLDER : esc([v.kind, v.id ?? v.ref].filter((x) => x != null).join(':')));
 const timeOrder = (a, b) => text(a.at).localeCompare(text(b.at)) || (a.version ?? 0) - (b.version ?? 0);
+// A row's own placeholders: those in its step's values are the machines' context, not the row's.
+const ownLegacies = (r) => { const { step: _, ...row } = r; return legacies(row); };
 
 /**
  * The ledger: who did the work on each item, as which role and on which model (spawns, starts, runs), the usage
@@ -289,43 +323,87 @@ export function renderLedger(rows, needs) {
 }
 
 /**
- * Flow replay: every row in time order, grouped by item (the to address; rows with no item address in a group of
- * their own), each group stepped one row at a time (step) showing the row's type, time, sender and provenance.
+ * Flow replay: every row in time order, stepped one at a time through the whole history or through one item's rows
+ * (the to address; rows with no item address are a group of their own). Each step shows the row's type, time, sender
+ * and provenance and, from its step (steps.jsonl), each actor whose state it changed, before and after, the context
+ * fields it changed, the effects it queued with their acks, and its route; a step that changed nothing says so, and
+ * one replay could not apply says why. Every count carries data-count.
  */
 export function renderFlowReplay(rows, needs) {
+  const sorted = [...rows].sort(timeOrder);
+  const groupOf = (r) => { const m = /^item:([^/]+)/.exec(typeof r.to === 'string' ? r.to : ''); return m ? `item:${m[1]}` : '(no item)'; };
   const groups = new Map();
-  for (const r of [...rows].sort(timeOrder)) {
-    const m = /^item:([^/]+)/.exec(typeof r.to === 'string' ? r.to : '');
-    const g = m ? `item:${m[1]}` : '(no item)';
+  for (const r of sorted) {
+    const g = groupOf(r);
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(r);
   }
   const count = (name, n) => `<b data-count="${name}">${n}</b>`;
+  const many = (v) => (Array.isArray(v) ? v : []);
+  const tally = (list) => {
+    const steps = list.map((r) => r.step).filter(Boolean);
+    const applied = steps.filter((s) => s.refused == null);
+    return { rows: list.length, placeholders: list.reduce((n, r) => n + ownLegacies(r), 0), steps: applied.length, refused: steps.length - applied.length, actors: applied.reduce((n, s) => n + many(s.actors).length, 0), effects: applied.reduce((n, s) => n + many(s.effects).length, 0) };
+  };
+  const value = (v) => (v == null ? '<i class="m">none</i>' : `<code>${esc(typeof v === 'string' ? v : JSON.stringify(v))}</code>`);
+  const ack = (a) => `${esc(a.outcome)}${a.at ? ` ${esc(clock(a.at))}` : ''}${a.note ? ` (${esc(a.note)})` : ''}`;
+  const changed = (s) => {
+    if (!s) return '';
+    if (s.refused != null) return `<div class="refused" data-refused>Replay cannot apply this row, so it changed nothing: ${esc(s.refused)}</div>`;
+    const [actors, context, effects] = [many(s.actors), many(s.context), many(s.effects)];
+    const parts = [
+      actors.length && `<h4>Actors</h4><ul>${actors.map((a) => `<li data-actor="${esc(a.address)}"><b>${esc(a.address)}</b>: <span data-before>${value(a.before)}</span> → <span data-after>${value(a.after)}</span></li>`).join('')}</ul>`,
+      context.length && `<h4>Context</h4><ul>${context.map((c) => `<li data-field="${esc(c.address)} ${esc(c.field)}">${esc(c.address)} <b>${esc(c.field)}</b>: <span data-before>${value(c.before)}</span> → <span data-after>${value(c.after)}</span></li>`).join('')}</ul>`,
+      effects.length && `<h4>Effects queued</h4><ul>${effects.map((f) => `<li data-effect="${esc(f.id)}"><b>${esc(f.name)}</b>${f.subject ? ` ${esc(f.subject)}` : ''} <span class="m">${esc(f.id)} · ${many(f.acks).length ? `acked ${many(f.acks).map(ack).join(', ')}` : 'no ack in this store'}</span></li>`).join('')}</ul>`
+    ].filter(Boolean);
+    const route = `<div class="m">Route: ${many(s.route).length ? many(s.route).map(esc).join(' → ') : 'none'}</div>`;
+    return `${parts.length ? parts.join('') : '<div class="m" data-unchanged>This step changed nothing: no actor\'s state, no context field, no effect.</div>'}${route}`;
+  };
   const card = (r, i) =>
-    `<div class="card step" data-version="${esc(r.version)}"${i ? ' hidden' : ''}><span class="eyebrow">row ${esc(r.version)} · to ${shownAs(r.to)}</span><b>${esc(r.event.type)}</b>` +
-    `<div class="m">${shownAs(r.at)} · sent by ${party(r.actor)} via ${party(r.source)} · ${shownAs(at(r, 'provenance.origin'))} from ${shownAs(at(r, 'provenance.from.source'))} · id ${shownAs(r.id)}</div></div>`;
+    `<div class="card step" data-version="${esc(r.version)}" data-group="${esc(groupOf(r))}"${i ? ' hidden' : ''}><span class="eyebrow">row ${esc(r.version)} · to ${shownAs(r.to)}</span><b>${esc(r.event.type)}</b>` +
+    `<div class="m">${shownAs(r.at)} · sent by ${party(r.actor)} via ${party(r.source)} · ${shownAs(at(r, 'provenance.origin'))} from ${shownAs(at(r, 'provenance.from.source'))} · id ${shownAs(r.id)}</div>${changed(r.step)}</div>`;
   const button = (step, label) => `<button type="button" data-step="${step}">${label}</button>`;
-  const group = ([g, list]) =>
-    `<section class="group" data-group="${esc(g)}" data-steps><h3>${esc(g)}: ${count('rows', list.length)} rows, ${count('placeholders', list.reduce((n, r) => n + legacies(r), 0))} placeholders</h3>` +
-    `<div class="stepper">${button('first', 'First')}${button('prev', 'Previous')}<span class="m" data-pos>1 / ${list.length}</span>${button('next', 'Next')}${button('last', 'Last')}</div>${list.map(card).join('')}</section>`;
+  const all = tally(sorted);
+  const line = ([g, list]) => {
+    const t = tally(list);
+    return `<tr data-group="${esc(g)}"><td><button type="button" data-follow="${esc(g)}" aria-pressed="false">${esc(g)}</button></td>` +
+      ['rows', 'steps', 'refused', 'actors', 'effects', 'placeholders'].map((k) => `<td>${count(k, t[k])}</td>`).join('') + '</tr>';
+  };
   return `<div class="tiles">
-<div class="tile"><span class="eyebrow">Rows</span>${count('rows', rows.length)}<small>in time order</small></div>
-<div class="tile"><span class="eyebrow">Groups</span>${count('groups', groups.size)}<small>one per item, and one for rows with no item</small></div>
-<div class="tile"><span class="eyebrow">Placeholders</span>${count('placeholders', rows.reduce((n, r) => n + legacies(r), 0))}<small>values no source recorded, never shown</small></div>
+<div class="tile"><span class="eyebrow">Rows</span>${count('rows', all.rows)}<small>in time order, in ${count('groups', groups.size)} groups: one per item, and one for rows with no item</small></div>
+<div class="tile"><span class="eyebrow">Steps</span>${count('steps', all.steps)}<small>rows replay applied; ${count('refused', all.refused)} it could not apply</small></div>
+<div class="tile"><span class="eyebrow">Changed actors</span>${count('actors', all.actors)}<small>state changes, each before and after</small></div>
+<div class="tile"><span class="eyebrow">Effects</span>${count('effects', all.effects)}<small>queued, with the acks the store holds</small></div>
+<div class="tile"><span class="eyebrow">Placeholders</span>${count('placeholders', all.placeholders)}<small>values no source recorded, never shown</small></div>
 </div>
-${[...groups].map(group).join('\n')}`;
+<section class="replay" data-steps=""><h2>Step through</h2>
+<div class="tablewrap"><table><thead><tr><th>Follow</th><th>Rows</th><th>Steps</th><th>Refused</th><th>Changed actors</th><th>Effects</th><th>Placeholders</th></tr></thead><tbody>
+<tr data-group=""><td><button type="button" data-follow="" aria-pressed="true">whole history</button></td><td colspan="6" class="m">every row in time order, across items</td></tr>
+${[...groups].map(line).join('\n')}</tbody></table></div>
+<div class="stepper"><span data-following>Following the whole history</span>${button('first', 'First')}${button('prev', 'Previous')}<span class="m" data-pos>1 / ${sorted.length}</span>${button('next', 'Next')}${button('last', 'Last')}</div>
+${sorted.map(card).join('')}</section>`;
 }
 
-/** Shows the next, previous, first or last row of a flow replay group: a click on one of its data-step buttons. */
+/**
+ * Flow replay's controls, a click inside its data-steps section: a data-follow button follows one group (or, empty,
+ * the whole history), keeping the row shown when it is in that group; a data-step button shows the first, previous,
+ * next or last row of what is followed. One row is shown at a time, with its position.
+ */
 export function step(e) {
-  const b = e.target && e.target.closest ? e.target.closest('[data-step]') : null;
+  const b = e.target && e.target.closest ? e.target.closest('[data-step], [data-follow]') : null;
   const g = b && b.closest('[data-steps]');
   if (!g) return;
-  const list = [...g.querySelectorAll('[data-version]')];
+  if ('follow' in b.dataset) g.dataset.steps = b.dataset.follow;
+  const follow = g.dataset.steps || '';
+  const all = [...g.querySelectorAll('[data-version]')];
+  const list = follow ? all.filter((r) => r.dataset.group === follow) : all;
+  if (!list.length) return;
   const now = Math.max(0, list.findIndex((r) => !r.hidden));
-  const to = { first: 0, prev: Math.max(0, now - 1), next: Math.min(list.length - 1, now + 1), last: list.length - 1 }[b.dataset.step];
-  list.forEach((r, i) => { r.hidden = i !== to; });
+  const to = { first: 0, prev: Math.max(0, now - 1), next: Math.min(list.length - 1, now + 1), last: list.length - 1 }[b.dataset.step] ?? now;
+  all.forEach((r) => { r.hidden = r !== list[to]; });
   g.querySelector('[data-pos]').textContent = `${to + 1} / ${list.length}`;
+  g.querySelector('[data-following]').textContent = follow ? `Following ${follow}` : 'Following the whole history';
+  for (const f of g.querySelectorAll('[data-follow]')) f.setAttribute('aria-pressed', String(f.dataset.follow === follow));
 }
 
 /**
@@ -427,13 +505,21 @@ export function client(cfg, meta) {
       if (!files) throw { code: 'unavailable', message: 'this view cannot read project files (open it on claude.ai as a project member)' };
       const r = await files.read(cfg.path);
       const data = f.parse(new TextDecoder().decode(r.bytes));
-      const problem = schemaProblem(data, cfg.needs, cfg.absentMeans);
-      const view = problem ? null : f.project(data, cfg.needs);
+      // The file it reads beside its own (reads.with), each a JSONL file as the history is.
+      const also = {};
+      let bytes = r.size;
+      for (const [name, path] of Object.entries(cfg.also || {})) {
+        const x = await files.read(path);
+        also[name] = parseLog(new TextDecoder().decode(x.bytes));
+        bytes += x.size;
+      }
+      const problem = schemaProblem(data, cfg.needs, cfg.absentMeans, also);
+      const view = problem ? null : f.project(data, cfg.needs, also);
       $('view').innerHTML = problem ? banner(problem, f.of) : renderData(view, cfg.needs);
       const ms = Math.round(performance.now() - t0);
       meta = { readAt: new Date().toISOString(), of: f.of, ...(view ? f.age(view) : { version: null, updatedAt: null }) };
       showAge();
-      row = { ...row, ms, ...f.stamp(data, cfg.needs, cfg.absentMeans), bytes: r.size, ok: !problem };
+      row = { ...row, ms, ...f.stamp(data, cfg.needs, cfg.absentMeans), bytes, ok: !problem };
       msg.textContent = problem ? `Read in ${ms} ms, but this page cannot show this ${f.of} (see the banner).` : `Refreshed in ${ms} ms.`;
     } catch (e) {
       row = { ...row, ms: Math.round(performance.now() - t0), error: String((e && e.code) || (e && e.message) || e) };

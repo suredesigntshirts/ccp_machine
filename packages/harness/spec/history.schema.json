@@ -167,5 +167,46 @@
       { "fact": "out-of-band", "types": ["OUT_OF_BAND"], "key": ["event.message", "event.what"], "owner": "session", "why": "The order is a message the session read." }
     ],
     "otherwise": { "key": ["provenance.from.ref", "id"], "why": "Any other row is its own fact within its source." }
+  },
+  "steps": {
+    "file": "steps.jsonl",
+    "key": "version",
+    "description": "What each row of a history did, beside it in steps.jsonl: one step per row, in the history's order, joined to its row by version (and id). harness replay --steps writes it by replaying the history with the current code, each row a fact (harness meta.store.facts), and reads it off its scratch copy before and after each row: the actors whose state the row changed, the context fields it changed, the effects it queued with the acks the store holds for them, and its route. A row replay cannot apply is a step with the reason (refused) and no changes. A page that reads it (pages/<page>/needs.json reads.with) declares the fields it reads here, so dropping one fails naming the page and the field.",
+    "row": {
+      "type": "object",
+      "required": ["version", "id", "refused", "route", "actors", "context", "effects"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "integer", "minimum": 1, "description": "The history row this step is." },
+        "id": { "type": "string", "minLength": 1, "description": "The history row's id." },
+        "refused": { "type": ["string", "null"], "description": "Why replay could not apply the row (a second row of an id it applied already is one: replay applies an id once); null when it applied it." },
+        "route": { "anyOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "type": "null" }], "description": "The ids of the routes the row took on replay; null when it was refused." },
+        "actors": {
+          "type": "array",
+          "description": "Each actor whose state the row changed: its address (harness, item:<id>, item:<id>/<child id>) and its state before and after, as text (null: the actor was not there).",
+          "items": { "type": "object", "required": ["address", "before", "after"], "additionalProperties": false, "properties": { "address": { "type": "string", "minLength": 1 }, "before": { "type": ["string", "null"] }, "after": { "type": ["string", "null"] } } }
+        },
+        "context": {
+          "type": "array",
+          "description": "Each context field the row changed: the actor's address, the field, and its value before and after (null: absent).",
+          "items": { "type": "object", "required": ["address", "field", "before", "after"], "additionalProperties": false, "properties": { "address": { "type": "string", "minLength": 1 }, "field": { "type": "string", "minLength": 1 }, "before": {}, "after": {} } }
+        },
+        "effects": {
+          "type": "array",
+          "description": "Each effect the row queued (id, name, subject) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "subject", "acks"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "name": { "type": "string", "minLength": 1 },
+              "subject": { "type": ["string", "null"] },
+              "acks": { "type": "array", "items": { "type": "object", "required": ["outcome"], "properties": { "outcome": { "type": "string" }, "at": { "type": ["string", "null"] }, "note": { "type": ["string", "null"] } } } }
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -513,3 +513,13 @@ Identity: How the merger knows two rows describe one fact (C4). The first rule w
 - spawn (`WORKER_SPAWNED`): key `event.toolUseId`, owner store. One Agent tool call is one spawn.
 - out-of-band (`OUT_OF_BAND`): key `event.message` + `event.what`, owner session. The order is a message the session read.
 - otherwise: key `provenance.from.ref` + `id`. Any other row is its own fact within its source.
+
+Steps (`steps.jsonl`, joined to the history by `version`): What each row of a history did, beside it in steps.jsonl: one step per row, in the history's order, joined to its row by version (and id). harness replay --steps writes it by replaying the history with the current code, each row a fact (harness meta.store.facts), and reads it off its scratch copy before and after each row: the actors whose state the row changed, the context fields it changed, the effects it queued with the acks the store holds for them, and its route. A row replay cannot apply is a step with the reason (refused) and no changes. A page that reads it (pages/<page>/needs.json reads.with) declares the fields it reads here, so dropping one fails naming the page and the field.
+
+- `version`: The history row this step is.
+- `id`: The history row's id.
+- `refused`: Why replay could not apply the row (a second row of an id it applied already is one: replay applies an id once); null when it applied it.
+- `route`: The ids of the routes the row took on replay; null when it was refused.
+- `actors` (each: `address`, `before`, `after`): Each actor whose state the row changed: its address (harness, item:<id>, item:<id>/<child id>) and its state before and after, as text (null: the actor was not there).
+- `context` (each: `address`, `field`, `before`, `after`): Each context field the row changed: the actor's address, the field, and its value before and after (null: absent).
+- `effects` (each: `id`, `name`, `subject`, `acks`): Each effect the row queued (id, name, subject) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).
