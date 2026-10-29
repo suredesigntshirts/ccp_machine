@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp.js';
 import { HISTORY, checkLogNeeds } from '../src/history.js';
 import { loadNeeds, checkPage, renderLivePage } from '../src/pages.js';
-import { parseLog } from '../src/live.js';
+import { parseLog, step } from '../src/live.js';
 import { contractHistory } from '../src/sim.js';
 
 const GOLDEN = fileURLToPath(new URL('./fixtures/history-golden/events.jsonl', import.meta.url));
@@ -98,9 +98,9 @@ test('the flow replay and design log pages render the golden history, every coun
   for (const page of PAGES) {
     const html = check(page, rows);
     // The ledger's data age, Refresh and timed refreshes, nothing beside them.
-    assert.equal(html.match(/id="data-age"/g).length, 1);
-    assert.equal(html.match(/id="refresh"/g).length, 1);
-    assert.equal(html.match(/id="refreshes"/g).length, 1);
+    assert.equal(shown(html).match(/id="data-age"/g).length, 1);
+    assert.equal(shown(html).match(/id="refresh"/g).length, 1);
+    assert.equal(shown(html).match(/id="refreshes"/g).length, 1);
     assert.match(html, /harness\/history\/events\.jsonl/);
     // A placeholder is counted, never shown as a value.
     assert.doesNotMatch(html, /predates the event envelope/);
@@ -141,6 +141,23 @@ test('the flow replay page steps one row at a time: each step card shows type, t
   for (const v of [r.event.type, r.at, `${r.actor.kind}:${r.actor.id}`, `${r.source.kind}:${r.source.ref}`, r.provenance.origin, r.provenance.from.source]) assert.ok(card.includes(v), `${v} not in ${card}`);
 });
 
+test('the page script steps a group: next, previous, first and last each show one row, and a hidden row is not drawn', () => {
+  const html = renderLivePage(golden(), { page: 'flow-replay' });
+  assert.match(html, /\.step\[hidden\]\{display:none\}/, 'a hidden step card is not drawn (.card sets display)');
+  assert.match(html, /\$\('view'\)\.addEventListener\('click', step\)/, 'the page script wires the step buttons');
+  // The group as the inlined step() sees it in the browser.
+  const list = [1, 2, 3, 4].map((v, i) => ({ v, hidden: i > 0 }));
+  const pos = { textContent: '1 / 4' };
+  const group = { querySelectorAll: () => list, querySelector: () => pos };
+  const press = (s) => step({ target: { closest: (sel) => (sel === '[data-step]' ? { dataset: { step: s }, closest: () => group } : null) } });
+  const shownNow = () => list.filter((r) => !r.hidden).map((r) => r.v);
+  for (const [s, want] of [['next', 2], ['next', 3], ['next', 4], ['next', 4], ['prev', 3], ['first', 1], ['prev', 1], ['last', 4]]) {
+    press(s);
+    assert.deepEqual(shownNow(), [want], s);
+    assert.equal(pos.textContent, `${want} / 4`);
+  }
+});
+
 test('both pages render a history the current code builds, with counts that match its rows', async () => {
   const { rows } = await history();
   for (const page of PAGES) {
@@ -174,6 +191,15 @@ test('a field a page\'s needs file lists, dropped from the history schema, fails
         const problems = checkLogNeeds(needs, undefined, schema);
         assert.ok(problems.some((p) => p.startsWith(`${page}: `) && p.includes(f) && p.includes('history.schema.json')), `${page} ${type} ${f}: ${problems.join('\n') || 'no problem'}`);
       }
+  }
+});
+
+test('a field either page reads that its needs file does not declare fails, naming the page and the field', () => {
+  for (const [page, type, field] of [['flow-replay', '*', 'provenance.origin'], ['design-log', 'STAND_IN_ANSWERED', 'event.answer.reason'], ['design-log', 'OUT_OF_BAND', 'event.orderedBy']]) {
+    const needs = structuredClone(loadNeeds(page));
+    needs.events[type] = needs.events[type].filter((f) => f !== field);
+    const problems = checkPage(page, { history: golden(), needs });
+    assert.ok(problems.some((p) => p.startsWith(`${page}: reads `) && p.includes(field) && p.includes('needs.json')), `${page} ${field}: ${problems.join('\n')}`);
   }
 });
 
