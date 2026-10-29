@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from './store.js';
-import { init, apply } from './runtime.js';
+import { init, apply, writerError } from './runtime.js';
 import { valueText } from './live.js';
 import { specs } from './machines.js';
 
@@ -121,6 +121,9 @@ export function replay(store, { steps: withSteps = false } = {}) {
     };
     // A row of an era is a fact its era's record holds (harness meta.store.eras): not applied, not re-judged.
     const eras = eraFacts(events);
+    // The newest release the rows so far name, per source (a history joins stores, each with its own writers): a row by
+    // an older one is one writerNotOlder would refuse, by a release from before that rule or past it (harness meta.invariants).
+    const newest = new Map();
     for (const e of events) {
       if (eras.has(e)) {
         if (withSteps) steps.push({ version: e.version, id: e.id, era: eras.get(e), refused: null, route: null, actors: [], context: [], effects: [] });
@@ -132,8 +135,12 @@ export function replay(store, { steps: withSteps = false } = {}) {
       const next = upTo < 0 ? hostAcks.length : fed + upTo;
       scratch.withLock(() => scratch.appendAcks(hostAcks.slice(fed, next))); // every writer holds the lock (oneWriter), the scratch copy too
       fed = next;
+      const from = JSON.stringify(e.provenance?.from ?? null);
+      const older = e.harness && 'version' in e.harness && writerError(newest.get(from), e.harness);
+      if (e.harness && 'version' in e.harness && !older) newest.set(from, e.harness);
       try {
-        const sent = { ...e.event, actor: e.actor, source: e.source, ...(e.relayedBy && { relayedBy: e.relayedBy }) };
+        // The row's release goes with it; a payload that names one (a row from before harness meta.invariants envelope) keeps it.
+        const sent = { harness: e.harness, ...e.event, actor: e.actor, source: e.source, ...(e.relayedBy && { relayedBy: e.relayedBy }) };
         const at = { to: e.to === 'harness' ? undefined : e.to, id: e.id, now: e.at };
         // Today's rules, asked without writing: a refusal now of an event admitted then is a rule that changed.
         const today = e.event.type === ERAS.event ? {} : apply(scratch, sent, { ...at, dryRun: true });
@@ -150,6 +157,7 @@ export function replay(store, { steps: withSteps = false } = {}) {
         // Today's rules would refuse it, route it otherwise or close more: it was admitted, and applied as logged, by the release that wrote it.
         const whys = [
           today.why,
+          older,
           r.rerouted && `routed otherwise today (${e.route ? '' : 'no route logged, found by its effects: '}${r.rerouted})`,
           closesDiffer && `closes more today (${closed.filter((x) => !logClosed.includes(x)).join(', ')}; the log closes ${logClosed.join(', ') || 'none'})`
         ].filter(Boolean);

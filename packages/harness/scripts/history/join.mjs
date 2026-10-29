@@ -86,7 +86,7 @@ for (const r of history) {
   if (eras.has(r)) continue;
   try {
     const fact = r.route ? { route: r.route } : o.outbox ? { matches: (fx) => JSON.stringify(fx.map(effectKey)) === JSON.stringify(logged.get(r.id) ?? []) } : {};
-    const done = apply(store, { ...r.event, actor: r.actor, source: r.source, ...(r.relayedBy && { relayedBy: r.relayedBy }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact });
+    const done = apply(store, { harness: r.harness, ...r.event, actor: r.actor, source: r.source, ...(r.relayedBy && { relayedBy: r.relayedBy }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact });
     // An id applied already (two sources can share one) is applied once, as replay applies it: the later row is refused.
     if (done.duplicate) refused.push(`${r.id}: replay applies one event per id, and row ${applied.get(r.id)} applied ${r.id} already`);
     else applied.set(r.id, r.version);

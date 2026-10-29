@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { replay } from './replay.js';
+import { writtenBy } from './runtime.js';
 
 const STALE_LOCK_MS = 60_000;
 
@@ -33,7 +34,7 @@ export function repair(store, { rebuild = false, now = Date.now() } = {}) {
       if (!rebuild || state.version < last) left.push(`state.json is version ${state.version}, the log ends at ${last}${state.version > last ? ' (run with --rebuild)' : ''}`);
       else {
         const { rebuilt } = replay(store);
-        store.write({ ...rebuilt, version: last, updatedAt: new Date(now).toISOString() }, state.version);
+        store.write({ ...rebuilt, version: last, writtenBy: writtenBy(state.writtenBy), updatedAt: new Date(now).toISOString() }, state.version);
         fixed.push(`rebuilt state.json from events.jsonl at version ${last}`);
       }
     }

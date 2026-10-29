@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { openStore, init } from '../src/index.js';
+import { harnessVersion } from '../src/runtime.js';
 import { specs, eventsWhere } from '../src/machines.js';
 import { apply, start, decide } from './send.js';
 import { tempDir } from './tmp.js';
@@ -89,7 +90,7 @@ test('a builder spawn is refused until the verifier brief is fixed; then it is t
   refused(store, { ...spawned('builder'), ...agent('x') }, 'item:a', 'a subagent spawns');
   taken(store, spawned('builder', { brief: H('1') }));
   const [s] = ctx(store).spawns;
-  assert.deepEqual({ ...s, at: undefined }, { role: 'builder', briefSha256: H('1'), agentType: 'harness:builder', model: 'opus', toolUseId: 'toolu_builder', definition: { agentType: 'harness:builder', sha256: H('d') }, harness: { version: '0.7.0', commit: null }, by: LEAD, at: undefined, agent: null });
+  assert.deepEqual({ ...s, at: undefined }, { role: 'builder', briefSha256: H('1'), agentType: 'harness:builder', model: 'opus', toolUseId: 'toolu_builder', definition: { agentType: 'harness:builder', sha256: H('d') }, harness: harnessVersion(), by: LEAD, at: undefined, agent: null }, 'the harness version is the release that applied it, not the sender\'s 0.7.0');
 
   refused(store, { ...started('b1', 'harness:builder'), ...as('session', 'other') }, 'item:a', 'another session binds');
   refused(store, { ...started('b1', 'harness:verifier') }, 'item:a', 'no spawn of that agent type');

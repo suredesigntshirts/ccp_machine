@@ -93,7 +93,8 @@ test('spawn gate: a builder before the verifier brief is denied naming the guard
   const spawn = events(s).at(-1);
   assert.deepEqual([spawn.id, spawn.actor, spawn.event.type, spawn.event.role, spawn.event.briefSha256, spawn.event.agentType, spawn.event.model, spawn.event.toolUseId], [`spawn-${input.tool_use_id}`, { kind: 'session', id: SID }, 'WORKER_SPAWNED', 'builder', sha256(BUILDER_BRIEF), 'harness:builder', 'opus', input.tool_use_id]);
   assert.equal(spawn.event.definition.sha256, sha256(readFileSync(join(repo, 'plugins/harness/agents/builder.md'), 'utf8')), 'the standing definition, by content');
-  assert.equal(spawn.event.harness.version, JSON.parse(readFileSync(join(repo, 'plugins/harness/.claude-plugin/plugin.json'), 'utf8')).version);
+  assert.equal(spawn.harness.version, JSON.parse(readFileSync(join(repo, 'plugins/harness/.claude-plugin/plugin.json'), 'utf8')).version);
+  assert.equal(spawn.event.harness, undefined, 'the row names its release once, in the envelope (#139)');
   assert.deepEqual([callRecord(s, input.tool_use_id).decision, callRecord(s, input.tool_use_id).recorded], ['allowed', true]);
   assert.equal(hook(s, startInput('b1', 'harness:builder'), {}, 'agent-actor.js'), null);
   const start = events(s).at(-1);
