@@ -374,3 +374,46 @@ test('verify-actors starts an agent\'s window at the earliest start a hook recor
   assert.match(lines[1], /^outside window agent:lead\/r2: .* is not in 2026-10-27T11:00:00.000Z\.\./);
   assert.match(lines[2], /^outside window agent:lead\/r3: .* is not in 2026-10-27T11:00:00.000Z\.\./);
 });
+
+// #118: three builders resumed before #82 and started before bind call records existed have neither an early record
+// nor a start call. The store's own WORKER_STARTED row for the agent, sent by its parent session, is the third start.
+test('the spec names the store\'s WORKER_STARTED row from the parent session as a start of an agent\'s window; SPEC.md shows it', () => {
+  const { agent: a } = specs.harness.meta.actors;
+  assert.match(a.description, /WORKER_STARTED row in the same store that names it by id, sent by its parent session/);
+  const md = readFileSync(new URL('../spec/SPEC.md', import.meta.url), 'utf8');
+  assert.match(md, /WORKER_STARTED row in the same store that names it by id, sent by its parent session/);
+});
+
+test('verify-actors starts an agent\'s window at the earliest of its record, its start call and its WORKER_STARTED row from its parent session', () => {
+  const lib = tempDir('harness-lib-');
+  const dir = tempDir('harness-agents-');
+  sessionLedger(lib, 'lead', '2026-10-27T10:00:00.000Z', '2026-10-27T12:00:00.000Z');
+  sessionLedger(lib, 'other', '2026-10-27T10:00:00.000Z', '2026-10-27T12:00:00.000Z');
+  for (const aid of ['w1', 'w2', 'w3', 'w4']) agentRecord(lib, 'lead', aid, '2026-10-27T11:00:00.000Z'); // rewritten at a resume, no start call
+  const started = (aid, from = 'lead', at = '2026-10-27T10:10:00.000Z', agent = `lead/${aid}`) =>
+    ({ id: `start-${aid}`, version: 1, at, to: 'item:a', actor: { kind: 'session', id: from }, source: { kind: 'cli', ref: 'harness send' }, event: { type: 'WORKER_STARTED', agent, agentType: 'general-purpose' } });
+  const log = [
+    started('w1'), // the parent's bind of w1
+    started('w2', 'other'), // a WORKER_STARTED row for w2 from a session that is not its parent
+    started('w3', 'lead', '2026-10-27T10:20:00.000Z'), // w3 bound at 10:20, its event before that
+    started('w4', 'lead', '2026-10-27T10:10:00.000Z', 'lead/w9'), // a row that names another agent
+    started('w5'), // w5 has no SubagentStart record at all
+    event('agent', 'lead/w1', '2026-10-27T10:30:00.000Z', 'general-purpose'),
+    event('agent', 'lead/w2', '2026-10-27T10:30:00.000Z', 'general-purpose'),
+    event('agent', 'lead/w3', '2026-10-27T10:05:00.000Z', 'general-purpose'),
+    event('agent', 'lead/w4', '2026-10-27T10:30:00.000Z', 'general-purpose'),
+    event('agent', 'lead/w5', '2026-10-27T10:30:00.000Z', 'general-purpose')
+  ];
+  writeFileSync(join(dir, 'events.jsonl'), log.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  const r = run({ HARNESS_LIBRARY_DIR: lib, ...parent }, 'verify-actors', '--store', dir);
+  assert.equal(r.status, 1, r.stderr);
+  const lines = r.stdout.trim().split('\n');
+  assert.equal(lines.length, 7, r.stdout);
+  assert.match(lines[0], /^ok session:lead \(4 events\)$/);
+  assert.match(lines[1], /^ok session:other \(1 event\)$/);
+  assert.match(lines[2], /^ok agent:lead\/w1 \(1 event\)$/, r.stdout);
+  assert.match(lines[3], /^outside window agent:lead\/w2: .* is not in 2026-10-27T11:00:00.000Z\.\./);
+  assert.match(lines[4], /^outside window agent:lead\/w3: .* at 2026-10-27T10:05:00.000Z is not in 2026-10-27T10:20:00.000Z\.\./);
+  assert.match(lines[5], /^outside window agent:lead\/w4: .* is not in 2026-10-27T11:00:00.000Z\.\./);
+  assert.match(lines[6], /^no record agent:lead\/w5 \(1 event\)/);
+});
