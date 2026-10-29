@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { HISTORY, validate, placeholders, outOfBand, factKey, dedupe, checkLogNeeds } from '../src/history.js';
-import { eventsWhere } from '../src/machines.js';
+import { eventsWhere, specs } from '../src/machines.js';
 import { PAGES, loadNeeds, checkPage } from '../src/pages.js';
 
 const golden = () => readFileSync(new URL('./fixtures/history-golden/events.jsonl', import.meta.url), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
@@ -37,7 +37,9 @@ test('C2: the schema declares every event the machines take, and nothing the mac
   const taken = eventsWhere(() => true);
   const declared = new Set(Object.keys(HISTORY.events.types));
   for (const t of taken) assert.ok(declared.has(t), `the machines take ${t}, which history.schema.json does not declare`);
-  for (const t of declared) assert.ok(taken.has(t), `history.schema.json declares ${t}, which no machine takes`);
+  // ERA_ENDED, which ends an era, replay takes itself (harness meta.store.eras): no machine takes it when sent.
+  for (const t of declared) assert.ok(taken.has(t) || t === specs.harness.meta.store.eras.event, `history.schema.json declares ${t}, which no machine takes`);
+  assert.equal(taken.has(specs.harness.meta.store.eras.event), false, 'no machine takes ERA_ENDED');
   for (const [t, d] of Object.entries(HISTORY.events.types)) assert.equal(d.v, 1, `${t} is at v${d.v} with no declared conversion`);
 });
 

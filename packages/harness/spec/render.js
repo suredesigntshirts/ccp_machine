@@ -117,6 +117,8 @@ export function renderSpec() {
     if (config.meta?.store?.closes) out.push(`Closing effects (\`closes\`): ${config.meta.store.closes}`, '');
     if (config.meta?.store?.facts) out.push(`Facts (replay): ${config.meta.store.facts}`, '');
     if (config.meta?.store?.records) out.push(`Records (\`records\`): ${config.meta.store.records}`, '');
+    const eras = config.meta?.store?.eras;
+    if (eras) out.push(`Eras (\`eras\`, ended by \`${eras.event}\`; byItem: ${Object.entries(eras.byItem).map(([k, v]) => `\`${k}\` \`${v}\``).join(', ')}): ${eras.description}`, '');
     if (config.meta?.pages)
       out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
     // The decision classes with their doors (meta.classes) and the grant checklist the machine generates (meta.checklist).
@@ -141,7 +143,7 @@ export function renderSpec() {
   out.push(`Row layout: a row's \`schemaVersion\`, absent means ${HISTORY.absentMeans}. ${HISTORY.properties.schemaVersion.description}`, '');
   out.push(`Provenance: \`origin\` is one of ${p.origin.enum.map((o) => `\`${o}\``).join(', ')}. ${p.origin.description} \`from.source\` is one of ${HISTORY.$defs.from.properties.source.enum.map((s) => `\`${s}\``).join(', ')}. ${p.placeholders.description} ${HISTORY.$defs.legacy.description}`, '');
   const up = HISTORY.upcast;
-  out.push(`Upcast: ${up.description} Envelope fields: ${up.envelope.map((f) => `\`${f}\``).join(', ')}. Placeholder texts: envelope "${up.legacy.envelope}", event "${up.legacy.event}".`, '');
+  out.push(`Upcast: ${up.description} Envelope fields: ${up.envelope.map((f) => `\`${f}\``).join(', ')}. Placeholder texts: envelope "${up.legacy.envelope}", event "${up.legacy.event}", era mark "${up.legacy.era}".`, '');
   out.push(`Events: ${HISTORY.events.description}`, '');
   out.push(...Object.entries(HISTORY.events.types).filter(([, d]) => d.required || d.description).map(([t, d]) => `- \`${t}\` v${d.v}${d.required ? `, needs ${d.required.map((f) => `\`${f}\``).join(', ')}` : ''}${d.description ? `: ${d.description}` : ''}`), '');
   out.push(`Identity: ${HISTORY.identity.description}`, '');

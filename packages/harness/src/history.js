@@ -1,7 +1,7 @@
 // The one history (epic #59): every era's events in one shape, spec/history.schema.json. This module only
 // reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), eventProblems()
 // holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), upcast() migrates a
-// row from a store that predates a field (E1), placeholders() counts the legacy values doctor reports by era and
+// row from a store that predates a field (E1), eraEnd() writes the row that ends a store's era, placeholders() counts the legacy values doctor reports by era and
 // field, factKey() and dedupe() apply its identity rules, stepProblems() holds a step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
 // checkLogNeeds() holds a history, its steps and its usage fields to a view's needs file. The schema is a subset of
 // JSON Schema, and so is the checker below.
@@ -63,6 +63,20 @@ export function upcast(row, store) {
   const need = typeOf(row.event) === 'object' ? HISTORY.events.types[row.event.type]?.required ?? [] : [];
   if (need.some((k) => row.event[k] === undefined)) out.event = { ...row.event, ...Object.fromEntries(need.filter((k) => row.event[k] === undefined).map((k) => [k, say(legacy.event, `event.${k}`)])) };
   return out;
+}
+
+/**
+ * The row that ends a store's era (harness meta.store.eras, history.schema.json ERA_ENDED): after its last row (`lastAt`),
+ * carrying its state.json snapshot and the effects its outbox holds that its acks never close. No one sent it: its actor
+ * and source are placeholders (upcast legacy.era), and so is its harness when state.json names no writer.
+ */
+export function eraEnd(store, state, outbox, acks, lastAt) {
+  const say = { legacy: HISTORY.upcast.legacy.era.replaceAll('{store}', store) };
+  const acked = new Set(acks.map((a) => a.effectId));
+  const pending = outbox.filter((e) => !acked.has(e.id)).map(({ id, eventId, at, ...e }) => e);
+  const at = [lastAt, state.updatedAt].filter(Boolean).sort().at(-1);
+  const row = { id: `era:${store}`, version: 1, at, to: 'harness', actor: say, source: say, harness: state.writtenBy ?? say, event: { type: specs.harness.meta.store.eras.event, era: store, snapshot: state.snapshot, pending } };
+  return { ...row, provenance: { origin: 'migrated', from: { source: 'store', ref: store }, placeholders: legacyPaths(row) } };
 }
 
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
@@ -129,17 +143,19 @@ export function factKey(row) {
 }
 
 /**
- * One row per fact. Keeps the first owner's row (the rule's owners in order; else the earliest), moves the other sources to provenance.also, and
+ * One row per fact (two rows of one source, or of two stores, are never one). Keeps the first owner's row (the rule's owners in order; else the earliest), moves the other sources to provenance.also, and
  * reports a conflict where two rows of one fact disagree on a payload field both carry. Two rows of one source are
  * never one fact: the n-th row of a key in a source, in time order, is that key's n-th fact.
  */
 export function dedupe(rows) {
   const groups = new Map();
   const seen = new Map();
+  // The stores count as one source: each is its own era, so two stores' rows are never one fact.
+  const sourceOf = (r) => (r.provenance.from.source === 'store' ? 'store' : r.provenance.from.ref);
   for (const r of [...rows].sort((a, b) => a.at.localeCompare(b.at))) {
     const fact = factKey(r);
-    const n = (seen.get(`${r.provenance.from.ref}\n${fact}`) ?? 0) + 1;
-    seen.set(`${r.provenance.from.ref}\n${fact}`, n);
+    const n = (seen.get(`${sourceOf(r)}\n${fact}`) ?? 0) + 1;
+    seen.set(`${sourceOf(r)}\n${fact}`, n);
     const k = n > 1 ? `${fact}#${n}` : fact;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(r);

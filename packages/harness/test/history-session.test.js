@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validate, factKey } from '../src/history.js';
 import { openStore } from '../src/store.js';
+import { init, apply } from '../src/runtime.js';
 import { doctor } from '../src/doctor.js';
 import { choiceOf } from '../src/card.js';
 import { tempDir } from './tmp.js';
@@ -399,8 +400,18 @@ function library({ drop } = {}) {
   writeFileSync(join(empty, 'manifest.json'), JSON.stringify({ source: 'github', id: 'suredesigntshirts/ccp_machine', pages: [], totals: { pulls: 0 } }));
   cpSync(archive(), join(root, 'archive/sessions', SID), { recursive: true });
   cpSync(archive(events('cmsg_01Card2'), 'session_01Other'), join(root, 'archive/sessions/session_01Other'), { recursive: true });
+  for (const s of ['main', 'dogfood', 'dogfood2']) recorded(join(root, 'state', s));
   if (drop) rmSync(join(root, drop), { recursive: true });
   return root;
+}
+/** A store's state.json, its own record of where its rows took it: its rows applied as facts by today's runtime. */
+function recorded(dir) {
+  const scratch = openStore(tempDir('history-build-record-'));
+  const rows = rowsOf(readFileSync(join(dir, 'events.jsonl'), 'utf8'));
+  init(scratch, {}, rows[0].at);
+  // A row today's runtime cannot apply leaves the record as it is: the fixture's record is only what it can.
+  for (const r of rows) try { apply(scratch, { actor: { kind: 'session', id: LEAD }, source: { kind: 'cli', ref: 'harness send' }, ...r.event, ...(r.actor && { actor: r.actor, source: r.source }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact: {} }); } catch {}
+  writeFileSync(join(dir, 'state.json'), JSON.stringify(scratch.read()));
 }
 
 test('M1: join --from builds the one history from every listed source, on a copy it never writes, with each skip and refusal listed', async () => {
@@ -418,7 +429,7 @@ test('M1: join --from builds the one history from every listed source, on a copy
   assert.deepEqual(report.sources.find((x) => x.ref === 'main'), { ref: 'main', rows: MAIN.length, skips: [] }, 'every main event is a row');
   const skips = report.sources.flatMap((x) => x.skips);
   assert.ok(skips.length > 0 && skips.every((k) => k.ref && k.reason), 'each skip names where and why');
-  assert.equal(report.read, report.sources.reduce((n, x) => n + x.rows, 0));
+  assert.equal(report.read, report.sources.reduce((n, x) => n + x.rows, 0) + 3, 'every source row, and one era mark per store');
   // The old era's rows hold labelled placeholders for what main did not record.
   const ci = history.find((r) => r.id === 'ci-old');
   assert.deepEqual(ci.provenance.placeholders.sort(), ['actor', 'event.pr', 'harness', 'source']);
@@ -427,19 +438,19 @@ test('M1: join --from builds the one history from every listed source, on a copy
   assert.deepEqual(report.conflicts.filter((c) => c.field === 'event.choice'), []);
   // A row replay cannot apply is listed with its reason.
   assert.ok(report.refused.every((r) => /^[^:]+: .+/.test(r)));
-  // dogfood2's acks reach the effects replay queued again for its rows, so none of them is pending.
+  // Each store's era ends with its own record (harness meta.store.eras); dogfood2 acked every effect, so its era leaves none pending.
   const store = openStore(out);
-  const acked = rowsOf(readFileSync(join(root, 'state/dogfood2/acks.jsonl'), 'utf8')).map((a) => a.effectId);
-  assert.equal(report.acks, acked.length);
-  assert.deepEqual(store.pending().filter((e) => acked.includes(e.id)), []);
+  assert.deepEqual(Object.keys(report.eras).sort(), ['dogfood', 'dogfood2', 'main']);
+  assert.equal(report.eras.dogfood2.pending, 0);
+  assert.deepEqual(store.pending().filter((e) => e.eventId === 'era:dogfood2'), []);
   // doctor on the history: no schema error, and its placeholders counted by era (a store, or the kind of source) and field.
   const d = await doctor(store, { verify: false });
   assert.deepEqual(d.history.schemaErrors, []);
   assert.equal(d.history.rows, history.length);
-  assert.deepEqual(d.history.placeholders.main, { actor: 2, source: 2, harness: 2, 'event.pr': 1 });
-  assert.deepEqual(Object.keys(d.history.placeholders).sort(), ['github', 'main', 'session']);
+  // main's rows and its era's mark, which no one sent (its state.json names its writer).
+  assert.deepEqual(d.history.placeholders.main, { actor: 3, source: 3, harness: 2, 'event.pr': 1 });
+  assert.deepEqual(Object.keys(d.history.placeholders).sort(), ['dogfood', 'dogfood2', 'github', 'main', 'session']);
   assert.ok(!d.problems.some((p) => /^schema:/.test(p)));
-  assert.ok(!d.problems.some((p) => acked.some((id) => p.startsWith(`effect ${id} `))), 'no effect its source acked is pending');
 });
 
 test('M1: join --from refuses a list with a source missing, writing nothing; doctor names a row that breaks the schema', async () => {
