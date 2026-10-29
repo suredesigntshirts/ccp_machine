@@ -1,8 +1,26 @@
 {
-  "description": "Where the inspector draws item.machine.json. The main path runs down the middle; anything that goes wrong runs right to replanning (kind fail); the loops back run on the left and over the top (kind back). Edges are keyed from>to>when. A state or edge missing here is still drawn, in a plain fallback place.",
+  "description": "Where the inspector draws item.machine.json and what it calls things. The main path runs down the middle; anything that goes wrong runs right to replanning (kind fail); the loops back run on the left and over the top (kind back). names and notes are display names and subtitles for states; an edge label may have cases, the first whose path (into the step: event, context) is the value given names that step instead. Edges are keyed from>to>when. A state or edge missing here is still drawn, in a plain fallback place.",
   "width": 720,
   "height": 640,
   "start": {"x": 130, "y": 55},
+  "names": {
+    "briefing": "Briefing",
+    "building": "Building",
+    "verifying": "Verifying",
+    "awaitingMerge": "Awaiting approval",
+    "merging": "Merging",
+    "replanning": "Replanning",
+    "done": "Merged",
+    "dropped": "Dropped"
+  },
+  "notes": {
+    "briefing": "writes the briefs",
+    "building": "builder session",
+    "verifying": "verifier session",
+    "awaitingMerge": "asks: merge it?",
+    "merging": "merges the PR",
+    "replanning": "asks: replan or drop?"
+  },
   "nodes": {
     "briefing": {"x": 185, "y": 30, "w": 150, "h": 50},
     "building": {"x": 185, "y": 140, "w": 150, "h": 50},
@@ -19,19 +37,19 @@
     "verifying>awaitingMerge>verify done": {"points": [[260,300], [260,360]], "label": {"x": 252, "y": 334, "anchor": "end", "text": "PASS"}},
     "awaitingMerge>merging>ask done": {"points": [[260,410], [260,470]], "label": {"x": 252, "y": 444, "anchor": "end", "text": "approved"}},
     "merging>done>merge done": {"points": [[260,520], [260,580]], "label": {"x": 252, "y": 554, "anchor": "end", "text": "merged"}},
-    "verifying>building>verify done": {"points": [[185,268], [150,268], [150,172], [185,172]], "label": {"x": 144, "y": 224, "anchor": "end", "text": "FAIL, try again"}, "kind": "back"},
+    "verifying>building>verify done": {"points": [[185,268], [150,268], [150,172], [185,172]], "label": {"x": 144, "y": 224, "anchor": "end", "text": "FAIL, build again"}, "kind": "back"},
     "awaitingMerge>verifying>pr.pushed": {"points": [[185,392], [110,392], [110,288], [185,288]], "label": {"x": 104, "y": 344, "anchor": "end", "text": "new push"}, "kind": "back"},
     "verifying>verifying>pr.pushed": {"points": [[285,250], [285,222], [320,222], [320,250]], "label": {"x": 326, "y": 226, "anchor": "start", "text": "new push"}, "kind": "back"},
-    "briefing>replanning>brief failed": {"points": [[335,68], [475,68], [475,325], [520,325]], "label": {"x": 345, "y": 63, "anchor": "start", "text": "failed"}, "kind": "fail"},
-    "building>replanning>build failed": {"points": [[335,160], [475,160], [475,325], [520,325]], "label": {"x": 345, "y": 155, "anchor": "start", "text": "failed"}, "kind": "fail"},
-    "building>replanning>after buildTimeout": {"points": [[335,176], [475,176], [475,325], [520,325]], "label": {"x": 345, "y": 189, "anchor": "start", "text": "took too long"}, "kind": "fail"},
-    "verifying>replanning>verify done": {"points": [[335,280], [475,280], [475,325], [520,325]], "label": {"x": 345, "y": 275, "anchor": "start", "text": "no tries / old head"}, "kind": "fail"},
-    "verifying>replanning>verify failed": {"points": [[335,294], [475,294], [475,325], [520,325]], "label": {"x": 345, "y": 307, "anchor": "start", "text": "failed"}, "kind": "fail"},
-    "awaitingMerge>replanning>ask done": {"points": [[335,378], [475,378], [475,325], [520,325]], "label": {"x": 345, "y": 373, "anchor": "start", "text": "rejected"}, "kind": "fail"},
-    "awaitingMerge>replanning>ask failed": {"points": [[335,394], [475,394], [475,325], [520,325]], "label": {"x": 345, "y": 407, "anchor": "start", "text": "failed"}, "kind": "fail"},
-    "merging>replanning>merge failed": {"points": [[335,495], [475,495], [475,325], [520,325]], "label": {"x": 345, "y": 490, "anchor": "start", "text": "failed"}, "kind": "fail"},
+    "briefing>replanning>brief failed": {"points": [[335,68], [490,68], [490,325], [520,325]], "label": {"x": 345, "y": 63, "anchor": "start", "text": "no briefs"}, "kind": "fail"},
+    "building>replanning>build failed": {"points": [[335,160], [490,160], [490,325], [520,325]], "label": {"x": 345, "y": 155, "anchor": "start", "text": "crashed"}, "kind": "fail"},
+    "building>replanning>after buildTimeout": {"points": [[335,176], [490,176], [490,325], [520,325]], "label": {"x": 345, "y": 189, "anchor": "start", "text": "took too long"}, "kind": "fail"},
+    "verifying>replanning>verify done": {"points": [[335,280], [490,280], [490,325], [520,325]], "label": {"x": 345, "y": 275, "anchor": "start", "text": "out of builds / stale"}, "kind": "fail", "cases": [{"path": "event.output.result", "is": "FAIL", "text": "FAIL, no builds left"},{"path": "event.output.result", "is": "PASS", "text": "PASS on an old commit"}]},
+    "verifying>replanning>verify failed": {"points": [[335,294], [490,294], [490,325], [520,325]], "label": {"x": 345, "y": 307, "anchor": "start", "text": "crashed"}, "kind": "fail"},
+    "awaitingMerge>replanning>ask done": {"points": [[335,378], [490,378], [490,325], [520,325]], "label": {"x": 345, "y": 373, "anchor": "start", "text": "rejected"}, "kind": "fail"},
+    "awaitingMerge>replanning>ask failed": {"points": [[335,394], [490,394], [490,325], [520,325]], "label": {"x": 345, "y": 407, "anchor": "start", "text": "no answer"}, "kind": "fail"},
+    "merging>replanning>merge failed": {"points": [[335,495], [490,495], [490,325], [520,325]], "label": {"x": 345, "y": 490, "anchor": "start", "text": "merge failed"}, "kind": "fail"},
     "replanning>briefing>ask done": {"points": [[595,300], [595,45], [335,45]], "label": {"x": 465, "y": 39, "anchor": "middle", "text": "replan, with five whys"}, "kind": "back"},
     "replanning>dropped>ask done": {"points": [[580,350], [580,470]], "label": {"x": 574, "y": 414, "anchor": "end", "text": "drop"}, "kind": "fail"},
-    "replanning>dropped>ask failed": {"points": [[612,350], [612,470]], "label": {"x": 618, "y": 414, "anchor": "start", "text": "failed"}, "kind": "fail"}
+    "replanning>dropped>ask failed": {"points": [[612,350], [612,470]], "label": {"x": 618, "y": 414, "anchor": "start", "text": "no answer"}, "kind": "fail"}
   }
 }

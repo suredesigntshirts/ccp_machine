@@ -58,6 +58,7 @@ const kindOf = (type) =>
   : type.startsWith('xstate.after.') ? 'timer'
   : 'outside';
 
+const CHOSEN = { approve: 'approved', reject: 'rejected', replan: 'replan chosen', drop: 'dropped' };
 const sha7 = (s) => (typeof s === 'string' && /^[0-9a-f]{40}$/.test(s) ? s.slice(0, 7) : s);
 
 // How a piece of work came out, in a few words: a verdict and its commit, a choice and who made it, the commit a
@@ -66,7 +67,7 @@ const detailOf = ({ output, error, headSha }) => {
   if (error != null) return String(error);
   if (headSha) return `head ${sha7(headSha)}`;
   if (output?.result) return `${output.result} at ${sha7(output.sha)}`;
-  if (output?.choice) return `${output.choice} by ${output.by}`;
+  if (output?.choice) return `${CHOSEN[output.choice] ?? output.choice} by the ${output.by}`;
   if (output?.pr) return `commit ${sha7(output.pr.headSha)}`;
   if (output?.sha) return `as ${sha7(output.sha)}`;
   return null;
@@ -89,6 +90,7 @@ const stepsOf = (spec, graph, entries) => {
       what: entry.event.type === 'xstate.init' ? 'start' : whenOf(entry.event.type),
       detail: detailOf(entry.event),
       why: entry.event.output?.why ?? null,
+      report: entry.event.output?.report ?? null,
       source: entry.source,
       run: entry.run ?? null,
       from: before.state,
@@ -104,23 +106,23 @@ const stepsOf = (spec, graph, entries) => {
   return steps;
 };
 
-// How a run ended, in one line: where it stopped, how many builds and replans it took.
+// How a run ended, in one line: where it stopped, how many times it built and replanned.
 const outcomeOf = (steps) => {
   if (!steps.length) return '';
   const last = steps.at(-1);
   const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const builds = steps.filter((s) => s.what === 'build done').length;
+  const builds = steps.filter((s) => s.state === 'building' && s.from !== 'building').length;
   const replans = steps.filter((s) => s.from === 'replanning' && s.state !== 'dropped').length;
   const end = last.state === 'done' ? 'Merged' : last.state === 'dropped' ? 'Dropped' : `Now in ${last.state}`;
-  return [end, count(builds, 'build'), count(replans, 'replan'), count(steps.length, 'step')].join(' · ');
+  return [end, count(builds, 'build attempt'), count(replans, 'replan'), count(steps.length, 'step')].join(' · ');
 };
 
-/** The inspector page, as HTML for an Artifact. runs: [{ name, about, entries }], each a journal to play; the page picks between them. */
+/** The inspector page, as HTML for an Artifact. runs: [{ name, about, entries, example? }], each a journal to play; the page picks between them. */
 export const itemInspector = (spec, runs = [], layout = null) => {
   const graph = graphOf(spec);
-  const shown = runs.map(({ name, about, entries }) => {
+  const shown = runs.map(({ name, about, entries, example }) => {
     const steps = stepsOf(spec, graph, entries);
-    return { name, about: about ?? '', outcome: outcomeOf(steps), steps };
+    return { name, about: about ?? '', example: !!example, outcome: outcomeOf(steps), steps };
   });
   const data = { description: spec.description, graph, layout, runs: shown };
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
@@ -135,7 +137,7 @@ const TEMPLATE = String.raw`<title>Work Item Inspector</title>
    state, the raw line). Three columns on a wide screen, two beside a side chat, one on a phone. */
 :root{
   --bg:#f4f6f5; --panel:#ffffff; --fg:#1b2220; --muted:#5a6561; --line:#d5dcd8; --node:#ffffff; --nodeline:#7f8a86;
-  --accent:#1f7a68; --accent-soft:#d6ece6; --hop:#b84c18; --code:#eef2f0;
+  --accent:#1f7a68; --accent-soft:#d6ece6; --hop:#a3410f; --code:#eef2f0;
   --fwd:#2e7d4f; --back:#9a5b0c; --bad:#b0413e; --start:#3b6fb6;
   --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
 }
@@ -155,10 +157,11 @@ h1{font-size:1.35rem;margin:0;font-weight:600}
 .sub{color:var(--muted);max-width:90ch;margin:0}
 details.how{color:var(--muted);font-size:13px;max-width:90ch}
 details.how summary{cursor:pointer;width:max-content}
-.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px;align-items:start}
-.side{display:flex;flex-direction:column;gap:14px;min-width:0}
-@media (min-width:1600px){.grid{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr) minmax(0,1fr)}.side{display:contents}}
-@media (max-width:980px){.grid{grid-template-columns:minmax(0,1fr)}}
+.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-rows:auto 1fr;grid-template-areas:"d s" "d r";gap:14px;align-items:start}
+.a-d{grid-area:d}.a-s{grid-area:s}.a-r{grid-area:r;display:flex;flex-direction:column;gap:14px;min-width:0}
+@media (min-width:1600px){.grid{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr) minmax(0,1fr);grid-template-rows:auto;grid-template-areas:"d s r"}}
+@media (max-width:980px){.grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"d" "s" "r"}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:10px}
 h2{font-size:.78rem;margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
 .runpick{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
@@ -212,13 +215,14 @@ ol.steps button{width:100%;text-align:left;display:grid;grid-template-columns:2e
 ol.steps .num{font:600 11px var(--mono);color:var(--muted);padding-top:2px}
 ol.steps .t{font:500 12.5px var(--mono);overflow-wrap:anywhere}
 ol.steps .d{grid-column:2;font:400 12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
-ol.steps li.later button{opacity:.55}
-ol.steps li.cur button{border-color:var(--hop);border-left-color:var(--c);box-shadow:0 0 0 1px var(--hop)}
+ol.steps li.later .t{color:var(--muted)}
+ol.steps li.cur button{background:var(--accent-soft);border-color:var(--accent);border-left-color:var(--c)}
+ol.steps li.cur .t{font-weight:600}
 .tone-start{--c:var(--start)} .tone-fwd{--c:var(--fwd)} .tone-back{--c:var(--back)} .tone-fail{--c:var(--bad)}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--muted);font-size:12px}
 .legend span::before{content:"";display:inline-block;width:4px;height:12px;border-radius:2px;margin-right:6px;background:var(--c);vertical-align:-2px}
 .tabs{display:flex;gap:6px;flex-wrap:wrap}
-.tabs button[aria-pressed="true"]{background:var(--accent);color:var(--panel);border-color:var(--accent)}
+.tabs button[aria-selected="true"]{background:var(--accent);color:var(--panel);border-color:var(--accent)}
 .tab{display:flex;flex-direction:column;gap:10px}
 .tab[hidden]{display:none}
 .chg{border-top:1px solid var(--line);padding-top:6px;display:flex;flex-direction:column;gap:3px}
@@ -230,6 +234,17 @@ pre{margin:0;background:var(--code);border-radius:6px;padding:8px;font:12px/1.45
 code{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere}
 details.all summary{cursor:pointer;color:var(--muted);font-size:13px}
 ul.plain{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
+details.runs summary{cursor:pointer;list-style-position:inside}
+details.runs summary h2{display:inline}
+table.runs{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+table.runs td{padding:5px 4px;border-top:1px solid var(--line);vertical-align:top}
+table.runs tr.cur td{background:var(--accent-soft)}
+table.runs button{border:0;background:none;padding:0;text-align:left;font:600 12.5px var(--body);color:var(--fg);text-decoration:underline;text-underline-offset:2px}
+table.runs .o{font:12px var(--mono);color:var(--muted)}
+.strip{display:flex;gap:2px;margin-top:4px}
+.strip i{width:9px;height:12px;border-radius:2px;background:var(--c)}
+.dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;font-size:13px;margin:0}
+.dl dt{color:var(--muted)} .dl dd{margin:0}
 .note{font-size:12.5px;color:var(--muted);border-left:3px solid var(--hop);padding-left:10px;margin:0}
 </style>
 
@@ -237,27 +252,29 @@ ul.plain{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;g
   <header>
     <h1>Work item inspector</h1>
     <p class="sub">One work item, from issue to merged commit. Pick a run and step through it: the drawing lights the path the item took, and the panels say what happened, why, and what changed.</p>
-    <details class="how"><summary>How this page works</summary><p id="how"></p></details>
+    <details class="how"><summary>How this page works</summary><p>Each run is a journal: the list of things that came in from outside (a session's result, a person's answer, a new push, a timer). The page replays that journal through the same machine the harness runs, so every step shown is one the machine accepted. The drawing is read from the machine's definition; where the states sit and what the lines are called comes from a hand-made layout.</p></details>
   </header>
   <div class="grid">
-    <div class="card">
+    <div class="card a-d">
       <div class="runpick"><label for="run" class="muted">Run</label><select id="run"></select></div>
       <div><div class="outcome" id="outcome"></div><p class="about" id="about"></p></div>
       <div class="diagram" id="diagram"><p class="muted">Drawing the machine…</p></div>
       <p class="hint">Scroll the drawing sideways to see replanning.</p>
       <div class="key" aria-label="What the lines mean">
-        <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--nodeline)" stroke-width="1.6"/></svg>the way forward</span>
-        <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--nodeline)" stroke-width="1.3" stroke-dasharray="5 3"/></svg>goes back to try again</span>
-        <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--bad)" stroke-width="1.4"/></svg>went wrong, so replan</span>
+        <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--nodeline)" stroke-width="1.6"/></svg>forward</span>
+        <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--nodeline)" stroke-width="1.3" stroke-dasharray="5 3"/></svg>back, to try again</span>
+        <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--bad)" stroke-width="1.4"/></svg>went wrong, to replan</span>
         <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--accent)" stroke-width="2.6"/></svg>taken so far</span>
         <span><svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--hop)" stroke-width="3" stroke-dasharray="7 5"/></svg>this step</span>
+        <span><svg width="26" height="12" aria-hidden="true"><rect x="1" y="1" width="24" height="10" rx="3" fill="none" stroke="var(--accent)" stroke-dasharray="4 3"/></svg>state it just left</span>
         <span>×2 entered twice</span>
       </div>
       <div class="controls">
-        <button id="first" type="button" title="First step (Home)">⏮</button>
+        <button id="first" type="button" title="First step (Home)" aria-label="First step">⏮</button>
         <button id="prev" type="button" title="Previous step (←)">◀ Step</button>
         <button id="play" type="button" class="primary" title="Play (Space)">Play</button>
         <button id="next" type="button" title="Next step (→)">Step ▶</button>
+        <button id="last" type="button" title="Last step (End)" aria-label="Last step">⏭</button>
         <input type="range" id="slider" min="1" value="1" aria-label="Step">
         <span class="mono" id="pos"></span>
       </div>
@@ -267,18 +284,19 @@ ul.plain{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;g
         <span class="muted">Click a state to see what it needs and hands on.</span>
       </div>
     </div>
-    <div class="side">
-      <div class="card">
-        <div class="now" id="now" aria-live="polite"></div>
+    <div class="card a-s">
+        <div class="now" id="now"></div><span class="sr" id="said" aria-live="polite"></span>
         <h2>The run</h2>
         <ol class="steps" id="steps"></ol>
-        <div class="legend"><span class="tone-fwd">forward</span><span class="tone-back">back to try again</span><span class="tone-fail">went wrong</span></div>
-      </div>
+        <div class="legend"><span class="tone-start">start</span><span class="tone-fwd">forward</span><span class="tone-back">back, to try again</span><span class="tone-fail">went wrong, to replan</span></div>
+    </div>
+    <div class="a-r">
+      <details class="card runs" id="runsbox"><summary><h2 id="runscount">All runs</h2></summary><table class="runs" id="runs"></table></details>
       <div class="card">
-        <div class="tabs" role="group" aria-label="Detail view">
-          <button type="button" data-tab="step" aria-pressed="true">What changed</button>
-          <button type="button" data-tab="state" aria-pressed="false">This state</button>
-          <button type="button" data-tab="entry" aria-pressed="false">Raw journal line</button>
+        <div class="tabs" role="tablist" aria-label="Detail view">
+          <button type="button" role="tab" data-tab="step" aria-selected="true">What changed</button>
+          <button type="button" role="tab" data-tab="state" aria-selected="false">This state</button>
+          <button type="button" role="tab" data-tab="entry" aria-selected="false">Raw journal line</button>
         </div>
         <div class="tab" id="tab-step"></div>
         <div class="tab" id="tab-state" hidden></div>
@@ -312,16 +330,31 @@ let tab = 'step';
 let picked = null; // the state whose sheet "This state" shows; follows the step unless clicked
 let drawn = null;
 
-$('how').textContent = DATA.description + ' The drawing is read from item.machine.json; each run is a journal of the inputs the item took, replayed through the real machine, so the page cannot show a step the machine would refuse.';
 
 // ---- Words: a step in the drawing's own words, who did it, and values cut to what a reader can scan
 
 // A step is named by the state it left and the label of the line it took in the drawing.
+const nameOf = (id) => layout.names?.[id] || id;
 const lineText = (e) => placedOf(e)?.label?.text || edgeLabel(e);
-const titleOf = (s) => (s.edge ? s.from + ': ' + lineText(edgeById[s.edge]) : 'started');
+const pathIn = (root, path) => path.split('.').reduce((v, k) => v?.[k], root);
+// The line's label, or the first of its cases that this step matches (a line taken for more than one reason).
+const stepLine = (s) => {
+  const e = edgeById[s.edge];
+  const hit = (placedOf(e)?.cases || []).find((c) => pathIn({ event: s.entry.event, context: s.context }, c.path) === c.is);
+  return hit ? hit.text : lineText(e);
+};
+const titleOf = (s) => (s.edge ? nameOf(s.from) + ': ' + stepLine(s) : 'Item started');
 const toneOf = (s) => (!s.edge ? 'start' : placedOf(edgeById[s.edge])?.kind || 'fwd');
-const BY = { host: 'the host', person: 'the person', github: 'GitHub', timer: 'the timer', 'claude:builder': 'builder session', 'claude:verifier': 'verifier session', 'claude:stand-in': 'stand-in session' };
-const byOf = (source) => BY[source] || (String(source).startsWith('claude:') ? 'Claude session ' + String(source).slice(7, 15) : String(source));
+// Who did a step: whoever the answer names, else the role of the run it finished, else where it came from.
+const SOURCES = { host: 'the host', person: 'the person', github: 'GitHub', timer: 'the timer' };
+const ROLES = { brief: 'the host', build: 'the builder', verify: 'the verifier', ask: 'the stand-in', merge: 'the host' };
+const byOf = (s) => {
+  const named = s.entry.event.output?.by;
+  if (named) return named === 'person' ? 'the person' : 'the ' + named;
+  const role = s.run && s.source !== 'host' ? ROLES[s.run.split('.')[1]] : null;
+  const session = /^claude:[0-9a-f]{8}-/.test(s.source) ? ' (session ' + s.source.slice(7, 15) + ')' : '';
+  return (role || SOURCES[s.source] || String(s.source).replace(/^claude:/, 'the ')) + session;
+};
 const when = (at) => at.slice(0, 16).replace('T', ' ') + ' UTC';
 const isSha = (v) => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
 const isPath = (v) => typeof v === 'string' && /^(file:\/\/)?\//.test(v);
@@ -331,15 +364,16 @@ const shown = (v) => { const t = JSON.stringify(tidy(v)); return t.length <= 70 
 const sha = (v) => '<code title="' + esc(v) + '">' + esc(short(v)) + '</code>';
 const DONE_WORD = { approve: 'approved', reject: 'rejected', replan: 'replanned', drop: 'dropped' };
 
-// The commits the item has handled so far, in order, with whether each check holds.
-function commitsOf(c) {
-  const parts = [];
-  const head = c.pr?.headSha;
-  if (head) parts.push('PR head ' + sha(head));
-  if (c.verdict?.sha) parts.push(esc(c.verdict.result) + ' at ' + sha(c.verdict.sha) + ' ' + (c.verdict.sha === head ? '<span class="ok">✓ the PR head</span>' : '<span class="no">✗ not the PR head</span>'));
-  if (c.decision?.choice) parts.push(esc(DONE_WORD[c.decision.choice] || c.decision.choice) + ' by ' + esc(c.decision.by));
-  if (c.merge?.sha) parts.push('merged as ' + sha(c.merge.sha) + (c.merge.sha === c.verdict?.sha ? ' <span class="ok">✓ the verified commit</span>' : ' (a merge commit)'));
-  return parts.join(' · ');
+// The commit check: the PR head, what the verifier said about which commit, the decision on it, and what merged.
+// A PASS is only good for the commit it names, so only a PASS is compared with the head.
+function commitRows(c) {
+  const rows = [];
+  const head = c.pr?.headSha, v = c.verdict;
+  if (head) rows.push(['PR head', sha(head)]);
+  if (v?.sha) rows.push(['Verified', esc(v.result) + ' at ' + sha(v.sha) + (v.result !== 'PASS' ? '' : v.sha === head ? ', the PR head' : ', <strong>an old commit</strong>: the head is now ' + sha(head))]);
+  if (v && c.decision?.choice) rows.push(['Decision', esc(DONE_WORD[c.decision.choice] || c.decision.choice) + ' by the ' + esc(c.decision.by)]);
+  if (c.merge?.sha) rows.push(['Merged', 'the verified commit ' + sha(v?.sha) + ', as ' + sha(c.merge.sha)]);
+  return rows.map(([k, x]) => '<dt>' + k + '</dt><dd>' + x + '</dd>').join('');
 }
 
 // ---- The graph, placed by hand in the layout file
@@ -391,10 +425,11 @@ function draw() {
 
   for (const n of graph.nodes) {
     const p = places[n.id];
-    const group = svgEl('g', { class: 'n' + (n.final ? ' final' : ''), tabindex: 0, role: 'button', 'aria-label': 'State ' + n.id }, nodeLayer);
+    const group = svgEl('g', { class: 'n' + (n.final ? ' final' : ''), tabindex: 0, role: 'button', 'aria-label': 'State ' + nameOf(n.id) }, nodeLayer);
     svgEl('rect', { x: p.x, y: p.y, width: p.w, height: p.h, rx: n.final ? p.h / 2 : 8 }, group);
-    svgEl('text', { x: p.x + p.w / 2, y: p.y + (n.actor ? 21 : p.h / 2 + 4), 'text-anchor': 'middle' }, group).textContent = n.id;
-    if (n.actor) svgEl('text', { x: p.x + p.w / 2, y: p.y + 38, 'text-anchor': 'middle', class: 's' }, group).textContent = 'starts ' + n.actor;
+    const note = layout.notes?.[n.id] || (n.actor ? 'starts ' + n.actor : '');
+    svgEl('text', { x: p.x + p.w / 2, y: p.y + (note ? 21 : p.h / 2 + 4), 'text-anchor': 'middle' }, group).textContent = nameOf(n.id);
+    if (note) svgEl('text', { x: p.x + p.w / 2, y: p.y + 38, 'text-anchor': 'middle', class: 's' }, group).textContent = note;
     counts[n.id] = svgEl('text', { x: p.x + p.w - 8, y: p.y + 15, 'text-anchor': 'end', class: 'cnt' }, group);
     const pick = () => { picked = n.id; setTab('state'); };
     group.addEventListener('click', pick);
@@ -411,7 +446,11 @@ function paint() {
   $('pos').textContent = steps.length ? 'Step ' + (cur + 1) + ' of ' + steps.length : 'no run';
   $('slider').value = cur + 1;
   $('slider').setAttribute('aria-valuetext', step ? 'Step ' + (cur + 1) + ' of ' + steps.length + ': ' + titleOf(step) : 'no run');
-  [...$('steps').children].forEach((li, i) => { li.classList.toggle('cur', i === cur); li.classList.toggle('later', i > cur); });
+  [...$('steps').children].forEach((li, i) => {
+    li.classList.toggle('cur', i === cur);
+    li.classList.toggle('later', i > cur);
+    li.querySelector('button')?.toggleAttribute('aria-current', i === cur);
+  });
   if (drawn) {
     const upto = steps.slice(0, cur + 1);
     const touched = new Set(upto.map((s) => s.state));
@@ -448,23 +487,29 @@ function showNow(step) {
     $('now').innerHTML = '<p class="note">This page was made from the spec alone, with no run to play. Click a state to see what it needs and hands on.</p>';
     return;
   }
-  const commits = commitsOf(step.context);
+  const commits = commitRows(step.context);
   $('now').innerHTML =
     '<h2>Step ' + (cur + 1) + ' of ' + steps.length + ' · ' + esc(when(step.at)) + '</h2>' +
-    '<div class="big">' + esc(titleOf(step)) + (step.from && step.from !== step.state ? ' → ' + esc(step.state) : '') + (step.done ? ' ✓' : '') + '</div>' +
+    '<div class="big">' + esc(titleOf(step)) + (step.from && step.from !== step.state ? ' → ' + esc(nameOf(step.state)) : '') + '</div>' +
     (step.detail ? '<div class="detail">' + esc(short(step.detail)) + '</div>' : '') +
     (step.why ? '<p class="why">' + esc(step.why) + '</p>' : '') +
-    '<dl class="kv"><dt>By</dt><dd>' + esc(byOf(step.source)) + '</dd>' +
-    (commits ? '<dt>Commits</dt><dd>' + commits + '</dd>' : '') +
-    (step.edge && edgeById[step.edge].why ? '<dt>Rule</dt><dd>' + esc(edgeById[step.edge].why) + '</dd>' : '') + '</dl>';
+    '<dl class="kv"><dt>By</dt><dd>' + esc(byOf(step)) + '</dd>' +
+    (step.report ? '<dt>Report</dt><dd><code title="' + esc(step.report) + '">' + esc(short(step.report)) + '</code></dd>' : '') + '</dl>' +
+    (commits ? '<h2>Commit check</h2><dl class="dl">' + commits + '</dl>' : '');
 }
 
 // Only the context fields this step wrote, each with what it was before.
 function showChanges(step) {
   if (!step) { $('tab-step').innerHTML = ''; return; }
   const before = cur ? steps[cur - 1].context : {};
+  const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
   const rows = step.changed.filter((k) => step.context[k] != null || before[k] != null).map((k) => {
     const was = before[k], now = step.context[k];
+    // An object that was already there: only its parts that changed, each as before → after.
+    if (isObj(was) && isObj(now)) {
+      const parts = Object.keys(now).filter((p) => JSON.stringify(was[p]) !== JSON.stringify(now[p]));
+      return '<div class="chg"><div class="h"><code>' + esc(k) + '</code></div>' + parts.map((p) => '<div class="v">' + esc(p) + ': ' + esc(JSON.stringify(tidy(was[p] ?? null))) + ' → ' + esc(JSON.stringify(tidy(now[p]))) + '</div>').join('') + '</div>';
+    }
     return '<div class="chg"><div class="h"><code>' + esc(k) + '</code>' + (now == null ? '<span class="muted">cleared</span>' : '') + '</div>' +
       (was != null ? '<div class="was">was ' + esc(JSON.stringify(tidy(was))) + '</div>' : '') +
       (now != null ? shown(now) : '') + '</div>';
@@ -477,12 +522,14 @@ function showState(id) {
   const n = nodeById[id];
   const exits = graph.edges.filter((e) => e.from === id);
   const entries = graph.edges.filter((e) => e.to === id);
+  const plain = (t) => String(t).replace(/context\./g, '').replace(/^\{"value":(.*)\}$/, '$1');
+  const taken = new Set(steps.slice(0, cur + 1).map((s) => s.edge));
   $('tab-state').innerHTML =
-    '<div><h2>State</h2><div class="now"><div class="big">' + esc(id) + (n.final ? ' (final)' : '') + '</div></div></div>' +
-    '<div><h2>Needs before entering</h2>' + (n.needs.length ? '<ul class="plain">' + n.needs.map((g) => '<li><code>' + esc(g.name) + '</code>: ' + esc(g.conditions.join(', ')) + '</li>').join('') + '</ul>' : '<span class="muted">nothing</span>') + '</div>' +
-    (n.actor ? '<div><h2>Starts ' + esc(n.actor) + ', handing it</h2><ul class="plain">' + n.input.map((i) => '<li><code>' + esc(i.name) + '</code> from <code>' + esc(i.from) + '</code></li>').join('') + '</ul></div>' : '') +
-    (exits.length ? '<div><h2>Ways out</h2><ul class="plain">' + exits.map((e) => '<li><strong>' + esc(lineText(e)) + '</strong> → ' + esc(e.to) + ' <span class="muted">(on ' + esc(edgeLabel(e)) + ')</span>' + (e.writes.length ? '<br><span class="muted">saves ' + e.writes.map((w) => esc(w.field)).join(', ') + '</span>' : '') + (e.why ? '<br><span class="muted">' + esc(e.why) + '</span>' : '') + '</li>').join('') + '</ul></div>' : '') +
-    '<div><h2>Ways in</h2>' + (entries.length ? '<ul class="plain">' + entries.map((e) => '<li>from ' + esc(e.from) + ': ' + esc(lineText(e)) + '</li>').join('') + '</ul>' : '<span class="muted">only the start</span>') + '</div>';
+    '<div><h2>State</h2><div class="now"><div class="big">' + esc(nameOf(id)) + '</div></div><span class="muted">' + (n.final ? 'The item ends here. ' : '') + 'In the machine: <code>' + esc(id) + '</code></span></div>' +
+    '<div><h2>Needs before entering</h2>' + (n.needs.length ? '<ul class="plain">' + n.needs.map((g) => '<li>' + esc(g.conditions.map(plain).join(', and ')) + ' <span class="muted">(' + esc(g.name) + ')</span></li>').join('') + '</ul>' : '<span class="muted">Nothing.</span>') + '</div>' +
+    (n.actor ? '<div><h2>Starts ' + esc(n.actor) + ', handing it</h2><ul class="plain">' + n.input.map((i) => '<li><code>' + esc(i.name) + '</code>: ' + esc(plain(i.from)) + '</li>').join('') + '</ul></div>' : '') +
+    (exits.length ? '<div><h2>Ways out</h2><ul class="plain">' + exits.map((e) => '<li><strong>' + esc(lineText(e)) + '</strong> → ' + esc(nameOf(e.to)) + (taken.has(e.id) ? ' <span class="ok">taken in this run</span>' : '') + (e.writes.length ? '<br><span class="muted">saves ' + e.writes.map((w) => esc(w.field)).join(', ') + '</span>' : '') + '</li>').join('') + '</ul></div>' : '') +
+    '<div><h2>Ways in</h2>' + (entries.length ? '<ul class="plain">' + entries.map((e) => '<li>from ' + esc(nameOf(e.from)) + ': ' + esc(lineText(e)) + '</li>').join('') + '</ul>' : '<span class="muted">Only the start.</span>') + '</div>';
 }
 
 function showEntry(step) {
@@ -493,7 +540,7 @@ function showEntry(step) {
 
 function setTab(name) {
   tab = name;
-  for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-pressed', String(b.dataset.tab === name));
+  for (const b of document.querySelectorAll('[data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === name));
   for (const t of ['step', 'state', 'entry']) $('tab-' + t).hidden = t !== name;
   paint();
 }
@@ -508,20 +555,34 @@ function load(i, at = 0) {
   picked = null;
   $('outcome').textContent = run?.outcome ?? '';
   $('about').textContent = run?.about ?? '';
-  $('steps').innerHTML = steps.map((s, i) => '<li class="tone-' + toneOf(s) + '"><button type="button" data-i="' + i + '"><span class="num">' + (i + 1) + '</span><span class="t">' + esc(titleOf(s)) + ' → ' + esc(s.state) + '</span>' + (s.detail ? '<span class="d">' + esc(short(s.detail)) + '</span>' : '') + '</button></li>').join('') || '<li class="muted">No run.</li>';
+  $('steps').innerHTML = steps.map((s, i) => '<li class="tone-' + toneOf(s) + '"><button type="button" data-i="' + i + '"><span class="num">' + (i + 1) + '</span><span class="t">' + esc(titleOf(s)) + ' → ' + esc(nameOf(s.state)) + '</span>' + (s.detail ? '<span class="d">' + esc(short(s.detail)) + '</span>' : '') + '</button></li>').join('') || '<li class="muted">No run.</li>';
   $('slider').max = Math.max(1, steps.length);
+  $('run').value = String(i);
+  [...$('runs').rows].forEach((tr) => tr.classList.toggle('cur', tr.dataset.run === String(i)));
   paint();
 }
-$('run').innerHTML = runs.map((r, i) => '<option value="' + i + '">' + esc(r.name) + '</option>').join('');
+// The picker: real runs first, then the examples.
+const options = (list) => list.map(({ r, i }) => '<option value="' + i + '">' + esc(r.name) + '</option>').join('');
+const indexed = runs.map((r, i) => ({ r, i }));
+const real = indexed.filter((x) => !x.r.example), examples = indexed.filter((x) => x.r.example);
+$('run').innerHTML = examples.length && real.length ? '<optgroup label="Real runs">' + options(real) + '</optgroup><optgroup label="Examples">' + options(examples) + '</optgroup>' : options(indexed);
+// All runs side by side: how each ended, and one mark per step coloured by where it went, lined up from the start.
+$('runscount').textContent = 'All runs (' + runs.length + ')';
+$('runs').innerHTML = runs.map((r, i) => '<tr data-run="' + i + '"><td><button type="button" data-run="' + i + '">' + esc(r.name) + '</button><div class="o">' + esc(r.outcome) + '</div><div class="strip" aria-hidden="true">' + r.steps.map((s) => '<i class="tone-' + toneOf(s) + '" title="' + esc(titleOf(s)) + '"></i>').join('') + '</div></td></tr>').join('');
+$('runsbox').hidden = runs.length < 2;
+if (matchMedia('(min-width:1600px)').matches) $('runsbox').open = true;
+$('runs').addEventListener('click', (ev) => { const b = ev.target.closest('button[data-run]'); if (b) { stop(); load(Number(b.dataset.run)); say(); } });
 $('run').closest('.runpick').hidden = !runs.length;
-$('run').addEventListener('change', () => { stop(); load(Number($('run').value)); });
+$('run').addEventListener('change', () => { stop(); load(Number($('run').value)); say(); $('steps').querySelector('button')?.focus(); });
 $('steps').addEventListener('click', (ev) => { const t = ev.target.closest('[data-i]'); if (t) { stop(); go(Number(t.dataset.i)); } });
 $('slider').addEventListener('input', () => go(Number($('slider').value) - 1));
 for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { if (b.dataset.tab === 'state' && tab !== 'state') picked = null; setTab(b.dataset.tab); });
 
 let timer = null;
 const stop = () => { clearTimeout(timer); timer = null; $('play').textContent = 'Play'; };
-function go(i) { cur = Math.min(Math.max(0, i), Math.max(0, steps.length - 1)); if (tab === 'state') picked = null; paint(); }
+// Say the step aloud to a screen reader when it changes, and only then (not on a tab switch).
+const say = () => { const s = steps[cur]; $('said').textContent = s ? 'Step ' + (cur + 1) + ' of ' + steps.length + ': ' + titleOf(s) : ''; };
+function go(i) { cur = Math.min(Math.max(0, i), Math.max(0, steps.length - 1)); if (tab === 'state') picked = null; paint(); say(); }
 function tick() { if (cur >= steps.length - 1) return stop(); go(cur + 1); timer = setTimeout(tick, Number($('speed').value)); }
 $('play').addEventListener('click', () => {
   if (timer) return stop();
@@ -532,6 +593,7 @@ $('play').addEventListener('click', () => {
 $('first').addEventListener('click', () => { stop(); go(0); });
 $('prev').addEventListener('click', () => { stop(); go(cur - 1); });
 $('next').addEventListener('click', () => { stop(); go(cur + 1); });
+$('last').addEventListener('click', () => { stop(); go(steps.length - 1); });
 // Arrows, Home and End step anywhere but in the run picker and the slider (which step on their own); Space plays
 // unless a button has focus, where it presses the button.
 document.addEventListener('keydown', (ev) => {

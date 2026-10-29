@@ -49,7 +49,7 @@ else if (command === 'wait' && dir) print(await wait(dir, Number(seq ?? 0)));
 else if (command === 'agents') print(Object.entries(sandboxActors({ dir: '', repo: '' })).filter(([, a]) => a.claim).map(([name, { tools, claim }]) => ({ name, tools, claim })));
 else if (command === 'page') console.log(itemPage(itemSpec, dir ? openItem(dir).journal.read() : []));
 else if (command === 'inspect') {
-  const examples = flows.map((flow) => ({ ...flow, entries: play(itemSpec, flow) }));
+  const examples = flows.map((flow) => ({ ...flow, example: true, entries: play(itemSpec, flow) }));
   const mine = dir ? [{ name: 'This item', about: 'A real run, read from its journal.', entries: openItem(dir).journal.read() }] : [];
   console.log(itemInspector(itemSpec, [...mine, ...examples], itemLayout));
 }

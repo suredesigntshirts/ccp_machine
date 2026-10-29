@@ -111,7 +111,7 @@ export const play = (spec, { name, script }, startAt = '2026-10-29T09:00:00.000Z
       const [actor, result] = line;
       const { run } = host.pending.find((p) => p.type === 'run' && p.id === actor) ?? {};
       const event = result instanceof Error ? { type: `xstate.error.actor.${actor}`, error: result.message } : { type: `xstate.done.actor.${actor}`, output: result };
-      accept({ run, event, source: sourceOf(actor, result) });
+      accept({ run, event, source: result instanceof Error ? 'host' : sourceOf(actor, result) });
     } else accept({ event: line, source: 'github' });
   }
   return host.journal;
