@@ -6,6 +6,9 @@ import { fileJournal } from './journal.js';
 
 export const itemSpec = JSON.parse(readFileSync(new URL('../spec/item.machine.json', import.meta.url), 'utf8'));
 
+/** Where the inspector draws each state and transition of the item spec. Drawing only; it changes no behaviour. */
+export const itemLayout = JSON.parse(readFileSync(new URL('../spec/item.layout.json', import.meta.url), 'utf8'));
+
 /** The item in dir as its journal leaves it: { host, journal }. */
 export const openItem = (dir, spec = itemSpec) => {
   const journal = fileJournal(join(dir, 'journal.jsonl'));

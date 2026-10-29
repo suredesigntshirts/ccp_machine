@@ -15,7 +15,7 @@ import { claudeSessions } from '../src/claude.js';
 import { drive } from '../src/driver.js';
 import { openSandboxItem, sandboxActors } from '../src/sandbox.js';
 import { refusal, step, wait, where } from '../src/step.js';
-import { itemSpec, openItem } from '../src/item.js';
+import { itemLayout, itemSpec, openItem } from '../src/item.js';
 import { itemPage } from '../src/page.js';
 import { itemInspector } from '../src/inspector.js';
 
@@ -46,7 +46,7 @@ else if (command === 'check' && dir) print(refusal(openSandboxItem(dir), stdin()
 else if (command === 'wait' && dir) print(await wait(dir, Number(seq ?? 0)));
 else if (command === 'agents') print(Object.entries(sandboxActors({ dir: '', repo: '' })).filter(([, a]) => a.claim).map(([name, { tools, claim }]) => ({ name, tools, claim })));
 else if (command === 'page') console.log(itemPage(itemSpec, dir ? openItem(dir).journal.read() : []));
-else if (command === 'inspect') console.log(itemInspector(itemSpec, dir ? openItem(dir).journal.read() : []));
+else if (command === 'inspect') console.log(itemInspector(itemSpec, dir ? openItem(dir).journal.read() : [], itemLayout));
 else if (command === 'status' && dir) {
   const { host } = openSandboxItem(dir);
   print({ ...where(host), context: host.snapshot?.context, pending: host.pending });

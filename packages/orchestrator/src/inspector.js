@@ -1,7 +1,8 @@
 // A page to watch an item move: the machine drawn as a graph, and the item's journal as steps to play through.
 // At each step the graph lights the state the item is in and the transition that brought it there, and a
 // panel shows the context with the fields that step wrote. Everything is read from the spec and the journal;
-// the page lays the graph out with ELK in the browser. Its look follows the Harness Flow Replay page.
+// where each state and arrow is drawn comes from a hand-made layout (spec/item.layout.json), and anything the
+// layout does not place is still drawn, plainly. Its look follows the Harness Flow Replay page.
 import { Host } from './host.js';
 
 const asList = (transitions) => [transitions ?? []].flat().map((t) => (typeof t === 'string' ? { target: t } : t));
@@ -88,9 +89,9 @@ const stepsOf = (spec, graph, entries) => {
 };
 
 /** The inspector page, as HTML for an Artifact. */
-export const itemInspector = (spec, entries = []) => {
+export const itemInspector = (spec, entries = [], layout = null) => {
   const graph = graphOf(spec);
-  const data = { description: spec.description, graph, steps: stepsOf(spec, graph, entries) };
+  const data = { description: spec.description, graph, layout, steps: stepsOf(spec, graph, entries) };
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   return TEMPLATE.replace('__DATA__', () => json);
 };
@@ -135,9 +136,12 @@ h1{font-size:1.35rem;margin:0;font-weight:600}
 .n.on rect{stroke:var(--hop);stroke-width:2.6}
 .n.sel rect{stroke-dasharray:4 3;stroke:var(--fg);stroke-width:2}
 .start{fill:var(--fg)}
-.e path{fill:none;stroke:var(--nodeline);stroke-width:1;opacity:.7}
+.e path{fill:none;stroke:var(--nodeline);stroke-width:1.6}
+.e.back path{stroke-width:1.2;stroke-dasharray:5 3}
+.e.fail path{stroke:var(--k-failed);stroke-width:1;opacity:.45}
+.e.fail text{fill:var(--k-failed)}
 .e text{fill:var(--muted);font:10.5px var(--mono);paint-order:stroke;stroke:var(--panel);stroke-width:4px}
-.e.past path{stroke:var(--accent);stroke-width:1.8;opacity:.6}
+.e.past path{stroke:var(--accent);stroke-width:2;opacity:.75;stroke-dasharray:none}
 .e.now path{stroke:var(--hop);stroke-width:2.8;stroke-dasharray:7 5;animation:dash .7s linear infinite;opacity:1}
 .e.now text{fill:var(--hop);font-weight:600}
 @keyframes dash{to{stroke-dashoffset:-24}}
@@ -151,6 +155,10 @@ input[type=range]{flex:1 1 200px;accent-color:var(--accent);min-width:0}
 .timeline{display:flex;gap:2px;height:26px;margin-top:10px;align-items:stretch}
 .timeline i{flex:1 1 0;min-width:0;border-radius:2px;cursor:pointer;opacity:.85;background:var(--c)}
 .timeline i.dim{opacity:.18} .timeline i.cur{outline:2px solid var(--fg);outline-offset:1px;opacity:1}
+.key{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px;color:var(--muted);font-size:12px}
+.key svg{vertical-align:-2px;margin-right:5px}
+.hint{display:none;color:var(--muted);font-size:12px;margin:2px 0 0}
+@media (max-width:620px){.hint{display:block}}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;color:var(--muted);font-size:12px}
 .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;background:var(--c);vertical-align:-1px}
 .insp{display:flex;flex-direction:column;gap:12px}
@@ -188,6 +196,13 @@ ol.hops .lbl{font:500 12.5px var(--mono);overflow-wrap:anywhere}
   <div class="grid">
     <div class="card">
       <div class="diagram" id="diagram"><p class="muted">Drawing the machine…</p></div>
+      <p class="hint">Scroll the drawing sideways to see replanning.</p>
+      <div class="key" aria-label="Kinds of transition">
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--nodeline)" stroke-width="1.6"/></svg>the way forward</span>
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--nodeline)" stroke-width="1.2" stroke-dasharray="5 3"/></svg>goes back to try again</span>
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--k-failed)" stroke-width="1.4"/></svg>went wrong, so replan</span>
+        <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--hop)" stroke-width="2.6" stroke-dasharray="7 5"/></svg>this step</span>
+      </div>
       <div class="controls">
         <button id="first" type="button" title="First step (Home)">⏮</button>
         <button id="prev" type="button" title="Previous step (←)">◀ Step</button>
@@ -217,7 +232,6 @@ ol.hops .lbl{font:500 12.5px var(--mono);overflow-wrap:anywhere}
     </div>
   </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
 <script type="application/json" id="data">__DATA__</script>
 <script>
 const DATA = JSON.parse(document.getElementById('data').textContent);
@@ -243,56 +257,67 @@ let drawn = null;
 
 $('sub').textContent = DATA.description + ' Read from item.machine.json' + (steps.length ? ' and this item\'s journal: ' + steps.length + ' inputs, replayed through the real machine.' : '.');
 
-// ---- The graph, laid out by ELK
+// ---- The graph, placed by hand in the layout file
 
-async function draw() {
-  if (!window.ELK) throw new Error('the layout library did not load');
-  const layout = await new ELK().layout({
-    id: 'root',
-    layoutOptions: {
-      'elk.algorithm': 'layered', 'elk.direction': 'DOWN', 'elk.edgeRouting': 'ORTHOGONAL',
-      'elk.layered.spacing.nodeNodeBetweenLayers': '64', 'elk.spacing.nodeNode': '46', 'elk.spacing.edgeLabel': '3',
-      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF'
-    },
-    children: [{ id: '__start', width: 14, height: 14 }, ...graph.nodes.map((n) => ({ id: n.id, width: 150, height: n.actor ? 50 : 38 }))],
-    edges: [
-      { id: '__init', sources: ['__start'], targets: [graph.initial] },
-      ...graph.edges.map((e) => ({ id: e.id, sources: [e.from], targets: [e.to], labels: [{ text: edgeLabel(e), width: edgeLabel(e).length * 6.4 + 6, height: 14 }] }))
-    ]
-  });
-  const pad = 12, w = layout.width + pad * 2, h = layout.height + pad * 2;
-  const svg = svgEl('svg', { viewBox: '0 0 ' + w + ' ' + h, role: 'img', 'aria-label': 'The work item machine: states and transitions' });
+// Where each state goes: the layout's place, or a plain row under it for a state the layout does not know.
+function placeNodes(layout) {
+  const places = {};
+  let spare = 0;
+  for (const n of graph.nodes) {
+    places[n.id] = layout.nodes?.[n.id] || { x: 20 + 170 * (spare % 4), y: (layout.height || 0) + 20 + 70 * Math.floor(spare / 4), w: 150, h: 50 };
+    if (!layout.nodes?.[n.id]) spare++;
+  }
+  const bottom = Math.max(...Object.values(places).map((p) => p.y + p.h));
+  return { places, width: layout.width || 720, height: Math.max(layout.height || 0, bottom + 20) };
+}
+
+// An edge's route: the layout's points, or a straight line between the two states' centres.
+function routeOf(e, places, layout) {
+  const placed = layout.edges?.[e.from + '>' + e.to + '>' + e.when];
+  if (placed) return { points: placed.points, kind: placed.kind, label: { text: edgeLabel(e), ...placed.label } };
+  const a = places[e.from], b = places[e.to];
+  const from = [a.x + a.w / 2, a.y + a.h], to = [b.x + b.w / 2, b.y];
+  return { points: [from, to], label: { x: (from[0] + to[0]) / 2 + 6, y: (from[1] + to[1]) / 2, anchor: 'start', text: edgeLabel(e) } };
+}
+
+function draw() {
+  const layout = DATA.layout || {};
+  const { places, width, height } = placeNodes(layout);
+  const svg = svgEl('svg', { viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': 'The work item machine: states and transitions' });
   const defs = svgEl('defs', {}, svg);
   const marker = svgEl('marker', { id: 'ah', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, defs);
   svgEl('path', { d: 'M0,0 L10,5 L0,10 z', fill: 'context-stroke' }, marker);
-  const g = svgEl('g', { transform: 'translate(' + pad + ',' + pad + ')' }, svg);
+  const edgeLayer = svgEl('g', {}, svg);
+  const nodeLayer = svgEl('g', {}, svg);
   const edges = {}, nodes = {};
-  for (const e of layout.edges) {
-    const group = svgEl('g', { class: 'e' }, g);
-    let d = '';
-    for (const s of e.sections || []) {
-      d += 'M' + s.startPoint.x + ',' + s.startPoint.y;
-      for (const b of s.bendPoints || []) d += ' L' + b.x + ',' + b.y;
-      d += ' L' + s.endPoint.x + ',' + s.endPoint.y;
-    }
-    svgEl('path', { d, 'marker-end': 'url(#ah)' }, group);
-    for (const l of e.labels || []) svgEl('text', { x: l.x + 3, y: l.y + 11 }, group).textContent = l.text;
-    edges[e.id] = group;
+
+  const drawEdge = (id, points, label, kind) => {
+    const group = svgEl('g', { class: 'e' + (kind ? ' ' + kind : '') }, edgeLayer);
+    svgEl('path', { d: 'M' + points.map((p) => p.join(',')).join(' L'), 'marker-end': 'url(#ah)' }, group);
+    if (label) svgEl('text', { x: label.x, y: label.y, 'text-anchor': label.anchor || 'start' }, group).textContent = label.text;
+    edges[id] = group;
+  };
+  const start = layout.start || { x: places[graph.initial].x - 50, y: places[graph.initial].y + places[graph.initial].h / 2 };
+  svgEl('circle', { cx: start.x, cy: start.y, r: 7, class: 'start' }, nodeLayer);
+  drawEdge('__init', [[start.x + 7, start.y], [places[graph.initial].x, start.y]]);
+  for (const e of graph.edges) {
+    const { points, label, kind } = routeOf(e, places, layout);
+    drawEdge(e.id, points, label, kind);
   }
-  for (const c of layout.children) {
-    if (c.id === '__start') { svgEl('circle', { cx: c.x + 7, cy: c.y + 7, r: 7, class: 'start' }, g); continue; }
-    const n = nodeById[c.id];
-    const group = svgEl('g', { class: 'n', tabindex: 0, role: 'button', 'aria-label': 'State ' + n.id }, g);
-    svgEl('rect', { x: c.x, y: c.y, width: c.width, height: c.height, rx: n.final ? 19 : 8 }, group);
-    svgEl('text', { x: c.x + c.width / 2, y: c.y + (n.actor ? 21 : 24), 'text-anchor': 'middle' }, group).textContent = n.id;
-    if (n.actor) svgEl('text', { x: c.x + c.width / 2, y: c.y + 38, 'text-anchor': 'middle', class: 's' }, group).textContent = 'starts ' + n.actor;
+
+  for (const n of graph.nodes) {
+    const p = places[n.id];
+    const group = svgEl('g', { class: 'n' + (n.final ? ' final' : ''), tabindex: 0, role: 'button', 'aria-label': 'State ' + n.id }, nodeLayer);
+    svgEl('rect', { x: p.x, y: p.y, width: p.w, height: p.h, rx: n.final ? p.h / 2 : 8 }, group);
+    svgEl('text', { x: p.x + p.w / 2, y: p.y + (n.actor ? 21 : p.h / 2 + 4), 'text-anchor': 'middle' }, group).textContent = n.id;
+    if (n.actor) svgEl('text', { x: p.x + p.w / 2, y: p.y + 38, 'text-anchor': 'middle', class: 's' }, group).textContent = 'starts ' + n.actor;
     const pick = () => { picked = n.id; setTab('state'); };
     group.addEventListener('click', pick);
     group.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(); } });
     nodes[n.id] = group;
   }
   $('diagram').replaceChildren(svg);
-  drawn = { nodes, edges };
+  drawn = { nodes, edges, edgeLayer };
   paint();
 }
 
@@ -318,6 +343,9 @@ function paint() {
       group.classList.toggle('now', !!now);
       group.classList.toggle('past', !now && walked.has(id));
     }
+    // Edges that share a route (the failures into replanning) overlap: draw the walked ones, then the one just
+    // taken, on top.
+    for (const id of [...walked, step?.edge || (cur === 0 ? '__init' : null)].filter(Boolean)) drawn.edgeLayer.appendChild(drawn.edges[id]);
   }
   showStep(step);
   showState(picked || step?.state || graph.initial);
@@ -404,6 +432,6 @@ document.addEventListener('keydown', (ev) => {
 });
 
 paint();
-draw().catch((err) => { $('diagram').innerHTML = '<p class="note">The graph could not be drawn (' + esc(err.message) + '). The steps and data below still work.</p>'; });
+try { draw(); } catch (err) { $('diagram').innerHTML = '<p class="note">The graph could not be drawn (' + esc(err.message) + '). The steps and data still work.</p>'; }
 </script>
 `;
