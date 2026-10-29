@@ -13,6 +13,7 @@ import { tempDir } from './tmp.js';
 import { HISTORY, checkLogNeeds, stepProblems } from '../src/history.js';
 import { loadNeeds, checkPage, renderLivePage } from '../src/pages.js';
 import { parseLog, step } from '../src/live.js';
+import * as live from '../src/live.js';
 import { contractHistory } from '../src/sim.js';
 import { openStore, init, replay } from '../src/index.js';
 import { changes } from '../src/replay.js';
@@ -419,6 +420,130 @@ test('harness page --live renders flow replay from a history and the steps besid
   const html = readFileSync(join(dir, 'flow-replay-live.html'), 'utf8');
   assert.doesNotMatch(shown(html), /class="banner bad"/);
   assert.equal(num(shown(html), 'steps'), golden().steps.filter((s) => s.refused == null).length);
+});
+
+// The design log's paging and calendar (#131), on a history of more than 50 design-log rows over five UTC days in two
+// months (the golden history and rows added on 2026-09-29, 2026-09-30 and 2026-10-28, renumbered in time order).
+const CALENDAR = fileURLToPath(new URL('./fixtures/history-design-log/events.jsonl', import.meta.url));
+const dayOf = (r) => r.at.slice(0, 10);
+const calendarRows = () => parseLog(readFileSync(CALENDAR, 'utf8'));
+
+// The design log as the inlined turn() sees it in the browser: the rendered page's rows, out-of-band cards, month
+// grids and controls, each with its dataset and hidden flag, and a press of a control by its data attribute.
+function logDom(html) {
+  const page = shown(html);
+  const el = (attrs, hidden) => {
+    const dataset = {};
+    for (const [, k, v] of attrs.matchAll(/data-([a-z]+)="([^"]*)"/g)) dataset[k] = unesc(v);
+    return { dataset, hidden: Boolean(hidden), pressed: null, setAttribute(k, v) { if (k === 'aria-pressed') this.pressed = v; } };
+  };
+  const all = (re) => [...page.matchAll(re)].map(([, a, h]) => el(a, h));
+  const rows = all(/<tr( data-kind="[a-z]+" data-version="\d+" data-on="[^"]*")( hidden)?>/g);
+  const cards = all(/<div class="card"( data-oob="\d+" data-on="[^"]*")( hidden)?>/g);
+  const months = all(/<table class="cal"( data-cal="[^"]*")( hidden)?>/g);
+  const days = all(/<button type="button"( data-day="[^"]*")[^>]*>/g);
+  const text = (name) => ({ textContent: unesc(new RegExp(`<span[^>]* data-${name}>([^<]*)</span>`).exec(page)?.[1] ?? '') });
+  const pos = text('pos');
+  const showing = text('showing');
+  const log = /<div class="log" data-log="([^"]*)" data-at="(\d+)">/.exec(page);
+  const section = {
+    dataset: { log: log?.[1], at: log?.[2] },
+    querySelectorAll: (sel) => ({ 'tr[data-on]': rows, '[data-oob]': cards, '[data-cal]': months, '[data-day]': days })[sel],
+    querySelector: (sel) => ({ '[data-pos]': pos, '[data-showing]': showing })[sel]
+  };
+  const press = (dataset) => live.turn({ target: { closest: () => ({ dataset, closest: () => section }) } });
+  const versions = (list) => list.filter((x) => !x.hidden).map((x) => Number(x.dataset.version ?? x.dataset.oob));
+  return { page, log, rows, cards, months, days, pos, showing, press, shownRows: () => versions(rows), shownCards: () => versions(cards), month: () => months.filter((m) => !m.hidden).map((m) => m.dataset.cal) };
+}
+
+test('the design log shows 50 rows a page, newest first, with first, previous, next and last and its position', () => {
+  const rows = calendarRows();
+  const html = renderLivePage(rows, { page: 'design-log' });
+  assert.deepEqual(shownLog(html), expectedLog(rows), 'the tiles count the whole history and every row is on the page');
+  const newest = expectedLog(rows).decisions;
+  assert.ok(newest.length > 50, `the fixture has ${newest.length} decision rows`);
+  const dom = logDom(html);
+  assert.ok(dom.log, 'the design log is one section the page script pages');
+  for (const b of ['first', 'prev', 'next', 'last']) assert.match(dom.page, new RegExp(`<button type="button" data-page="${b}">`));
+  const pages = Math.ceil(newest.length / 50);
+  const at = (p) => `page ${p} of ${pages} · rows ${(p - 1) * 50 + 1} to ${Math.min(p * 50, newest.length)} of ${newest.length}`;
+  // As rendered, before any script runs: page 1.
+  assert.deepEqual(dom.shownRows(), newest.slice(0, 50));
+  assert.equal(dom.pos.textContent, at(1));
+  for (const [b, p] of [['next', 2], ['next', 2], ['first', 1], ['prev', 1], ['last', pages], ['prev', pages - 1]]) {
+    dom.press({ page: b });
+    assert.deepEqual(dom.shownRows(), newest.slice((p - 1) * 50, p * 50), `${b}: page ${p}`);
+    assert.equal(dom.pos.textContent, at(p));
+  }
+  assert.equal(pages, 2);
+});
+
+test('the design log calendar marks each UTC day with its rows, Monday first; a day shows only its rows and cards, paged the same way', () => {
+  const rows = calendarRows();
+  const html = renderLivePage(rows, { page: 'design-log' });
+  const dom = logDom(html);
+  const want = expectedLog(rows);
+  const of = rows.filter((r) => KINDS[r.event.type]);
+  const perDay = {};
+  for (const r of of) perDay[dayOf(r)] = (perDay[dayOf(r)] ?? 0) + 1;
+  assert.ok(Object.keys(perDay).length >= 3 && new Set(Object.keys(perDay).map((d) => d.slice(0, 7))).size >= 2, JSON.stringify(perDay));
+  // Each day with rows is a control carrying its count; the months with rows are grids, the newest shown.
+  const counts = Object.fromEntries([...dom.page.matchAll(/data-day="(\d{4}-\d{2}-\d{2})"[^>]*>.*?<b data-count="day">(\d+)<\/b>/g)].map(([, d, n]) => [d, Number(n)]));
+  assert.deepEqual(counts, perDay);
+  assert.deepEqual(dom.months.map((m) => m.dataset.cal), ['2026-09', '2026-10']);
+  assert.deepEqual(dom.month(), ['2026-10'], 'the calendar opens on the month of the newest row');
+  for (const m of dom.months) {
+    const [y, mo] = m.dataset.cal.split('-').map(Number);
+    const grid = new RegExp(`<table class="cal" data-cal="${m.dataset.cal}"[^>]*>(.*?)</table>`, 's').exec(dom.page)[1];
+    assert.match(grid, /<th>Mo<\/th><th>Tu<\/th><th>We<\/th><th>Th<\/th><th>Fr<\/th><th>Sa<\/th><th>Su<\/th>/);
+    const weeks = [...grid.matchAll(/<tr>(<td.*?)<\/tr>/gs)].map(([, w]) => [...w.matchAll(/<td>(.*?)<\/td>/gs)].map(([, c]) => c));
+    for (const w of weeks) assert.equal(w.length, 7, 'a week is a row of seven days');
+    const cells = weeks.flat();
+    const first = cells.findIndex((c) => c);
+    assert.equal(first, (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7, `${m.dataset.cal}: day 1 under its weekday`);
+    const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const days = cells.filter((c) => c);
+    assert.equal(days.length, last, `${m.dataset.cal}: every day shown`);
+    days.forEach((c, i) => {
+      const day = `${m.dataset.cal}-${String(i + 1).padStart(2, '0')}`;
+      assert.equal(/<button/.test(c), Boolean(perDay[day]), `${day}: a control only when it has rows`);
+      assert.match(c, new RegExp(`>${i + 1}<`));
+    });
+  }
+  // Months with rows can be moved between.
+  dom.press({ month: 'next' });
+  assert.deepEqual(dom.month(), ['2026-10']);
+  dom.press({ month: 'prev' });
+  assert.deepEqual(dom.month(), ['2026-09']);
+  dom.press({ month: 'prev' });
+  assert.deepEqual(dom.month(), ['2026-09']);
+  // A day shows only its rows, newest first, and only its out-of-band cards; the busiest is paged.
+  const busiest = Object.entries(perDay).sort((a, b) => b[1] - a[1])[0][0];
+  for (const day of ['2026-09-30', '2026-09-29', busiest]) {
+    dom.press({ day });
+    const mine = want.decisions.filter((v) => dayOf(rows.find((r) => r.version === v)) === day);
+    const cards = want.oob.filter((v) => dayOf(rows.find((r) => r.version === v)) === day);
+    const pages = Math.max(1, Math.ceil(mine.length / 50));
+    assert.deepEqual(dom.shownRows(), mine.slice(0, 50), `${day}: its rows`);
+    assert.deepEqual(dom.shownCards(), cards, `${day}: its out-of-band cards`);
+    assert.equal(dom.pos.textContent, `page 1 of ${pages} · rows 1 to ${Math.min(50, mine.length)} of ${mine.length}`);
+    assert.equal(dom.showing.textContent, `Showing ${day} (UTC)`);
+    assert.deepEqual(dom.days.filter((b) => b.pressed === 'true').map((b) => b.dataset.day), [day]);
+    if (day === busiest) {
+      assert.ok(mine.length > 50, `the busiest day has ${mine.length} decision rows`);
+      dom.press({ page: 'next' });
+      assert.deepEqual(dom.shownRows(), mine.slice(50, 100));
+      assert.equal(dom.pos.textContent, `page 2 of 2 · rows 51 to ${mine.length} of ${mine.length}`);
+    } else assert.ok(cards.length || day !== '2026-09-30', 'a September day has out-of-band cards');
+  }
+  // All days: every row again from page 1, every card.
+  dom.press({ day: '' });
+  assert.deepEqual(dom.shownRows(), want.decisions.slice(0, 50));
+  assert.deepEqual(dom.shownCards(), want.oob);
+  assert.equal(dom.showing.textContent, 'Showing all days');
+  assert.deepEqual(dom.days.filter((b) => b.pressed === 'true').map((b) => b.dataset.day), ['']);
+  assert.match(html, /\$\('view'\)\.addEventListener\('click', turn\)/, 'the page script wires the design log controls');
+  assert.deepEqual(shownLog(html), want, 'the tiles stay the whole history\'s counts');
 });
 
 test('both pages render a joined dogfood2 history, and its steps hold every row as a step or a listed refusal', { skip: !DOGFOOD2 && 'the dogfood2 case did not run: HARNESS_DOGFOOD2_DIR names no store (CI has no Library). Run it against a path to dogfood2; it works on a copy' }, () => {

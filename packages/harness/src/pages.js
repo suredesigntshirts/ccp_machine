@@ -190,6 +190,8 @@ const LIVE_CSS = `${CSS}
 .zone{fill:none;stroke:var(--line);stroke-dasharray:5 4}.zl{fill:var(--muted);font:500 10px var(--mono);letter-spacing:.08em;text-transform:uppercase}
 .box{cursor:pointer;outline:none}.box rect{fill:var(--surface);stroke:var(--muted);stroke-width:1}.box text{fill:var(--fg);font:600 12px var(--sans)}.box.on rect{fill:var(--accent-soft);stroke:var(--accent);stroke-width:2.4}.box.sel rect,.box:focus-visible rect{stroke:var(--warn);stroke-width:2.4;stroke-dasharray:5 3}
 .arrow polyline{fill:none;stroke:var(--muted);stroke-opacity:.45;stroke-width:1.2;marker-end:url(#fr-ah)}.arrow.on polyline{stroke:var(--accent);stroke-opacity:1;stroke-width:2.4;marker-end:url(#fr-ah-on)}#fr-ah path{fill:var(--muted);fill-opacity:.45}#fr-ah-on path{fill:var(--accent)}
+.card[hidden]{display:none}.log .card{overflow-wrap:anywhere}.cal{table-layout:fixed}.cal caption{text-align:left;padding:8px 10px;font-weight:600}.cal th,.cal td{padding:3px;text-align:center}.cal td>span{display:block;padding:6px 0}
+.cal button{font:inherit;width:100%;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);border-radius:6px;padding:3px 0;cursor:pointer;display:grid}.cal button b{font-size:.75rem}.cal button[aria-pressed=true]{background:var(--accent);color:var(--bg)}
 .bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}`;
 
 /**
