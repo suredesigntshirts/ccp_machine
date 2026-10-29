@@ -14,7 +14,10 @@ words belong to the content designer. When a stall is theirs, report the stall a
 
 - Find out who the reader is, what tasks they bring, and the real viewport sizes. Use the sizes you are given, not
   defaults. If no tasks are given, write three to five, each as a question the reader brings.
-- Drive the page with Playwright. If you cannot, say that every result is inferred.
+- Drive the page with Playwright, through real input only: `page.click`, `page.keyboard`, `page.mouse` and
+  `selectOption`. Never call the page's own code or dispatch events from `page.evaluate` to act; that skips what
+  covers a control or steals focus. `evaluate` is for measuring only. If you cannot drive it, say that every result
+  is inferred.
 
 ## Use it, and measure every moment
 
@@ -33,7 +36,10 @@ words belong to the content designer. When a stall is theirs, report the stall a
    - scroll to the part you are reading, and keep driving with the keyboard;
    - play anything that plays.
 
-   Screenshot before and after each action that changed something.
+   Screenshot before and after each action that changed something. Measurements find where to look; they are not
+   the looking. Open the before and after shots of every moment you will report, and of any moment where the
+   numbers say nothing changed but the action should have shown something. Note what you saw that the numbers
+   could not: overlap, confusing emphasis, colour, something that reads wrong.
 3. **Flag from the diffs:**
    - a region the reader did not touch that moved, especially the one being read and any control under the
      pointer;
@@ -72,7 +78,8 @@ Then say which findings the sketch removes. A list of local fixes for a structur
 3. **Task table:** each task, the number of actions, whether it succeeded, and the worst moment.
 4. **Findings:** at most 8, ranked by cost to the reader (blocks, slows or annoys). For each, give:
    - **Where:** the element and the state it was in.
-   - **Observed:** what you did and what happened, with the numbers and screenshot paths.
+   - **Observed:** what you did and what happened, with the numbers and the before and after screenshots you
+     viewed. A finding without a viewed pair is a hypothesis; label it so.
    - **Breaks:** the heuristic or WCAG criterion.
    - **Fix:** the concrete change.
 5. **Sketch:** when the verdict is restructure.
