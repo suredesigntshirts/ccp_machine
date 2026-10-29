@@ -16,6 +16,7 @@ import * as history_ from '../src/history.js';
 import { openStore } from '../src/store.js';
 import { init, apply, ack } from '../src/runtime.js';
 import { doctor } from '../src/doctor.js';
+import { replay } from '../src/replay.js';
 import { tempDir } from './tmp.js';
 
 const SCRIPTS = fileURLToPath(new URL('../scripts/history/', import.meta.url));
@@ -119,6 +120,45 @@ test('#146: a row the join\'s report lists refused is counted by reason, not a r
   rmSync(join(out, 'report.json'));
   const without = await doctor(openStore(out), { verify: false, pendingMaxMs: Infinity });
   assert.deepEqual(without.problems.filter((p) => p.startsWith('replay')), ['replay diverges at gh-ccp_machine-pr-7-merged: no actor at "item:ghost"']);
+});
+
+test('#161: harness replay reads the join\'s report as doctor does: a row refused for its listed reason is known; another reason, an unlisted row or no report is a divergence', () => {
+  const { out } = history();
+  const ROW = 'gh-ccp_machine-pr-7-merged: no actor at "item:ghost"';
+  const file = join(out, 'report.json');
+  const report = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(report.refused, [ROW]);
+  const replayed = (...args) => {
+    const r = cli(out, 'replay', ...args);
+    return { status: r.status, out: JSON.parse(r.stdout) };
+  };
+  const listed = replayed();
+  assert.equal(listed.out.ok, true, listed.out.firstDivergence);
+  assert.equal(listed.status, 0);
+  assert.deepEqual(listed.out.known, [ROW]);
+  // --steps writes the same steps whether or not the row is known: its refusal stays a step with its reason.
+  const stepsOf = () => readFileSync(join(out, 'steps.jsonl'), 'utf8');
+  assert.equal(replayed('--steps').out.ok, true);
+  const knownSteps = stepsOf();
+  assert.ok(rowsOf(knownSteps).some((s) => `${s.id}: ${s.refused}` === ROW));
+  // Listed for another reason: a divergence.
+  writeFileSync(file, JSON.stringify({ ...report, refused: ['gh-ccp_machine-pr-7-merged: some other reason'] }));
+  const other = replayed();
+  assert.equal(other.out.ok, false);
+  assert.equal(other.status, 1);
+  assert.equal(other.out.firstDivergence, ROW);
+  assert.deepEqual(other.out.known, []);
+  // Not listed: a divergence.
+  writeFileSync(file, JSON.stringify({ ...report, refused: [] }));
+  assert.equal(replayed().out.firstDivergence, ROW);
+  // No report: replays exactly as replay with nothing listed.
+  rmSync(file);
+  const none = replayed();
+  const { rebuilt, ...bare } = replay(openStore(out));
+  assert.deepEqual(none.out, JSON.parse(JSON.stringify(bare)));
+  assert.equal(none.out.ok, false);
+  assert.equal(replayed('--steps').status, 1);
+  assert.equal(stepsOf(), knownSteps, 'the steps are the same without the report');
 });
 
 test('#146: an era effect keeps its source id; harness ack <source id> acks it, effects shows both ids, and a second ack by either id is a duplicate', () => {
