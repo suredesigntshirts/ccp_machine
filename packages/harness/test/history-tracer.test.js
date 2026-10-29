@@ -142,9 +142,9 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.equal(ex.rows.length, lines);
   const out = join(tmp, 'joined');
   // The copy's outbox gives each row the route its logged effects took (harness meta.store.facts).
-  const { report, history } = joinTo([ex.file, RECOVERED, '--outbox', join(copy, 'outbox.jsonl')], out);
-  assert.equal(history.length, lines + 1, 'one history row per events.jsonl line, and the recovered row');
-  assert.deepEqual(history.filter((r) => r.provenance.origin === 'recovered').map((r) => r.id), ['oob-review-footer-pr66']);
+  const { report, history } = joinTo([ex.file, '--outbox', join(copy, 'outbox.jsonl')], out);
+  assert.equal(history.length, lines, 'one history row per events.jsonl line');
+  assert.deepEqual(history.filter((r) => r.event?.type === 'OUT_OF_BAND').map((r) => r.id), ['oob-review-footer-pr66', 'oob-stand-in-acts-for-owner-pr117'], 'both landings out of band, from the store alone');
   assert.deepEqual([report.dropped, report.conflicts], [[], []]);
   isHistory(history);
   const store = openStore(out);
@@ -153,9 +153,9 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.deepEqual(report.refused, [], 'join applies every row as a fact (R1, #85): it refuses none');
   const R1 = ['spawn-toolu_01KyZNYss7BW3tKekro5RPeK', 'spawn-toolu_011auzhHXfFayBACUm5eqxZP', 'start-a1789bcb30965ef75', 'spawn-toolu_01Ey5FUaAHa6NiXrTdCmtYqD', 'spawn-toolu_01SHeiefeUku4ueafvSeLRyu'];
   assert.ok(R1.every((id) => history.some((h) => h.id === id)), 'the rows the tracer refused before R1 are in the history');
-  const d = await doctor(store, { verify: false, now: Date.parse(history.at(-1).at) });
+  const d = await doctor(store, { verify: false, now: Date.parse(history.at(-1).at), pendingMaxMs: Infinity }); // acks are not history, so every effect is pending, however long the store runs
   assert.deepEqual(d.problems, []);
-  assert.deepEqual(d.outOfBand.map((l) => l.split(':')[0]), ['oob-review-footer-pr66'], 'doctor lists the #66 landing out of band');
+  assert.deepEqual(d.outOfBand.map((l) => l.split(':')[0]), ['oob-review-footer-pr66', 'oob-stand-in-acts-for-owner-pr117'], 'doctor lists both landings out of band');
   assert.deepEqual(stages(out), stages(copy), 'mission control shows the same items in the same stages');
   assert.equal(shaDir(copy), copied, 'the copy is untouched');
   assert.equal(shaDir(DOGFOOD2), original, 'the store is untouched');
