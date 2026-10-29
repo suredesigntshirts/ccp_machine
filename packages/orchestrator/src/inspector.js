@@ -300,20 +300,24 @@ const TEMPLATE = String.raw`<title>Work Item Inspector</title>
    the key) is sized once, for its longest case, so it never cuts text and never changes size. A box that shows the
    step's response brings it into view: the steps list, the changed rows of What the item holds, and on a phone
    the ring in the drawing.
-   One colour key for the whole page: lines and step bars are grey going forward, blue going back to try again and
-   red when something went wrong. Dashes mean "back"; dots mean "only in run B", in the line's own colour. "Now"
-   is weight and a glow, not a colour; green, amber and grey strike mark what a step added, changed and cleared. */
+   Four hues, one meaning each, on every part of the page, the drawing included, and each always with a second cue:
+     blue  = back, to try again   (dashed lines, dashed strip cells, step bars)
+     red   = went wrong           (lines to replanning and dropping, FAIL, crashed, dropped; the words say it too)
+     green = passed or merged     (PASS, merged, the ✓; the words say it too)
+     amber = changed at this step (the + and ~ marks and their tint; the mark says how)
+   Everything else is grey: going forward, who acted, "now" (weight and a glow) and A against B (solid and dotted
+   badges, ≠ marks). Dots mean "only in run B", in the line's own colour. */
 :root{
   --bg:#f2f4f3; --panel:#ffffff; --raised:#e6eae8; --pick:#c9d0cd; --fg:#1b201f; --muted:#59625f; --line:#d4dad7; --node:#ffffff; --nodeline:#89928f;
-  --fwd:#7d8784; --back:#2c66ad; --bad:#b0352f; --add:#1d6b35; --addbg:#d5efdc; --chg:#7a4f00; --chgbg:#f9e7bd; --del:#59625f;
+  --fwd:#7d8784; --back:#2c66ad; --backbg:#dde8f6; --bad:#b0352f; --badbg:#f7dedb; --ok:#1d6b35; --okbg:#d7eedd; --hi:#7a4f00; --hibg:#f9e7bd; --del:#59625f;
   --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#111413; --panel:#191d1c; --raised:#2a302e; --pick:#434c49; --fg:#e4e8e6; --muted:#a3aca9; --line:#2d3432; --node:#1d2221; --nodeline:#6c7773;
-  --fwd:#7f8a86; --back:#80b2f0; --bad:#f08e88; --add:#86d69d; --addbg:#1c3b26; --chg:#f1c76f; --chgbg:#3f3216; --del:#a3aca9; color-scheme:dark}}
+  --fwd:#7f8a86; --back:#80b2f0; --backbg:#1c2b3e; --bad:#f08e88; --badbg:#3d2120; --ok:#86d69d; --okbg:#1b3a25; --hi:#f1c76f; --hibg:#3f3216; --del:#a3aca9; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#111413; --panel:#191d1c; --raised:#2a302e; --pick:#434c49; --fg:#e4e8e6; --muted:#a3aca9; --line:#2d3432; --node:#1d2221; --nodeline:#6c7773;
-  --fwd:#7f8a86; --back:#80b2f0; --bad:#f08e88; --add:#86d69d; --addbg:#1c3b26; --chg:#f1c76f; --chgbg:#3f3216; --del:#a3aca9; color-scheme:dark}
+  --fwd:#7f8a86; --back:#80b2f0; --backbg:#1c2b3e; --bad:#f08e88; --badbg:#3d2120; --ok:#86d69d; --okbg:#1b3a25; --hi:#f1c76f; --hibg:#3f3216; --del:#a3aca9; color-scheme:dark}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 var(--body);margin:0;overflow:hidden}
@@ -342,6 +346,7 @@ h1{font-size:1.1rem;margin:0 8px 0 0;font-weight:600;white-space:nowrap}
 .how{margin-left:auto;flex:none}
 .how summary{cursor:pointer;color:var(--muted);font-size:13px;list-style:none;padding:4px 8px;border:1px solid var(--line);border-radius:6px}
 .how summary::-webkit-details-marker{display:none}
+.how .shorthow{display:none}
 .how .pop{position:fixed;left:max(16px,env(safe-area-inset-left,0px));top:58px;width:min(480px,calc(50vw - 28px));max-height:calc(100vh - 140px);overflow:auto;z-index:5;background:var(--panel);border:1px solid var(--nodeline);border-radius:8px;padding:10px 14px;box-shadow:0 8px 24px rgba(0,0,0,.3);font-size:13px}
 .how .pop p{margin:0 0 8px}
 .outcome{margin:0;font-size:14px;overflow:auto}
@@ -400,9 +405,10 @@ h1{font-size:1.1rem;margin:0 8px 0 0;font-weight:600;white-space:nowrap}
 .commits dd .mk{font-size:11.5px;line-height:15px;width:1.2em}
 .commits dd{margin:0;font:12.5px/17px var(--body);height:34px;overflow:hidden;overflow-wrap:anywhere;border-radius:3px}
 .commits dd code{font-size:12px}
-.commits dd.add{background:var(--addbg)} .commits dd.chg{background:var(--chgbg)}
+.commits dd.add{background:var(--hibg)} .commits dd.chg{background:var(--hibg)}
 .commits .none{color:var(--muted)}
-.fail-word{color:var(--bad);font-weight:600}
+.w-bad{color:var(--bad);font-weight:600} .w-ok{color:var(--ok);font-weight:600}
+.endmk{font-weight:600} .endmk.merged{color:var(--ok)} .endmk.dropped{color:var(--bad)} .endmk.open{color:var(--muted)}
 
 /* The run's steps, in chapters; the list scrolls inside its box and keeps the current row in view. A focused row
    shows its whole sentence over the rows below it. */
@@ -421,11 +427,12 @@ h1{font-size:1.1rem;margin:0 8px 0 0;font-weight:600;white-space:nowrap}
 #steps li.cur .t{font-weight:600}
 .tone-start,.tone-fwd{--c:var(--fwd)} .tone-back{--c:var(--back)} .tone-fail{--c:var(--bad)}
 
-/* The detail: tabs whose panels each scroll inside the same box. Compare runs is a fourth view of this box. */
+/* The detail: tabs whose panels each scroll inside the same box. Runs (all runs, and A against B) is the fourth. */
 .detail .tabs{padding:0 8px;overflow:hidden}
 .detail .tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;height:37px;padding:0 9px;color:var(--muted);white-space:nowrap}
 .detail .tabs button[aria-selected="true"]{border-bottom-color:var(--fg);color:var(--fg);font-weight:600}
 .detail .tabs [data-tab="cmp"]{margin-left:auto}
+.toruns{display:none;flex:none}
 .tab{flex:1;min-height:0;display:flex;flex-direction:column}
 .tab[hidden]{display:none}
 .tabhead{flex:none;padding:8px 14px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--muted);min-height:36px}
@@ -433,7 +440,7 @@ h1{font-size:1.1rem;margin:0 8px 0 0;font-weight:600;white-space:nowrap}
 ins{text-decoration:none;border-radius:3px;padding:0 3px}
 s{color:var(--del)}
 .mk{display:inline-block;width:1.3em;text-align:center;font:600 13px var(--mono);border-radius:3px}
-.mk.add,tr.add td.m{color:var(--add);background:var(--addbg)} .mk.chg,tr.chg td.m{color:var(--chg);background:var(--chgbg)} .mk.del,tr.del td.m{color:var(--del);background:var(--raised)}
+.mk.add,tr.add td.m{color:var(--hi);background:var(--hibg)} .mk.chg,tr.chg td.m{color:var(--hi);background:var(--hibg)} .mk.del,tr.del td.m{color:var(--del);background:var(--raised)}
 /* "This step:" holds one chip per field the step touched, in two lines at most; what does not fit is counted. */
 #tab-step .tabhead{padding:6px 14px;height:64px}
 .changed-here{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;height:50px;overflow:hidden;align-content:flex-start}
@@ -453,8 +460,8 @@ table.holds tr.solo td.k{font:600 11px/1.9 var(--body);text-transform:uppercase;
 table.holds td.m{width:1.6em;text-align:center;font:600 13px var(--mono);border-radius:3px}
 table.holds td.k{color:var(--muted);width:10.5em}
 table.holds td.v{font:12.5px/1.5 var(--mono);overflow-wrap:anywhere}
-table.holds tr.add ins{background:var(--addbg);color:var(--add)}
-table.holds tr.chg ins{background:var(--chgbg);color:var(--chg)}
+table.holds tr.add ins{background:var(--hibg);color:var(--hi)}
+table.holds tr.chg ins{background:var(--hibg);color:var(--hi)}
 table.holds tr.empty td.v{color:var(--muted)}
 .state h3{margin:6px 0 0;font-size:1.1rem}
 .state h4{margin:14px 0 4px;font:600 11px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -479,11 +486,44 @@ table.chap thead th{border-top:0;font-weight:600}
 table.chap col.m{width:1.8em}
 table.chap td.m{text-align:center;padding-left:0;padding-right:0}
 table.chap tr.oc td{color:var(--muted);font-size:12.5px}
-table.chap tr.differs td.m{color:var(--chg);background:var(--chgbg);font:600 13px var(--mono)}
+table.chap tr.differs td.m{color:var(--fg);background:var(--raised);font:600 13px var(--mono)}
 table.chap .ct{display:block;font:600 11px var(--body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 table.chap .cs{font:12px/1.45 var(--mono)}
 table.chap td.here{background:var(--raised)}
 table.chap td button{margin-top:4px}
+
+/* All runs: one row per run with its outcome and its strip, one cell per step in chapters. Picking a name steps
+   through that run; Compare makes it B. The two sub-views keep their own scroll. */
+.subtabs{display:flex;gap:4px;align-items:center;flex-wrap:nowrap}
+.subtabs button{height:26px;padding:0 10px;font-size:12.5px;border-color:var(--line);white-space:nowrap}
+.subtabs button[aria-pressed="true"]{background:var(--fg);color:var(--panel);border-color:var(--fg)}
+.subview{flex:1;min-height:0;display:flex;flex-direction:column}
+.subview[hidden]{display:none}
+.runkey{margin:4px 0 8px;font-size:12px;color:var(--muted);line-height:1.6}
+.runkey summary{cursor:pointer;font-size:12.5px}
+.runkey ul{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:3px 12px}
+.runkey li{white-space:nowrap}
+.runkey i{vertical-align:1px;margin-right:4px}
+ol.runlist{list-style:none;margin:0;padding:0}
+ol.runlist li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:9px 4px 10px;border-top:1px solid var(--line);align-items:start}
+ol.runlist li.isA{background:var(--raised);border-radius:6px}
+ol.runlist .tag .badge{margin:0 6px 0 0}
+ol.runlist button.nm{border:0;background:none;padding:0;font:600 13.5px var(--body);text-align:left;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--nodeline)}
+ol.runlist li.isA button.nm{text-decoration:none;cursor:default}
+ol.runlist .oc{font-size:12.5px;margin-top:1px}
+ol.runlist .ct{color:var(--muted);font-size:12px}
+ol.runlist .cmpb{white-space:nowrap}
+ol.runlist li.isA .cmpb{visibility:hidden}
+.strip{display:flex;flex-wrap:wrap;gap:4px 7px;margin-top:5px;grid-column:1 / 3}
+.seg{display:flex;flex-direction:column;gap:4px;min-width:0}
+.seg .cells{display:flex;gap:2px}
+.seg .sl{font:10.5px/13px var(--body);color:var(--muted);white-space:nowrap}
+i.c{font-style:normal;flex:none;width:23px;height:19px;display:inline-flex;align-items:center;justify-content:center;font:600 10.5px var(--mono);border-radius:3px;background:var(--raised);color:var(--fg);border:1px solid var(--line);cursor:pointer}
+i.c.tone-back{background:var(--backbg);border:1px dashed var(--back)}
+i.c.tone-fail{background:var(--badbg);border-color:var(--bad)}
+i.c.ok{background:var(--okbg);border-color:var(--ok)}
+i.c.parts{outline:2px solid var(--fg);outline-offset:1px}
+i.c.at{background:var(--fg);color:var(--panel);border-color:var(--fg)}
 
 /* Phone: the story stays on top, the transport is a bar fixed to the bottom, and one region at a time fills
    the middle: the detail, the steps or the drawing. Empty groups of the item fold to one line. */
@@ -497,6 +537,8 @@ table.chap td button{margin-top:4px}
   .views button{flex:1;padding:0;height:32px}
   .views button[aria-pressed="true"]{background:var(--fg);color:var(--panel);border-color:var(--fg)}
   h1{display:none}
+  .toruns{display:inline-block;padding:4px 8px}
+  .how .long{display:none} .how .shorthow{display:inline}
   .how summary{padding:4px 6px}
   .how .pop{left:16px;right:16px;width:auto;top:auto;bottom:62px;max-height:min(380px,calc(100dvh - 440px))}
   .outcome{font-size:12.5px;line-height:16px}
@@ -504,6 +546,7 @@ table.chap td button{margin-top:4px}
   .commits{grid-template-columns:repeat(2,minmax(0,1fr))}
   .commits dd{height:17px;white-space:nowrap;text-overflow:ellipsis}
   .diagram{overflow:auto;display:block;padding:6px}
+  .key{font-size:11.5px;gap:0 10px;padding:3px 8px 4px;line-height:1.5} .key .hint{display:none}
   .diagram svg{width:600px;height:533px}
   #speed,.transport .lbl{display:none}
   #prev,#next{width:42px} #play{width:60px} #pos{width:8.5ch}
@@ -520,8 +563,10 @@ table.chap td button{margin-top:4px}
     <div class="l1">
       <h1>Work item inspector</h1>
       <label for="run" class="sr">Run</label><select id="run"></select>
-      <details class="how" id="how"><summary>How this page works</summary><div class="pop">
-        <p>Pick a run and step through it. The drawing rings the state the item is in and thickens the lines it has taken; the box beside it says what happened at this step, and the detail shows everything the item holds, with what this step added, changed or cleared marked.</p>
+      <button type="button" class="toruns" id="toRuns" title="Every run, its outcome and its path">All runs</button>
+      <details class="how" id="how"><summary><span class="long">How this page works</span><span class="shorthow">How it works</span></summary><div class="pop">
+        <p>Pick a run and step through it. The drawing rings the state the item is in and thickens the lines it has taken; the box beside it says what happened at this step, and the detail shows everything the item holds, with what this step added, changed or cleared marked. Click a state in the drawing to see what it needs and passes on.</p>
+        <p><b>Runs</b> lists every run with how it ended and its path as a strip of cells, so odd ones stand out; pick one to step through it, or compare it with the one you are stepping, chapter by chapter.</p>
         <p><b>The harness</b> is the program that runs the item: it writes the briefs, starts the builder and verifier sessions, asks the questions and merges the PR. <b>The stand-in</b> answers the merge question for the person.</p>
         <p>Each run is rebuilt from its journal, the record of what came in from outside: session results, answers, pushes and time limits. The page replays it with the harness's own rules, so every step shown is one the harness accepted.</p>
         <p>Keys: ← and → step, Home and End jump, Space plays, Escape closes this.</p>
@@ -535,13 +580,15 @@ table.chap td button{margin-top:4px}
     <div class="key" aria-label="What the drawing means">
       <span><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="var(--fwd)" stroke-width="1.6"/></svg>forward</span>
       <span><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="var(--back)" stroke-width="1.6" stroke-dasharray="5 3"/></svg>back, to try again</span>
-      <span><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="var(--bad)" stroke-width="1.6"/></svg>went wrong, to replan</span>
+      <span><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="var(--bad)" stroke-width="1.6"/></svg>went wrong: <span class="w-bad">FAIL</span>, crashed, dropped</span>
+      <span>passed: <span class="w-ok">PASS</span>, <span class="w-ok">✓ merged</span></span>
+      <span><span class="mk add">+</span><span class="mk chg">~</span> changed at this step</span>
       <span><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="var(--fg)" stroke-width="3"/></svg>taken so far</span>
       <span><svg width="24" height="12" aria-hidden="true"><line x1="2" y1="6" x2="22" y2="6" stroke="var(--fg)" stroke-width="5" style="filter:drop-shadow(0 0 2px var(--fg))"/></svg>this step</span>
       <span><svg width="24" height="14" aria-hidden="true"><rect x="3" y="3" width="18" height="8" rx="3" fill="none" stroke="var(--fg)" stroke-width="2"/><rect x="1" y="1" width="22" height="12" rx="4" fill="none" stroke="var(--fg)" stroke-opacity=".25" stroke-width="2"/></svg>where it is now</span>
       <span><svg width="24" height="14" aria-hidden="true"><rect x="2" y="2" width="20" height="10" rx="3" fill="var(--pick)" stroke="var(--fg)" stroke-width="1.4"/></svg>state you picked</span>
       <span>×2 entered 2 times</span>
-      <span>Click a state to see what it needs and passes on.</span>
+      <span class="hint">Click a state to see what it needs and passes on.</span>
       <span class="onlyb"><svg width="24" height="8" aria-hidden="true"><line x1="1" y1="4" x2="23" y2="4" stroke="var(--bad)" stroke-width="3" stroke-dasharray=".5 6" stroke-linecap="round"/></svg>dotted: only in run B, in its line's colour</span>
     </div>
   </section>
@@ -588,7 +635,7 @@ table.chap td button{margin-top:4px}
       <button type="button" role="tab" data-tab="step" aria-selected="true" aria-controls="tab-step">Item holds</button>
       <button type="button" role="tab" data-tab="state" aria-selected="false" aria-controls="tab-state">State</button>
       <button type="button" role="tab" data-tab="entry" aria-selected="false" aria-controls="tab-entry">Journal</button>
-      <button type="button" role="tab" data-tab="cmp" aria-selected="false" aria-controls="tab-cmp">Compare</button>
+      <button type="button" role="tab" data-tab="cmp" aria-selected="false" aria-controls="tab-cmp">Runs</button>
     </div>
     <div class="tab" id="tab-step" role="tabpanel" aria-label="What the item holds">
       <div class="tabhead"><div class="changed-here" id="changed"></div></div>
@@ -609,7 +656,13 @@ table.chap td button{margin-top:4px}
       <div class="tabhead">The line in the run's journal that this step replays. The journal keeps only what came in from outside; the rest of the page is rebuilt from it.</div>
       <div class="scroll" id="entry-scroll"><p class="jsum" id="jsum"></p><pre id="entry"></pre></div>
     </div>
-    <div class="tab" id="tab-cmp" role="tabpanel" aria-label="Compare runs" hidden>
+    <div class="tab" id="tab-cmp" role="tabpanel" aria-label="All runs, and compare two" hidden>
+      <div class="tabhead subtabs" role="group" aria-label="Show"><button type="button" data-sub="runs" aria-pressed="true" id="subRuns">All runs</button><button type="button" data-sub="ab" aria-pressed="false" id="subAB">Compare A and B</button></div>
+      <div class="scroll" id="runs-scroll">
+        <details class="runkey" id="runkeyd"><summary>What the cells mean</summary><div id="runkey"></div></details>
+        <ol class="runlist" id="runlist"></ol>
+      </div>
+      <div class="subview" id="ab-view" hidden>
       <div class="tabhead cmppick"><label for="cmpB"><span class="badge b">B</span></label><select id="cmpB"></select><button type="button" class="small" id="cmpSwap" title="Make B the run you step through, and A the one you compare with">Step through B</button></div>
       <div class="scroll" id="cmp-scroll">
         <p class="cmpsum" id="cSum"></p>
@@ -618,6 +671,7 @@ table.chap td button{margin-top:4px}
           <tr class="oc"><td class="m"></td><td id="cA-out"></td><td id="cB-out"></td></tr></thead>
           <tbody id="chapRows"></tbody>
         </table>
+      </div>
       </div>
     </div>
   </section>
@@ -649,6 +703,7 @@ let cur = 0;         // the step shown
 let tab = 'step';    // the detail view
 let picked = null;   // a state the reader clicked; null follows the step
 let cmpB = null;     // the run picked to compare with
+let sub = 'runs';    // in the Runs tab: all runs, or A and B side by side
 let drawn = null;
 let timer = null;
 
@@ -667,6 +722,13 @@ const whoWord = (by) => (by === 'person' ? 'the person' : 'the ' + by);
 const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 const endStop = (t) => (/[.!?]$/.test(t) ? t : t + '.');
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+// Words that carry one of the page's hues: green for passed or merged, red for what went wrong. The word itself is
+// always there, so the hue is never the only cue.
+const TONED = /\b(PASS(?! on an old commit)|merged|FAIL|verifier crashed|crashed|briefing failed|merge failed|approval question failed|rejected|dropped|no answer|hit its time limit)\b/g;
+const toned = (t) => esc(t).replace(TONED, (w) => '<span class="' + (w === 'PASS' || w === 'merged' ? 'w-ok' : 'w-bad') + '">' + w + '</span>');
+// A run's outcome sentence, led by a mark for how it ended: ✓ merged (green), ✕ dropped (red), ○ not finished (grey).
+const END = { merged: '✓', dropped: '✕', open: '○' };
+const endHtml = (r) => { const m = /^(Merged|Dropped|Not finished)(.*)$/s.exec(r.outcome || ''); return m ? '<span class="endmk ' + r.end + '">' + END[r.end] + ' ' + m[1] + '</span>' + esc(m[2]) : esc(r.outcome || ''); };
 const plain = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
 
 // ---- What the item holds: one row per field (or part of a field), always all of them, in the same order.
@@ -922,11 +984,11 @@ function cellsAt(i) {
   return {
     head: head ? code(head) : NONE(ended ? 'no PR' : 'none yet'),
     verdict: v?.sha
-      ? '<span class="' + (v.result === 'FAIL' ? 'fail-word' : '') + '">' + esc(v.result) + '</span> ' + (!head || v.sha === head ? 'on the PR head' : 'on ' + code(v.sha) + ' (older)')
+      ? '<span class="' + (v.result === 'FAIL' ? 'w-bad' : !head || v.sha === head ? 'w-ok' : '') + '">' + esc(v.result) + '</span> ' + (!head || v.sha === head ? 'on the PR head' : 'on ' + code(v.sha) + ' (older)')
       : NONE(ended ? 'none' : 'none yet'),
     appr: appr || NONE(ended ? 'never asked' : 'not asked yet'),
     replan: replan || NONE('not asked'),
-    merge: c.merge?.sha ? code(c.merge.sha) + ' from ' + code(v?.sha) : step.state === 'dropped' ? 'no, dropped' : NONE('not yet')
+    merge: c.merge?.sha ? code(c.merge.sha) + ' from ' + code(v?.sha) : step.state === 'dropped' ? '<span class="w-bad">✕ no, dropped</span>' : NONE('not yet')
   };
 }
 function showStory(step) {
@@ -1041,21 +1103,79 @@ function showCompare() {
   $('cmpSwap').disabled = !B;
   $('cA-name').textContent = A ? A.name : 'No run';
   $('cB-name').textContent = B ? B.name : '—';
-  $('cA-out').textContent = A ? A.outcome + ' (' + A.counts + ')' : '';
-  $('cB-out').textContent = B ? B.outcome + ' (' + B.counts + ')' : '';
-  $('cSum').textContent = !A ? '' : B ? diffSentence(A, B) : 'Pick a run above as B. Its chapters line up beside A\'s, and the drawing dots the lines only B took.';
+  $('cA-out').innerHTML = A ? endHtml(A) + ' (' + esc(A.counts) + ')' : '';
+  $('cB-out').innerHTML = B ? endHtml(B) + ' (' + esc(B.counts) + ')' : '';
+  $('cSum').innerHTML = !A ? '' : B ? toned(diffSentence(A, B)) : esc('Pick a run as B, here or with Compare in All runs. Its chapters line up beside A\'s, and the drawing dots the lines only B took.');
   const n = Math.max(A?.chapters.length || 0, B?.chapters.length || 0);
-  const cell = (ch, here) => (ch ? '<td' + (here ? ' class="here"' : '') + '><span class="ct">' + esc(ch.title) + '</span><span class="cs">' + esc(ch.summary) + '</span>' : '<td><span class="muted">—</span>');
+  const cell = (ch, here) => (ch ? '<td' + (here ? ' class="here"' : '') + '><span class="ct">' + esc(ch.title) + '</span><span class="cs">' + toned(ch.summary) + '</span>' : '<td><span class="muted">—</span>');
   const curCh = steps[cur]?.chapter;
   let html = '';
   for (let k = 0; k < n; k++) {
     const a = A?.chapters[k], b = B?.chapters[k];
     const differs = B && !sameChapter(a, b);
-    html += '<tr class="' + (differs ? 'differs' : '') + '"><td class="m"' + (differs ? ' title="differs"' : '') + '>' + (differs ? '~' : '') + '</td>' +
+    html += '<tr class="' + (differs ? 'differs' : '') + '"><td class="m"' + (differs ? ' title="A and B differ here"' : '') + '>' + (differs ? '≠' : '') + '</td>' +
       cell(a, k === curCh) + (differs && a ? '<br><button type="button" class="small" data-goto="' + a.first + '">Show in A</button>' : '') + '</td>' +
       (B ? cell(b, false) + '</td>' : '<td></td>') + '</tr>';
   }
   $('chapRows').innerHTML = html;
+}
+
+// ---- All runs: one row per run, built once and updated in place. Each strip has one cell per step, grouped by
+// chapter and lettered by the state the step entered; its colour is the line the step took.
+const CODE = (() => {
+  const out = {}, used = new Set();
+  for (const n of graph.nodes) {
+    if (n.final) { out[n.id] = n.id === 'done' || /^merged/i.test(nameOf(n.id)) ? '✓' : '✕'; continue; }
+    const w = nameOf(n.id).replace(/[^A-Za-z]/g, '');
+    let c = w.slice(0, 2);
+    for (let k = 2; used.has(c) && k < w.length; k++) c = w[0] + w[k];
+    used.add(c);
+    out[n.id] = c;
+  }
+  return out;
+})();
+const sameStep = (x, y) => x && y && x.state === y.state && x.edge === y.edge;
+const partsAt = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) if (!sameStep(a[i], b[i])) return i; return -1; };
+const cellHtml = (s, i, j) => '<i class="c tone-' + toneOf(s) + (s.state === 'done' ? ' ok' : '') + '" data-run="' + i + '" data-step="' + j + '" title="Step ' + (j + 1) + ', ' + esc(nameOf(s.state)) + ': ' + esc(s.sentence || s.what) + '">' + esc(CODE[s.state] || '?') + '</i>';
+(function buildRuns() {
+  const seen = new Set(runs.flatMap((r) => r.steps.map((s) => s.state)));
+  const sample = (cls, t) => '<i class="c ' + cls + '" aria-hidden="true">' + t + '</i>';
+  $('runkey').innerHTML = 'One cell per step, under its chapter, lettered by the state the step entered:<ul>' +
+    graph.nodes.filter((n) => seen.has(n.id)).map((n) => '<li>' + sample('', esc(CODE[n.id])) + esc(nameOf(n.id)) + '</li>').join('') + '</ul><ul>' +
+    '<li>' + sample('', 'Bu') + 'went forward</li><li>' + sample('tone-back', 'Bu') + 'dashed blue: back, to try again</li><li>' + sample('tone-fail', 'Re') + 'red: went wrong</li><li>' + sample('ok', '✓') + 'green: merged</li>' +
+    '<li>' + sample('at', 'Ve') + 'A\'s step now</li><li>' + sample('parts', 'Bu') + 'where a run first parts from A</li></ul>Click a cell to open that run at that step.';
+  $('runkeyd').open = innerWidth > 760;
+  $('runlist').innerHTML = runs.map((r, i) => '<li data-run="' + i + '">' +
+    '<div><span class="tag"></span><button type="button" class="nm" data-pick="' + i + '" title="' + esc(r.about || 'Step through this run') + '">' + esc(r.name) + '</button>' +
+    '<div class="oc">' + endHtml(r) + '</div><div class="ct">' + esc(r.counts) + '</div></div>' +
+    '<button type="button" class="small cmpb" data-asb="' + i + '" aria-pressed="false" title="Compare this run with A, chapter by chapter">Compare</button>' +
+    '<div class="strip">' + r.chapters.map((ch) => '<span class="seg" title="' + esc(ch.title + ': ' + ch.summary) + '"><span class="cells">' +
+      r.steps.slice(ch.first, ch.last + 1).map((s, k) => cellHtml(s, i, ch.first + k)).join('') + '</span><span class="sl">' + esc(ch.title) + '</span></span>').join('') + '</div></li>').join('') ||
+    '<li class="muted">No runs.</li>';
+})();
+function showRuns() {
+  const A = runs[ri];
+  for (const li of $('runlist').querySelectorAll('li[data-run]')) {
+    const i = Number(li.dataset.run), r = runs[i];
+    li.classList.toggle('isA', i === ri);
+    li.classList.toggle('isB', i === cmpB);
+    li.querySelector('.tag').innerHTML = i === ri ? '<span class="badge" title="A: the run you are stepping through">A</span>' : i === cmpB ? '<span class="badge b" title="B: the run you compare with">B</span>' : '';
+    const nm = li.querySelector('.nm');
+    nm.setAttribute('aria-current', String(i === ri));
+    const cb = li.querySelector('.cmpb');
+    cb.setAttribute('aria-pressed', String(i === cmpB));
+    cb.textContent = i === cmpB ? 'Is B' : 'Compare';
+    cb.disabled = i === ri;
+    const k = i === ri ? -1 : partsAt(A?.steps || [], r.steps);
+    li.querySelectorAll('i.c').forEach((cell, j) => { cell.classList.toggle('parts', j === k); cell.classList.toggle('at', i === ri && j === cur); });
+  }
+}
+function setSub(name) {
+  sub = name;
+  $('subRuns').setAttribute('aria-pressed', String(name === 'runs'));
+  $('subAB').setAttribute('aria-pressed', String(name === 'ab'));
+  $('runs-scroll').hidden = name !== 'runs';
+  $('ab-view').hidden = name !== 'ab';
 }
 
 // ---- Painting one step: every region updates in place.
@@ -1078,6 +1198,7 @@ function paint() {
   showState();
   showEntry(step);
   showCompare();
+  showRuns();
 }
 // Keep the current step's row in the list's own box when stepping moves it out (never scrolls the page).
 function keepInView() {
@@ -1111,7 +1232,7 @@ function load(i, at = 0) {
   cur = Math.min(Math.max(0, at), Math.max(0, steps.length - 1));
   setOutcome(run);
   $('steps').innerHTML = (run?.chapters || []).map((ch) =>
-    '<li class="ch" title="' + esc(ch.title + ': ' + ch.summary) + '">' + esc(ch.title) + '<span class="chs">' + esc(ch.summary) + '</span></li>' +
+    '<li class="ch" title="' + esc(ch.title + ': ' + ch.summary) + '">' + esc(ch.title) + '<span class="chs">' + toned(ch.summary) + '</span></li>' +
     steps.slice(ch.first, ch.last + 1).map((s, k) => {
       const j = ch.first + k;
       return '<li class="st tone-' + toneOf(s) + '" data-i="' + j + '"><button type="button" data-i="' + j + '" title="' + esc(s.sentence) + '" data-full="' + esc(s.sentence) + '"><span class="num">' + (j + 1) + '</span><span class="t">' + esc(s.sentence) + '</span><span class="to">→ ' + esc(nameOf(s.state)) + '</span></button></li>';
@@ -1121,7 +1242,7 @@ function load(i, at = 0) {
   paint();
 }
 function setOutcome(run) {
-  $('outcome').textContent = run?.outcome ?? '';
+  $('outcome').innerHTML = run ? endHtml(run) : '';
   $('counts').textContent = run?.counts ? '· ' + run.counts : '';
 }
 // The outcome line is as tall as the longest run's outcome needs at this width, so it never cuts a sentence and
@@ -1151,6 +1272,18 @@ $('st-follow').addEventListener('click', () => { picked = null; paint(); documen
 $('cmpB').addEventListener('change', () => { cmpB = $('cmpB').value === '' ? null : Number($('cmpB').value); paint(); $('cmpB').focus(); });
 $('cmpSwap').addEventListener('click', () => { if (cmpB == null) return; const was = ri; stop(); load(cmpB); cmpB = was; paint(); say(); $('cmpSwap').focus(); });
 $('chapRows').addEventListener('click', (ev) => { const g = ev.target.closest('[data-goto]'); if (!g) return; const k = Number(g.dataset.goto); stop(); go(k); $('chapRows').querySelector('[data-goto="' + k + '"]')?.focus(); });
+$('subRuns').addEventListener('click', () => setSub('runs'));
+$('subAB').addEventListener('click', () => setSub('ab'));
+// From the list: a name steps through that run (focus stays on it, so the arrow keys step); a cell opens that run
+// at that step; Compare makes the run B and shows A and B side by side.
+$('runlist').addEventListener('click', (ev) => {
+  const nm = ev.target.closest('[data-pick]'), cb = ev.target.closest('button[data-asb]'), cell = ev.target.closest('i.c[data-run]');
+  if (nm) { const i = Number(nm.dataset.pick); if (i !== ri) { stop(); load(i); say(); } nm.focus(); }
+  else if (cb && !cb.disabled) { cmpB = Number(cb.dataset.asb); setSub('ab'); paint(); $('subAB').focus(); }
+  else if (cell) { const i = Number(cell.dataset.run), j = Number(cell.dataset.step); stop(); if (i === ri) go(j); else { load(i, j); say(); } }
+});
+// On a phone the Runs tab is behind the Detail view; this button reaches it in one tap from any view.
+$('toRuns').addEventListener('click', () => { setTab('cmp'); setSub('runs'); setView('detail'); $('subRuns').focus(); });
 // How this page works closes on Escape (focus back to its summary) and on a click outside it.
 const how = $('how');
 document.addEventListener('click', (ev) => { if (how.open && !how.contains(ev.target)) how.open = false; });
