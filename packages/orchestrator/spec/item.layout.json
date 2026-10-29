@@ -49,7 +49,7 @@
     "pr": {"label": "PR", "parts": {"branch": "Branch", "headSha": "PR head", "url": "Link"}},
     "verdict": {"label": "Last verdict", "parts": {"result": "Result", "sha": "For commit", "report": "Report"}},
     "failure": {"label": "What went wrong"},
-    "decision": {"label": "Decision", "parts": {"choice": "Choice", "by": "By", "why": "Reason"}},
+    "decision": {"label": "Last answer", "parts": {"choice": "Answer", "by": "By", "why": "Reason"}},
     "why": {"label": "Five whys"},
     "merge": {"label": "Merge commit"}
   },
