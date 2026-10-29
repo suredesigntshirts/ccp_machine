@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // E1 (epic #59): the old-store extractor. Reads a store's events.jsonl and turns each row into a history row
 // (spec/history.schema.json): the row as the store wrote it, with provenance migrated and `from` naming the archive
-// ref and the line, and `placeholders` listing each field that holds a legacy placeholder. A row that is already a
+// ref and the line, and `placeholders` listing each field that holds a legacy placeholder. A row from a store that
+// predates a field (main predates the event envelope) is upcast first (src/history.js upcast, history.schema.json
+// upcast): each field it lacks that the schema needs becomes a labelled legacy placeholder. A row that is already a
 // history row (it has provenance) passes through as it is. A row it cannot turn into a valid one is skipped, never guessed at, and the skip names its line and why (the shared
 // candidate writer, candidates.mjs, does both). It only reads the store:
 // rows go to stdout as JSONL, skips and the count to stderr, one JSON object per line.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { candidates } from './candidates.mjs';
+import { upcast } from '../../src/history.js';
 
 const [dir, ref] = process.argv.slice(2);
 if (!dir || !ref) {
@@ -25,6 +28,6 @@ readFileSync(join(dir, 'events.jsonl'), 'utf8')
     } catch {
       return out.skip({ ref, line: i + 1 }, 'not JSON');
     }
-    out.write(r, { origin: 'migrated', from: { source: 'store', ref, line: i + 1 } });
+    out.write(upcast(r, ref), { origin: 'migrated', from: { source: 'store', ref, line: i + 1 } });
   });
 out.done();

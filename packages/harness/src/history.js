@@ -1,8 +1,8 @@
 // The one history (epic #59): every era's events in one shape, spec/history.schema.json. This module only
 // reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), eventProblems()
-// holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), placeholders()
-// counts the legacy values doctor reports, factKey() and dedupe() apply its identity rules, stepProblems() holds a
-// step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
+// holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), upcast() migrates a
+// row from a store that predates a field (E1), placeholders() counts the legacy values doctor reports by era and
+// field, factKey() and dedupe() apply its identity rules, stepProblems() holds a step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
 // checkLogNeeds() holds a history, its steps and its usage fields to a view's needs file. The schema is a subset of
 // JSON Schema, and so is the checker below.
 import { readFileSync } from 'node:fs';
@@ -49,6 +49,22 @@ export function legacyPaths(v, path = '', out = []) {
   return out;
 }
 
+/**
+ * A row from a store that predates a field, as E1 migrates it (history.schema.json upcast): each envelope field the
+ * schema lists, and each field its event type needs, that the row lacks becomes a labelled legacy placeholder.
+ * `store` is the archive ref the store is read as. A row with provenance is a history row already and is returned as is.
+ */
+export function upcast(row, store) {
+  if (row?.provenance || typeOf(row) !== 'object') return row;
+  const { envelope, legacy } = HISTORY.upcast;
+  const say = (t, field) => ({ legacy: t.replaceAll('{store}', store).replaceAll('{field}', field).replaceAll('{type}', row.event?.type) });
+  const out = { ...row };
+  for (const f of envelope) if (out[f] === undefined) out[f] = say(legacy.envelope, f);
+  const need = typeOf(row.event) === 'object' ? HISTORY.events.types[row.event.type]?.required ?? [] : [];
+  if (need.some((k) => row.event[k] === undefined)) out.event = { ...row.event, ...Object.fromEntries(need.filter((k) => row.event[k] === undefined).map((k) => [k, say(legacy.event, `event.${k}`)])) };
+  return out;
+}
+
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
 export function validate(row) {
   const out = check(HISTORY, row, '', []);
@@ -83,12 +99,15 @@ export function eventProblems(event) {
   return out;
 }
 
-/** Legacy placeholders by source store or archive ref, then by path: { [ref]: { [path]: count } }. */
+/** A row's era: the store it was read from (its archive ref), else the kind of source (github, session, ...). */
+const eraOf = (row) => (row.provenance.from.source === 'store' ? row.provenance.from.ref : row.provenance.from.source);
+
+/** Legacy placeholders by era (eraOf), then by path: { [era]: { [path]: count } }. */
 export function placeholders(rows) {
   const out = {};
   for (const r of rows)
     for (const p of r.provenance?.placeholders ?? []) {
-      const by = (out[r.provenance.from.ref] ??= {});
+      const by = (out[eraOf(r)] ??= {});
       by[p] = (by[p] ?? 0) + 1;
     }
   return out;

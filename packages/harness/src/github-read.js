@@ -56,6 +56,22 @@ export async function restFetcher(path, { gh = ghPath(), run = promisify(execFil
   return r.json();
 }
 
+/** fn over items, at most n at a time (each a GitHub read), the results in the items' order. */
+export async function mapLimit(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
+}
+/** How many GitHub reads doctor's audits make at once. */
+export const READS_AT_ONCE = 8;
+
 /** A commit's check runs as one conclusion: failure if any failed, pending while any runs, else success (none without runs). */
 export const combined = (runs) =>
   runs.some((r) => r.status === 'completed' && FAILED.includes(r.conclusion)) ? 'failure' : runs.some((r) => r.status !== 'completed') ? 'pending' : runs.length ? 'success' : 'none';

@@ -130,6 +130,31 @@ test('T: extract-store lists a legacy placeholder in provenance.placeholders and
   assert.match(ex.skips[0].reason, /at:/);
 });
 
+test('E1: a row from before the event envelope (main) is a row with labelled placeholders, never a skip', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
+  const dir = join(tmp, 'main');
+  mkdirSync(dir);
+  // main's rows as main wrote them: no actor, source or harness, and its first CHECKS_PASSED and MERGED name no PR.
+  const old = [
+    { id: 'req-ledger', version: 4, at: '2026-10-26T17:55:34.410Z', to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'ledger', tier: 1, title: 'Ledger' } } },
+    { id: 'e10', version: 11, at: '2026-10-26T17:55:44.820Z', to: 'item:ledger', event: { type: 'CHECKS_PASSED' } },
+    { id: 'merged-pr1', version: 13, at: '2026-10-26T17:55:53.498Z', to: 'item:ledger', event: { type: 'MERGED' } },
+  ];
+  writeFileSync(join(dir, 'events.jsonl'), old.map((r) => JSON.stringify(r) + '\n').join(''));
+  const ex = extract(dir, 'main', tmp);
+  assert.deepEqual(ex.skips, []);
+  assert.deepEqual(ex.count, { ref: 'main', rows: 3, skips: 0 });
+  assert.deepEqual(ex.rows.flatMap(validate), []);
+  const [req, ci, merged] = ex.rows;
+  for (const r of ex.rows) for (const f of ['actor', 'source', 'harness']) assert.deepEqual(r[f], { legacy: 'main predates the event envelope (M1)' });
+  assert.deepEqual(req.provenance, { origin: 'migrated', from: { source: 'store', ref: 'main', line: 1 }, placeholders: ['actor', 'source', 'harness'] });
+  assert.deepEqual(req.event, old[0].event, 'what main recorded is kept as it is');
+  // A field the event needs that main did not record is a placeholder too, never read from the id (merged-pr1).
+  assert.deepEqual(ci.event, { type: 'CHECKS_PASSED', pr: { legacy: 'main recorded no event.pr on its CHECKS_PASSED rows then' } });
+  assert.deepEqual(merged.event.pr, { legacy: 'main recorded no event.pr on its MERGED rows then' });
+  assert.deepEqual(merged.provenance.placeholders.sort(), ['actor', 'event.pr', 'harness', 'source']);
+});
+
 test('T: dogfood2 goes through both scripts into a store that replays, passes doctor and shows the same stages', { skip: !DOGFOOD2 && 'the dogfood2 case did not run: HARNESS_DOGFOOD2_DIR names no store (CI has no Library). Run it against a path to dogfood2; it works on a copy' }, async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
   const original = shaDir(DOGFOOD2);

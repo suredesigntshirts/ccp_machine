@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { openStore, init, status, parseGithubEvent, mapGithubEvent, fromGithub, fromGithubText, prMap, prKey } from '../src/index.js';
-import { readFact, combined } from '../src/github-read.js';
+import { readFact, combined, mapLimit, READS_AT_ONCE } from '../src/github-read.js';
 import { apply, start } from './send.js';
 import { verifyHead } from '../src/sim.js';
 import { fakeGithub, recorded, HEAD, MERGE } from './github-fake.js';
@@ -202,4 +202,19 @@ test('live: GitHub says suredesigntshirts/ccp_machine#21 merged at its merge com
   const pr = 'suredesigntshirts/ccp_machine#21';
   assert.deepEqual(await readFact({ type: 'MERGED', pr }), { ref: `${pr}:merged@${MERGE}`, sha: HEAD });
   assert.deepEqual(await readFact({ type: 'CHECKS_PASSED', pr, sha: HEAD }), { ref: `${pr}@${HEAD}:checks=success`, sha: HEAD });
+});
+
+test("doctor's GitHub reads (verify-facts, the merge audit) run READS_AT_ONCE at a time, their results in the items' order", async () => {
+  let open = 0;
+  let most = 0;
+  const items = Array.from({ length: 20 }, (_, i) => i);
+  const out = await mapLimit(items, READS_AT_ONCE, async (i) => {
+    most = Math.max(most, ++open);
+    await new Promise((r) => setTimeout(r, (i * 7) % 5));
+    open--;
+    return i * 2;
+  });
+  assert.deepEqual(out, items.map((i) => i * 2));
+  assert.equal(most, READS_AT_ONCE);
+  assert.deepEqual(await mapLimit([], READS_AT_ONCE, async () => 1), []);
 });

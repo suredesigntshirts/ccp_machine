@@ -151,7 +151,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
-  `meta.sources`, `placeholders` and `outOfBand` list what doctor will report, and `dedupe` applies the identity
+  `meta.sources`, `upcast` migrates a row from a store that predates a field (the schema's `upcast`: each envelope
+  field and each field its event type needs that the row lacks becomes a labelled `legacy` placeholder),
+  `placeholders` (by era: the store a row was read from, else the kind of source, then by field) and `outOfBand`
+  list what doctor will report, and `dedupe` applies the identity
   rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
   design log) declares the event types and fields it reads instead of state fields, and `checkPage` holds it to the
   schema (each field a property of the envelope or of its type's schema, so dropping one fails naming the page and
@@ -163,7 +166,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `extract-store.mjs <store dir> <archive ref>` (E1) reads a store's `events.jsonl` and prints each row as a
   history row (provenance `migrated`, `from` the archive ref and the line, `placeholders` each field holding a
   `legacy` placeholder) or, on stderr, a skip naming the line
-  and why. `extract-github.mjs <archive repo dir> <archive ref>` (E3) reads one repo's folder of the GitHub archive
+  and why. A row from before the event envelope (main's: no actor, source or harness, and its first CHECKS_PASSED
+  and MERGED rows name no PR) is upcast first (`src/history.js` `upcast`), so each field it lacks is a placeholder
+  labelled with the store's ref, never a skip and never read from another field. `extract-github.mjs <archive repo dir> <archive ref>` (E3) reads one repo's folder of the GitHub archive
   (`harness/archive/github/<owner>--<repo>/`), refusing it, with nothing written, unless every page the manifest
   lists matches its sha256, and prints a MERGED row per landed PR and a CHECKS_PASSED or CHECKS_FAILED row per
   completed check suite on a PR's head (provenance `recovered`, `from` the archive ref with the page file and the
@@ -177,7 +182,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   model, the sha256 of the brief as sent; role and item from its `Harness-Role:` line), a CARD_POSTED row per
   decision card posted (its message id, question, options and recommended index), a PERSON_DECIDED row per tap on
   one of those cards that reached the session (a `decision-chosen` wake, tied to its card by the `decision_id` it
-  names) and a MERGED row per merge_pull_request call whose result says it landed (the PR, the pinned head, the
+  names; its `choice` the decision's own word for the tapped option, approve, revise or reject, by the card label
+  `src/card.js` gives that choice, with `label` the option the card showed; an option no decision card shows has a
+  `legacy` choice) and a MERGED row per merge_pull_request call whose result says it landed (the PR, the pinned head, the
   merge commit), each `recovered` with `from` the archive ref and the line. What the session does not hold (the
   harness release and source, an item no `Harness-Role:` line names, the actor of a subagent's call) is a `legacy`
   placeholder. stderr lists every Agent, request_decision and merge_pull_request call and every tap with its row id
@@ -192,8 +199,17 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted; a
   row takes the route it records, and with `--outbox <source outbox.jsonl>` a row from before routes were
   recorded takes the route its logged effects took, as replay does),
-  and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all. It writes
-  nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
+  and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all (each with
+  its reason; a second row of an id replay applied already is one). It writes nothing else and never edits an input.
+  `join.mjs --from <harness dir> --out <dir>` builds the one history from every source in its fixed list (`SOURCES`),
+  read from a copy of the Library's `harness/` folder: the stores `state/main`, `state/dogfood` and `state/dogfood2`
+  (refs `main`, `dogfood`, `dogfood2`), both repos in `archive/github/` (`github/<owner>--<repo>`) and every session
+  in `archive/sessions/` (`sessions/<id>`); a source missing refuses the build with nothing written. It runs the
+  extractors on each, joins their rows, gives each store's rows the routes its own outbox logged, and puts each
+  store's acks (not its withdrawals, which the replay writes itself) in `acks.jsonl` on the effects replay queued
+  again for that store's rows, with the same id, name, subject and params, in time order as replay feeds them, so no
+  effect its store acked is pending; `report.json` also lists each source with its rows and every skip with its
+  reason, and `acks` counts the acks carried. Without `--from` acks are not carried, and every effect is pending.
   An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
   `usage.mjs <ledger sessions dir> <events.jsonl>` (#132) reads the session ledgers the Stop hook files, the agent
   and call records beside them and a store's or a history's rows, and prints `usage.jsonl`: one row per agent
@@ -252,12 +268,15 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `join.mjs` made, it gives the flow replay page what each row did.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
-- `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
+- `src/doctor.js`: `harness doctor` checks the store (on a history, whose rows carry provenance, every row against
+  `history.schema.json`, each failure a `schema:` problem, and `history` lists the rows, the schema errors and the
+  legacy placeholders by era and field; event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore, an actor in a state whose spec
   names `meta.waitsOn` with no such effect pending for it, such as a decision in `askingStandIn` whose
   `askStandIn` was acked without its answer recorded), runs `verify-actors` and
   `verify-facts` (one async `doctor()`), lists every PR landed on main at or after the store's first event, in each repository the store names
-  (its bound PRs' and its requests' issues'), bound to an item or not, and every landed PR bound to an item,
+  (its bound PRs' and its requests' issues'), bound to an item or not, and every landed PR bound to an item
+  (its GitHub reads, and verify-facts', run `READS_AT_ONCE` at a time),
   whose landed head has no verifier PASS in the store or no PASS review on GitHub on that sha; a PR bound to
   no item has no PASS (`src/gates.js` `verifyMerges`, GitHub's REST API only), and
   exits 1 on a problem: a mismatch, a merge without its PASS, or a session's missing ledger for

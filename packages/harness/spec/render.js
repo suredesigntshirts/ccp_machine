@@ -140,6 +140,8 @@ export function renderSpec() {
   out.push(`## History (schema v${HISTORY.schemaVersion})`, '', HISTORY.description, '');
   out.push(`Row layout: a row's \`schemaVersion\`, absent means ${HISTORY.absentMeans}. ${HISTORY.properties.schemaVersion.description}`, '');
   out.push(`Provenance: \`origin\` is one of ${p.origin.enum.map((o) => `\`${o}\``).join(', ')}. ${p.origin.description} \`from.source\` is one of ${HISTORY.$defs.from.properties.source.enum.map((s) => `\`${s}\``).join(', ')}. ${p.placeholders.description} ${HISTORY.$defs.legacy.description}`, '');
+  const up = HISTORY.upcast;
+  out.push(`Upcast: ${up.description} Envelope fields: ${up.envelope.map((f) => `\`${f}\``).join(', ')}. Placeholder texts: envelope "${up.legacy.envelope}", event "${up.legacy.event}".`, '');
   out.push(`Events: ${HISTORY.events.description}`, '');
   out.push(...Object.entries(HISTORY.events.types).filter(([, d]) => d.required || d.description).map(([t, d]) => `- \`${t}\` v${d.v}${d.required ? `, needs ${d.required.map((f) => `\`${f}\``).join(', ')}` : ''}${d.description ? `: ${d.description}` : ''}`), '');
   out.push(`Identity: ${HISTORY.identity.description}`, '');
