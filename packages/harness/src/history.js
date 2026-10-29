@@ -2,8 +2,9 @@
 // reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), eventProblems()
 // holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), placeholders()
 // counts the legacy values doctor reports, factKey() and dedupe() apply its identity rules, stepProblems() holds a
-// step (steps, beside a history) to its row, and checkLogNeeds() holds a history and its steps to a view's needs
-// file. The schema is a subset of JSON Schema, and so is the checker below.
+// step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
+// checkLogNeeds() holds a history, its steps and its usage fields to a view's needs file. The schema is a subset of
+// JSON Schema, and so is the checker below.
 import { readFileSync } from 'node:fs';
 import { specs } from './machines.js';
 
@@ -67,6 +68,8 @@ export function validate(row) {
 
 /** What is wrong with one step of a history's steps file (history.schema.json steps.row): [] when it is a valid step. */
 export const stepProblems = (step) => check(HISTORY.steps.row, step, '', []).map((p) => `step ${step?.version ?? '(no version)'}: ${p}`);
+/** What is wrong with one row of a usage file (history.schema.json usage.row): [] when it is a valid row. */
+export const usageProblems = (row) => check(HISTORY.usage.row, row, '', []);
 
 /** What is wrong with an event's payload against its type's declaration (events.types): [] when it holds to it. */
 export function eventProblems(event) {
@@ -179,6 +182,11 @@ export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
       const lack = also[file].filter((s) => valuesAt(s, f.split('.')).includes(undefined)).map((s) => s.version);
       if (lack.length) say(`reads ${file} field ${f}, which ${lack.length === 1 ? 'step' : 'steps'} ${lack.slice(0, 5).join(', ')}${lack.length > 5 ? ` and ${lack.length - 5} more` : ''} ${lack.length === 1 ? 'lacks' : 'lack'}`);
     }
+  }
+  // A file it reads only when a viewer opens a section (reads.onDemand: usage.jsonl), held to the schema's usage.row.
+  for (const [file, fields] of Object.entries(needs.reads.onDemand ?? {})) {
+    if (file !== schema.usage?.file) { say(`reads ${file} on demand, which history.schema.json does not declare`); continue; }
+    for (const f of fields) if (!declares(schema, [schema.usage.row], f)) say(`reads ${file} field ${f}, which history.schema.json usage does not declare`);
   }
   if (!rows) return out;
   for (const [type, fields] of Object.entries(needs.events)) {

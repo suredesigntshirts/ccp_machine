@@ -159,7 +159,11 @@ const LIVE_CSS = `${CSS}
 .banner{border-radius:10px;padding:14px 16px;border:2px solid var(--bad);background:var(--bad-soft);color:var(--bad)}
 .stepper{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.stepper button{font:inherit;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}h3{margin:0;font-size:1rem}.step[hidden]{display:none}
 .step{overflow-wrap:anywhere}.step ul{margin:4px 0;padding-left:18px}.step h4{margin:8px 0 0;font-size:.9rem}.step code{white-space:pre-wrap;word-break:break-word}.refused{color:var(--bad)}button[aria-pressed=true]{font-weight:700}
-.bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}`;
+.bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}
+tr.usage>td{padding-top:0}tr.usage summary{cursor:pointer;color:var(--accent);font-weight:600}[data-usage-body]{display:grid;gap:10px;padding-top:8px;position:sticky;left:10px;max-width:calc(100vw - 58px)}tr.sub td{color:var(--muted);font-size:.8rem}
+.timeline{display:grid;gap:4px}.lane{display:grid;grid-template-columns:minmax(72px,22%) 1fr;gap:8px;align-items:center}.lane-label{font-size:.8rem;overflow-wrap:anywhere}.lane-track{position:relative;height:14px;background:var(--bg);border-radius:3px}
+.lane-track span{position:absolute;top:2px;height:10px;border-radius:2px;min-width:2px}.seg{background:var(--accent)}.seg.r-verifier{background:var(--ok)}.seg.r-stand-in{background:var(--warn)}.seg.r-triager,.seg.r-unknown{background:var(--muted)}.seg.r-lead{background:var(--fg)}.seg.shared{opacity:.45}
+.lane-track .wait{top:6px;height:0;border-top:2px dashed var(--muted);border-radius:0;overflow:visible}.wait i{position:absolute;top:-1px;left:50%;transform:translateX(-50%);font:500 .6rem/1 var(--mono);font-style:normal;color:var(--muted);white-space:nowrap}.axis{display:flex;justify-content:space-between;gap:8px}`;
 
 /**
  * A live page: its data as it was at render (a store's state.json for mission control, a history's rows for the
@@ -179,6 +183,7 @@ export function renderLivePage(data, { page = 'mission-control', also = {}, proj
     project: projectId,
     path: `${dir}${needs.reads.file}`,
     also: Object.fromEntries(Object.keys(needs.reads.with ?? {}).map((name) => [name, `${dir}${name}`])),
+    onDemand: Object.fromEntries(Object.keys(needs.reads.onDemand ?? {}).map((name) => [name, `${dir}${name}`])),
     absentMeans: absentMeansOf(needs),
     slowMs: PAGE_RULES.refreshSlowMs,
     collection: PAGE_RULES.refreshCollection

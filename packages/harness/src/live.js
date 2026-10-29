@@ -3,7 +3,8 @@
 // render a page and to check it against its needs file; `harness page --live` also inlines its source in the page
 // (each `export ` dropped), so the refresh button and flow replay's step buttons run the same code. It has no imports and touches no Node API. Everything a page reads goes
 // through project() or projectLog(), which copy only the fields the page's needs file declares, of its file and of the
-// file it reads beside it (reads.with: flow replay's steps.jsonl, which harness replay --steps writes).
+// file it reads beside it (reads.with: flow replay's steps.jsonl, which harness replay --steps writes). The ledger's
+// Time and tokens sections read usage.jsonl (reads.onDemand) only when one is opened (client, usageSection).
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -306,7 +307,9 @@ export function renderLedger(rows, needs) {
     `<td><b data-count="spawns">${i.spawns.length}</b> <span class="m">${tally(i.spawns.map((r) => text(r.event.role)))}</span></td>` +
     `<td class="m">${tally(i.spawns.map((r) => (r.event.model === null ? 'inherited' : text(r.event.model))))}</td>` +
     `<td><b data-count="starts">${i.starts.length}</b> <span class="m">${tally(i.starts.map((r) => text(r.event.agentType)))}</span></td>` +
-    `<td><b data-count="runs">${i.runs.length}</b> ${i.runs.map((r) => `${pr(r.event.pr)} <span class="m">${esc(who(r.actor))}</span>`).join(', ')}</td></tr>`;
+    `<td><b data-count="runs">${i.runs.length}</b> ${i.runs.map((r) => `${pr(r.event.pr)} <span class="m">${esc(who(r.actor))}</span>`).join(', ')}</td></tr>` +
+    // Time and tokens: read from the usage file (reads.onDemand) only when the viewer opens it (client, openUsage).
+    (needs.reads.onDemand ? `<tr class="usage"><td colspan="5"><details data-usage="${esc(id)}"><summary>Time and tokens</summary><div data-usage-body></div></details></td></tr>` : '');
   const usage = of('USAGE_SAMPLED');
   const last = usage[usage.length - 1];
   const pct = (x) => (typeof x === 'number' ? `${Math.round(x * 100)}%` : '—');
@@ -320,6 +323,89 @@ export function renderLedger(rows, needs) {
 <section><h2>By item</h2>${items.size ? `<div class="tablewrap"><table><thead><tr><th>Item</th><th>Spawns</th><th>Models</th><th>Starts</th><th>Runs</th></tr></thead><tbody>${[...items].sort(([a], [b]) => a.localeCompare(b)).map(itemRow).join('')}</tbody></table></div>` : '<div class="empty">No spawns, starts or runs in this history.</div>'}</section>
 <section><h2>Where the rows come from</h2><p class="m">A placeholder stands for a value no source recorded. Those among the fields this page reads are counted here and never shown as values.</p>
 <div class="tablewrap"><table><thead><tr><th>Source</th><th>Origin</th><th>Rows</th><th>Placeholders</th></tr></thead><tbody>${[...eras].map(([ref, e]) => `<tr data-era="${esc(ref)}"><td class="m">${esc(ref)}</td><td class="m">${tally(e.origins)}</td><td><b data-count="rows">${e.rows}</b></td><td><b data-count="placeholders">${e.placeholders}</b></td></tr>`).join('')}</tbody></table></div></section>`;
+}
+
+// Time and tokens (usage.jsonl, history.schema.json usage): each agent of an item is one run of one or more segments
+// (starts), and the lead's turns that wrote rows for it are listed with their own usage. A placeholder is no number:
+// it adds nothing to a sum, and an active time with one is shown as at least the rest.
+const num = (v) => (typeof v === 'number' ? v : 0);
+const usageSum = (list) => ({ tokens: list.reduce((x, r) => x + num(r.input) + num(r.cacheRead) + num(r.cacheWrite) + num(r.output), 0), cost: list.reduce((x, r) => x + num(r.cost), 0) });
+const ms = (a, b) => Date.parse(b) - Date.parse(a);
+const isTime = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
+
+/** One item's runs (segments, wall span, active time, waiting gaps, tokens, cost), lead turns, total and the file's total. */
+export function usageOf(rows, item) {
+  const segs = rows.filter((r) => r.kind === 'segment');
+  const leads = rows.filter((r) => r.kind === 'lead' && Array.isArray(r.items));
+  const by = new Map();
+  for (const s of segs.filter((s) => s.item === item)) {
+    const key = `${s.session}/${s.agentId}`;
+    if (!by.has(key)) by.set(key, []);
+    by.get(key).push(s);
+  }
+  const runs = [...by].map(([key, list]) => {
+    list.sort((a, b) => a.segment - b.segment);
+    const ends = list.map((s) => s.end).filter(isTime);
+    const end = isTime(list.at(-1).end) ? list.at(-1).end : ends.sort().at(-1) ?? null;
+    const gaps = list.slice(1).map((s, i) => ({ from: isTime(list[i].end) ? list[i].end : null, to: s.start }))
+      .map((g) => ({ ...g, ms: g.from ? Math.max(0, ms(g.from, g.to)) : null }));
+    const first = list[0];
+    return { key, agentId: first.agentId, session: first.session, role: first.role, agentType: first.agentType, model: first.model, start: first.start, end, segments: list, gaps,
+      wallMs: end ? ms(first.start, end) : null, activeMs: list.reduce((x, s) => x + num(s.activeMs), 0), activeKnown: list.every((s) => typeof s.activeMs === 'number'), ...usageSum(list) };
+  }).sort((a, b) => a.start.localeCompare(b.start));
+  const lead = leads.filter((l) => l.items.includes(item)).sort((a, b) => a.start.localeCompare(b.start)).map((l) => ({ ...l, shared: l.items.filter((x) => x !== item), ...usageSum([l]) }));
+  const own = lead.filter((l) => !l.shared.length);
+  return { runs, lead, total: { ...usageSum([...runs.flatMap((r) => r.segments), ...own]), activeMs: runs.reduce((x, r) => x + r.activeMs, 0) + own.reduce((x, l) => x + num(l.activeMs), 0) }, all: usageSum([...segs, ...leads]) };
+}
+
+const span = (v) => {
+  if (v == null) return '—';
+  const s = Math.round(v / 1000);
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h ${String(Math.floor(s / 60) % 60).padStart(2, '0')}m`;
+};
+const tok = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
+const usd = (n) => `$${n.toFixed(2)}`;
+const breakdown = (r) => ['input', 'cacheRead', 'cacheWrite', 'output'].map((k) => `${k} ${typeof r[k] === 'number' ? r[k] : 'placeholder'}`).join(', ');
+
+/** An item's Time and tokens section: a timeline (one bar per segment, a lane per run, waiting gaps) and a table. */
+export function renderUsage(rows, item) {
+  const u = usageOf(rows, item);
+  if (!u.runs.length && !u.lead.length) return `<div class="empty">usage.jsonl has no run and no lead turn for ${esc(item)}.</div>`;
+  const times = [...u.runs.flatMap((r) => r.segments.flatMap((s) => [s.start, s.end])), ...u.lead.flatMap((l) => [l.start, l.end])].filter(isTime).map(Date.parse);
+  const [t0, t1] = [Math.min(...times), Math.max(...times)];
+  const at = (iso) => ((Date.parse(iso) - t0) / Math.max(1, t1 - t0)) * 100;
+  const bar = (cls, from, to, attrs, title) => `<span class="${cls}" ${attrs} style="left:${at(from).toFixed(2)}%;width:${Math.max(0, at(to) - at(from)).toFixed(2)}%" title="${esc(title)}"></span>`;
+  const role = (v) => (isLegacy(v) ? 'unknown' : String(v).replace(/[^a-z0-9-]/gi, ''));
+  const lane = (label, bars) => `<div class="lane"><span class="lane-label">${label}</span><div class="lane-track">${bars}</div></div>`;
+  const laneOf = (r) => lane(`${shownAs(r.role)} <span class="m">${esc(r.agentId.slice(0, 7))}</span>`,
+    r.segments.map((s) => bar(`seg r-${role(r.role)}`, s.start, isTime(s.end) ? s.end : s.start, `data-segment="${esc(r.key)}#${s.segment}"`, `${shownAs(r.role)} segment ${s.segment}: ${clock(s.start)} to ${isTime(s.end) ? clock(s.end) : 'end not recorded'}`)).join('') +
+    r.gaps.filter((g) => g.from).map((g) => bar('wait', g.from, g.to, 'data-waiting', `waiting ${span(g.ms)}`).replace('></span>', '><i>waiting</i></span>')).join(''));
+  const timeline = `<div class="timeline">${u.runs.map(laneOf).join('')}${u.lead.length ? lane('lead', u.lead.map((l) => bar(`seg r-lead${l.shared.length ? ' shared' : ''}`, l.start, l.end, `data-lead-bar="${esc(l.session)}#${esc(l.turn)}"`, `lead turn ${l.turn}: ${clock(l.start)} to ${clock(l.end)}`)).join('')) : ''}
+<div class="axis m"><span>${esc(clock(new Date(t0).toISOString()))} UTC</span><span>${esc(clock(new Date(t1).toISOString()))} UTC</span></div></div>`;
+  // A segment whose counts the ledger keeps on its last segment shows a placeholder, not 0.
+  const cells = (start, wall, active, r) => `<td class="m">${esc(clock(start))}</td><td>${span(wall)}</td><td>${active}</td>` +
+    (isLegacy(r.output) ? `<td colspan="2" class="m">${PLACEHOLDER}: on the last segment</td>` : `<td title="${esc(breakdown(r))}">${tok(r.tokens)}</td><td>${usd(r.cost)}</td>`);
+  const runRow = (r) => {
+    const waits = r.gaps.map((g) => (g.ms == null ? 'waiting, length not recorded' : `waiting ${span(g.ms)}`)).join(', ');
+    const segRows = r.segments.length > 1 ? r.segments.map((s) => `<tr class="sub" data-seg="${esc(r.key)}#${s.segment}"><td class="m">segment ${s.segment}</td>${cells(s.start, isTime(s.end) ? ms(s.start, s.end) : null, typeof s.activeMs === 'number' ? span(s.activeMs) : PLACEHOLDER, { ...s, ...usageSum([s]) })}</tr>`).join('') : '';
+    return `<tr data-run="${esc(r.key)}" data-tokens="${r.tokens}" data-cost="${r.cost}" data-wall-ms="${r.wallMs ?? ''}" data-active-ms="${r.activeMs}"><td><b>${shownAs(r.role)}</b> <span class="m">${shownAs(r.agentType)} · ${shownAs(r.model)} · ${esc(r.agentId)}</span>` +
+      `${r.segments.length > 1 ? `<br><span class="m" data-waiting>${r.segments.length} segments, ${esc(waits)}</span>` : ''}</td>${cells(r.start, r.wallMs, `${r.activeKnown ? '' : '≥ '}${span(r.activeMs)}`, r)}</tr>${segRows}`;
+  };
+  const leadRow = (l) => `<tr data-lead="${esc(l.session)}#${esc(l.turn)}"${l.shared.length ? ` data-shared="${esc(l.shared.join(' '))}"` : ''}><td>turn ${esc(l.turn)} <span class="m">of ${esc(String(l.session).slice(0, 8))}</span>${l.shared.length ? `<br><span class="m">also wrote rows for ${esc(l.shared.join(', '))}: shown here and there, in neither total</span>` : ''}</td>${cells(l.start, ms(l.start, l.end), span(num(l.activeMs)), l)}</tr>`;
+  const head = '<tr><th>Run</th><th>Start (UTC)</th><th>Duration</th><th>Active</th><th>Tokens</th><th>Cost</th></tr>';
+  return `${timeline}
+<div class="tablewrap"><table><thead>${head}</thead><tbody>${u.runs.map(runRow).join('')}
+${u.lead.length ? `<tr><th colspan="6">Lead turns</th></tr>${u.lead.map(leadRow).join('')}` : ''}
+<tr data-total-tokens="${u.total.tokens}" data-total-cost="${u.total.cost}"><td><b>Item total</b> <span class="m">runs and lead turns of this item alone</span></td><td></td><td></td><td>${span(u.total.activeMs)}</td><td><b>${tok(u.total.tokens)}</b></td><td><b>${usd(u.total.cost)}</b></td></tr></tbody></table></div>
+<p class="m" data-page-tokens="${u.all.tokens}">Every item in usage.jsonl: ${tok(u.all.tokens)} tokens, ${usd(u.all.cost)}, each run and each lead turn counted once. Tokens are input, cache read, cache write and output.</p>`;
+}
+
+// The usage file's text as the section shows it: its rows, only the fields the needs file declares (reads.onDemand).
+function usageSection(textIn, item, needs, name) {
+  const rows = parseLog(textIn);
+  const bad = rows.findIndex((r) => !r || r.unreadable || (r.kind !== 'segment' && r.kind !== 'lead'));
+  if (bad >= 0) return `<div class="empty" data-usage-error>Line ${bad + 1} of ${esc(name)} is ${rows[bad] && rows[bad].unreadable ? 'not JSON' : 'not a usage row (history.schema.json usage)'}, so nothing from it is shown.</div>`;
+  return renderUsage(rows.map((r) => pick(r, needs.reads.onDemand[name])), item);
 }
 
 /**
@@ -478,6 +564,24 @@ export function client(cfg, meta) {
   showAge();
   document.addEventListener('visibilitychange', showAge);
   $('view').addEventListener('click', step);
+  // An item's Time and tokens section reads the usage file (reads.onDemand) when the viewer opens it, through the
+  // files capability; outside claude.ai, from beside the page. A failed read says so there and touches nothing else.
+  $('view').addEventListener('toggle', async (e) => {
+    const d = e.target;
+    if (!d || !d.matches || !d.matches('details[data-usage]') || !d.open || d.dataset.read) return;
+    const [name, path] = Object.entries(cfg.onDemand || {})[0] || [];
+    const body = d.querySelector('[data-usage-body]');
+    body.textContent = `Reading ${name}…`;
+    try {
+      const files = await use('files').catch(() => null);
+      const text = files ? new TextDecoder().decode((await files.read(path)).bytes)
+        : await fetch(name).then((r) => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`.trim()); return r.text(); });
+      body.innerHTML = usageSection(text, d.dataset.usage, cfg.needs, name);
+      d.dataset.read = '1';
+    } catch (err) {
+      body.innerHTML = `<div class="empty" data-usage-error>${esc(name)} cannot be read (${esc((err && (err.message || err.code)) || err)}), so time and tokens are not shown. The rest of the page is as it was; close and open this section to try again.</div>`;
+    }
+  }, true);
   const trend = async () => {
     const db = await use('db').catch(() => null);
     if (!db) return;
