@@ -82,7 +82,7 @@
       "properties": {
         "origin": {
           "enum": ["live", "migrated", "recovered"],
-          "description": "live: the runtime wrote it into this history. migrated: copied from an older store, upcast. recovered: reconstructed from a session transcript, GitHub or the Library, where no store recorded it."
+          "description": "live: the runtime wrote it into this history (live below: such a row carries no provenance, and is read with this origin). migrated: copied from an older store, upcast. recovered: reconstructed from a session transcript, GitHub or the Library, where no store recorded it."
         },
         "from": { "$ref": "#/$defs/from" },
         "also": { "type": "array", "items": { "$ref": "#/$defs/from" }, "description": "Other sources that described the same fact (identity below); the merger keeps them here." },
@@ -156,6 +156,10 @@
         }
       }
     }
+  },
+  "live": {
+    "description": "A row the runtime wrote into this history (harness meta.store.history). runtime.apply writes the same envelope in every store and no provenance, so a store that is not a history stays as it was and a row is never rewritten to carry one. In a history, a row with no provenance after the last row that has one is live: the join writes provenance on every row of the new store it makes and never adds to one, so its rows end there and only the runtime appends after them. Its provenance is the one below, {store} the history's own name (its folder, as a store is state/<name>). src/history.js historyRows applies it, the one place that does, and harness doctor holds every row of a history to this schema as historyRows gives it. A row with no provenance before the last row that has one is not live, and stays a problem (provenance: missing).",
+    "provenance": { "origin": "live", "from": { "source": "store", "ref": "{store}" } }
   },
   "upcast": {
     "description": "How E1 (scripts/history/extract-store.mjs) migrates a row from a store that predates a field, as main predates the event envelope: each envelope field listed here, and each field its event type needs (events.types required), that the row does not hold becomes a legacy placeholder, its text the template for its kind ({store}: the archive ref the store was read as; {field}: the path; {type}: the event type), and provenance.placeholders lists it. Nothing else is filled in, and nothing is guessed from other fields (an id that names a PR is not its pr): a row that still fails validate is skipped with why.",
