@@ -105,12 +105,12 @@ const reposOf = (events, bound) => [
   ])
 ];
 
-/** Every PR GitHub says landed on main in `repo` at or after `since`, as {key: landed head}, read from REST pages of 100. */
+/** Every PR GitHub says landed on main in `repo` at or after `since`, as {key: {head, at}}, read from REST pages of 100. */
 async function landedOnMain(repo, fetcher, since) {
   const heads = {};
   for (let page = 1; ; page++) {
     const prs = [].concat(await fetcher(`repos/${repo}/pulls?state=closed&base=main&per_page=100&page=${page}`));
-    for (const p of prs) if (p?.merged_at && Date.parse(p.merged_at) >= since) heads[`${repo}#${p.number}`] = String(p.head?.sha ?? '');
+    for (const p of prs) if (p?.merged_at && Date.parse(p.merged_at) >= since) heads[`${repo}#${p.number}`] = { head: String(p.head?.sha ?? ''), at: p.merged_at };
     if (prs.length < 100) return heads;
   }
 }
@@ -119,11 +119,14 @@ async function landedOnMain(repo, fetcher, since) {
  * Doctor's audit: every PR GitHub says landed on main, in each repository the store names, at or after the store's
  * first event (an older landing is outside what the store can judge), and every landed PR bound to an item, needs its item's latest verdict on its landed head to be PASS in the store, and GitHub to carry it as a
  * review on that sha, compared as the merge gate does, unless an OUT_OF_BAND row records that landing. A PR bound to no
- * item has no verdict, so its landing is a problem. [{result: ok|problem|outOfBand|unreachable, pr, item, why?, row?}]
+ * item has no verdict, so its landing is a problem. On a history, a landing before the last ERA_ENDED row is judged by
+ * the rules of its era, the first ERA_ENDED row at or after it: not a problem, its result era (harness meta.invariants
+ * reviewOnHead). [{result: ok|problem|outOfBand|era|unreachable, pr, item, why?, row?, era?, ended?}]
  */
 export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   const events = store.events();
   const bound = prMap(events);
+  const marks = events.filter((e) => e.event?.type === specs.harness.meta.store.eras.event);
   const out = [];
   const landed = {};
   for (const repo of reposOf(events, bound)) {
@@ -137,11 +140,11 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
   const audited = await mapLimit([...new Set([...Object.keys(landed), ...Object.keys(bound)])], READS_AT_ONCE, async (key) => {
     const item = bound[key] ?? null;
     try {
-      let head = landed[key];
+      let { head, at } = landed[key] ?? {};
       if (head === undefined) {
         const p = await fetcher(pullPath(key));
         if (p?.merged !== true) return null;
-        head = String(p.head?.sha ?? '');
+        [head, at] = [String(p.head?.sha ?? ''), p.merged_at];
       }
       const why = [];
       const on = item && givenOn(store, item, head);
@@ -155,6 +158,9 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
       // A landing an OUT_OF_BAND row of the history records is listed by doctor, not a problem (meta.invariants reviewOnHead).
       const oob = why.length && events.find((e) => e.event?.type === 'OUT_OF_BAND' && prKey(e.event.pr ?? '') === key && (!e.event.sha || e.event.sha === head));
       if (oob) return { result: 'outOfBand', pr: key, item, row: oob.id };
+      // A landing before an era's end is a fact of that era, judged by its rules, not today's (meta.invariants reviewOnHead).
+      const era = why.length && at && marks.find((m) => Date.parse(m.at) >= Date.parse(at));
+      if (era) return { result: 'era', pr: key, item, era: era.event.era, ended: era.at, why: why.join('; ') };
       return { result: why.length ? 'problem' : 'ok', pr: key, item, ...(why.length && { why: why.join('; ') }) };
     } catch (e) {
       return { result: 'unreachable', pr: key, item, why: e.message };

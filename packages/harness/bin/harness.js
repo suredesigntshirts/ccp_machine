@@ -45,10 +45,12 @@ const HELP = `harness <command> [options]
   stalled [--after 60m]          list in-flight items with no event for longer than --after, oldest first
   tick [--now ISO]               send the budget a TICK: the time and the cost filed since its last reading
   status                         print the summary as JSON
-  effects                        print effects the host has not acknowledged
+  effects                        print effects the host has not acknowledged (one an era carried into a
+                                 history also shows sourceId, the id its era's host knew it by)
   ack <effect-id>... [--outcome done|failed] [--note TEXT] [--card CMSG]
                                  a posted card effect is acked alone and once with --card <its message id>,
-                                 which records the card (CARD_POSTED; send refuses it)
+                                 which records the card (CARD_POSTED; send refuses it). An era's effect is
+                                 acked by either id; an effect acked already is a duplicate, not acked again
   decisions                      ack the pending logPrecedent effects (they are the decision log already)
   standin <class>                the stand-in's autonomy for a decision class (shadow, recommend or act),
                                  worked out from the store's decided decisions; a decision takes it when it opens
@@ -160,7 +162,9 @@ const HELP = `harness <command> [options]
                                  its merge head and a PASS review on GitHub on that sha; exits 1 on a problem.
                                  GitHub unreachable or a ledger not filed for a session's event under 10
                                  minutes old is listed as unverifiable, exit 0. An event the rules changed
-                                 for since it was written is listed as admittedThen, with its release, exit 0.
+                                 for since it was written is listed as admittedThen, with its release, exit 0;
+                                 so is, one line per era, a landing before its era's ERA_ENDED row. A row the
+                                 join's report.json lists refused is counted by reason (history.refused).
                                  --refreshes: a page's refresh rows (ArtifactData out_dir or list text);
                                  each one slower than the spec's refreshSlowMs is a warning
   repair [--rebuild]             drop a torn last line of a log and clear a stale lock; --rebuild also
