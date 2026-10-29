@@ -428,7 +428,7 @@ test('both pages render a joined dogfood2 history, and its steps hold every row 
   const ex = spawnSync(process.execPath, [join(SCRIPTS, 'extract-store.mjs'), copy, 'library/harness/state/dogfood2/events.jsonl'], { encoding: 'utf8' });
   assert.equal(ex.status, 0, ex.stderr);
   writeFileSync(join(tmp, 'candidates.jsonl'), ex.stdout);
-  const built = stepsOf(join_([join(tmp, 'candidates.jsonl'), join(SCRIPTS, 'recovered/dogfood2.jsonl')], join(tmp, 'joined')));
+  const built = stepsOf(join_([join(tmp, 'candidates.jsonl')], join(tmp, 'joined')));
   const { rows, steps } = built;
   assert.deepEqual(steps.map((s) => [s.version, s.id]), rows.map((r) => [r.version, r.id]), 'every row is a step or a refusal');
   assert.deepEqual(steps.flatMap(stepProblems), []);

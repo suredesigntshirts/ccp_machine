@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // E1 (epic #59): the old-store extractor. Reads a store's events.jsonl and turns each row into a history row
 // (spec/history.schema.json): the row as the store wrote it, with provenance migrated and `from` naming the archive
-// ref and the line. A row that is already a history row (it has provenance) passes through as it is. A row it cannot
-// turn into a valid one is skipped, never guessed at, and the skip names its line and why. It only reads the store:
+// ref and the line, and `placeholders` listing each field that holds a legacy placeholder. A row that is already a
+// history row (it has provenance) passes through as it is. A row it cannot turn into a valid one is skipped, never guessed at, and the skip names its line and why. It only reads the store:
 // rows go to stdout as JSONL, skips and the count to stderr, one JSON object per line.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { validate } from '../../src/history.js';
+import { validate, legacyPaths } from '../../src/history.js';
 
 const [dir, ref] = process.argv.slice(2);
 if (!dir || !ref) {
@@ -29,7 +29,8 @@ readFileSync(join(dir, 'events.jsonl'), 'utf8')
     } catch {
       return skip(i + 1, 'not JSON');
     }
-    const row = r?.provenance ? r : { ...r, provenance: { origin: 'migrated', from: { source: 'store', ref, line: i + 1 } } };
+    const placeholders = r?.provenance ? [] : legacyPaths(r ?? {});
+    const row = r?.provenance ? r : { ...r, provenance: { origin: 'migrated', from: { source: 'store', ref, line: i + 1 }, ...(placeholders.length && { placeholders }) } };
     const problems = validate(row);
     if (problems.length) return skip(i + 1, problems.join('; '));
     rows++;

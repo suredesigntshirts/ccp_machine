@@ -135,7 +135,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `test/fixtures/history-golden/events.jsonl`.
 - `scripts/history/`: tools that build the one history, outside the plugin and the runtime (tracer T, #65).
   `extract-store.mjs <store dir> <archive ref>` (E1) reads a store's `events.jsonl` and prints each row as a
-  history row (provenance `migrated`, `from` the archive ref and the line) or, on stderr, a skip naming the line
+  history row (provenance `migrated`, `from` the archive ref and the line, `placeholders` each field holding a
+  `legacy` placeholder) or, on stderr, a skip naming the line
   and why. `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
@@ -147,7 +148,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
   `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
-  GitHub record. Join it with dogfood2's extracted rows.
+  GitHub record. The store also holds that row, so extract-store's own rows cover it and a join of both would hold it twice.
   Point them at a copy of a store, never the live one. `test/history-tracer.test.js` runs both on the golden
   history and, when `HARNESS_DOGFOOD2_DIR` names a store, on a copy of it.
 - `src/item-page.js`: one page per item (`items/<id>.html`) that answers "did it do what I expected":

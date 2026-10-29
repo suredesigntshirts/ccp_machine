@@ -42,7 +42,7 @@ function check(schema, v, path, out) {
 }
 
 // Every path in a row that holds a legacy placeholder.
-function legacyPaths(v, path = '', out = []) {
+export function legacyPaths(v, path = '', out = []) {
   if (isLegacy(v)) out.push(path);
   else if (typeOf(v) === 'object') for (const [k, x] of Object.entries(v)) if (k !== 'provenance') legacyPaths(x, path ? `${path}.${k}` : k, out);
   return out;
