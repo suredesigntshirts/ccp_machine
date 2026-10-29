@@ -4,6 +4,7 @@
 // https://api.github.com/<path>. These checks stop mistakes, not a hostile session: code running inside a
 // session can be replaced by that session, so `harness verify-facts`, run from outside, is the check.
 import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { accessSync, constants } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { promisify } from 'node:util';
@@ -79,6 +80,43 @@ export const combined = (runs) =>
 /** A check-runs answer as one conclusion; more runs than the page holds (total_count > runs) is pending. */
 export const runsState = (runs) => (runs?.total_count > (runs?.check_runs?.length ?? 0) ? 'pending' : combined(runs?.check_runs ?? []));
 
+/** GitHub's compare lists at most this many files: a diff that may be cut has no hash. */
+const COMPARE_FILES = 300;
+/**
+ * The hash of a diff, from GitHub's compare files: each file's name, previous name and status, and the lines its patch
+ * adds and removes (its blob sha when GitHub gives no patch), in file name order. The context lines and where the hunks
+ * sit do not count, so bringing main in changes the hash only when the PR's own changes change. Null for a list GitHub
+ * may have cut.
+ */
+export function diffHash(files) {
+  if (!Array.isArray(files) || files.length >= COMPARE_FILES) return null;
+  const rows = files
+    .map((f) => [String(f?.filename), f?.previous_filename ?? null, f?.status ?? null, typeof f?.patch === 'string' ? f.patch.split('\n').filter((l) => /^[+-]/.test(l)) : f?.sha ?? null])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+}
+
+/**
+ * The head fact a CI result carries (spec workItem merging CHECKS_PASSED, #137), read from GitHub's REST API: head
+ * `sha`'s parents, and for a merge commit the one parent GitHub says is reachable from the base branch (onMain; null when
+ * not exactly one is) and, against it, the diff hash of the head and of the other parent (diffHash). A non-merge head
+ * names its parents only. With `onMain` (a fact read again: once the PR lands, its own parent is on main too), that
+ * parent is the one checked, so the same fact is read again.
+ */
+export async function headFact(repo, sha, base, fetcher = restFetcher, onMain) {
+  const c = await fetcher(`repos/${repo}/commits/${sha}`);
+  if (c?.sha !== sha || !Array.isArray(c.parents)) throw new Error(`commit ${sha.slice(0, 7)} not found`);
+  const parents = c.parents.map((p) => String(p?.sha ?? ''));
+  const none = { sha, parents, onMain: null, diff: {} };
+  if (parents.length !== 2) return none;
+  const on = [];
+  for (const p of parents.filter((x) => onMain == null || x === onMain)) if (['behind', 'identical'].includes((await fetcher(`repos/${repo}/compare/${base}...${p}`))?.status)) on.push(p);
+  if (on.length !== 1) return none;
+  const diff = {};
+  for (const x of [sha, parents.find((p) => p !== on[0])]) diff[x] = diffHash((await fetcher(`repos/${repo}/compare/${on[0]}...${x}`))?.files);
+  return { sha, parents, onMain: on[0], diff };
+}
+
 /** What is wrong with a PR answer for number n (number, head.sha of 40 hex, merged boolean, created_at), or null. */
 export function malformed(p, n) {
   if (!p || typeof p !== 'object' || Array.isArray(p)) return `not a PR object`;
@@ -105,7 +143,8 @@ export function notItsPr(p, pr, { item, requestedAt }) {
  * ("owner/repo#N"; sha: the full head sha the wake named, needed for CI). With item, the PR must also be that
  * item's: created at or after requestedAt and on a branch that names the item (branchNamesItem). Returns {ref}
  * naming what GitHub said (and the head sha for CI), or {why} when the wake or GitHub's answer falls short,
- * GitHub disagrees, or it cannot be read. A merge's answer also names the head that was merged (sha).
+ * GitHub disagrees, or it cannot be read. A merge's answer also names the head that was merged (sha), and a CI pass the
+ * head fact (head, headFact) that lets a PASS carry to a merge of main.
  */
 export async function readFact({ type, pr, sha = '', item, requestedAt }, fetcher = restFetcher) {
   const [repo, n] = pr.split('#');
@@ -134,7 +173,9 @@ export async function readFact({ type, pr, sha = '', item, requestedAt }, fetche
     const got = runsState(await fetcher((step = `repos/${repo}/commits/${head}/check-runs?per_page=100`)));
     const want = type === 'CHECKS_PASSED' ? 'success' : 'failure';
     if (got !== want) return { why: `GitHub says ${pr}@${head.slice(0, 7)} checks=${got}, not ${want}` };
-    return { ref: `${pr}@${head}:checks=${got}`, sha: head };
+    if (type === 'CHECKS_FAILED') return { ref: `${pr}@${head}:checks=${got}`, sha: head };
+    step = `repos/${repo}/commits/${head} and its comparisons`;
+    return { ref: `${pr}@${head}:checks=${got}`, sha: head, head: await headFact(repo, head, p.base?.ref ?? 'main', fetcher) };
   } catch (e) {
     return { why: `cannot reach GitHub: ${e.message} (${step})` };
   }

@@ -101,7 +101,7 @@
       "CANCEL": { "v": 1 },
       "CARD_POSTED": { "v": 1, "required": ["card"] },
       "CHECKS_FAILED": { "v": 1, "required": ["pr"] },
-      "CHECKS_PASSED": { "v": 1, "required": ["pr"] },
+      "CHECKS_PASSED": { "v": 1, "required": ["pr"], "description": "CI passed on one head of the PR. sha is the wake's short head sha. head, which harness from-github reads from GitHub's REST API (never from the wake) and harness verify-facts reads again, is the head fact a PASS carries to a merge of main by (workItem merging, #137): sha, the full head sha; parents, its parents; onMain, the one parent GitHub's compare says is reachable from the PR's base branch, or null; diff, for a merge with a parent on main, the diff hash against that parent of the head and of the other parent (src/github-read.js diffHash), each by its sha. Rows from before #137 have no head." },
       "CONFIGURE": { "v": 1 },
       "CRITERION_CHECKED": { "v": 1, "required": ["criterion", "verdict"] },
       "DAY_STARTED": { "v": 1 },

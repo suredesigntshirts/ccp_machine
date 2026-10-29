@@ -2,7 +2,7 @@
 // session that wrote it. from-github's checks run inside a session, and a session can replace the code that
 // runs them (or call apply() itself); a re-read later, by anyone holding the store, catches a fact GitHub
 // does not back. It reads the log and GitHub only, and never writes to the store.
-import { restFetcher, malformed, notItsPr, runsState, mapLimit, READS_AT_ONCE } from './github-read.js';
+import { restFetcher, malformed, notItsPr, runsState, headFact, mapLimit, READS_AT_ONCE } from './github-read.js';
 import { prKey, prMap, itemOf, requestedAt } from './pr-binding.js';
 
 const PR = '([\\w.-]+\\/[\\w.-]+#\\d+)';
@@ -44,6 +44,12 @@ async function verifyRow(row, events, fetcher, binding = prMap(events)) {
       if (!onPr) why.push(`${sha.slice(0, 7)} is not a commit of ${pr}`);
       const got = runsState(await fetcher((step = `repos/${repo}/commits/${sha}/check-runs?per_page=100`)));
       if (got !== m[3]) why.push(`GitHub says ${pr}@${sha.slice(0, 7)} checks=${got}, not ${m[3]}`);
+      // A CI pass's head fact (#137), read again: the parents, the parent on main and the diff hashes against it.
+      if (row.event.head != null) {
+        step = `repos/${repo}/commits/${sha} and its comparisons`;
+        const now = await headFact(repo, sha, p.base?.ref ?? 'main', fetcher, row.event.head.onMain);
+        if (JSON.stringify(now) !== JSON.stringify(row.event.head)) why.push(`the head fact ${JSON.stringify(row.event.head)} is not GitHub's ${JSON.stringify(now)}`);
+      }
     }
   } catch (e) {
     return why.length ? { result: 'mismatch', why: why.join('; ') } : { result: 'unreachable', why: `${e.message} (${step})` };

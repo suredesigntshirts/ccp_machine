@@ -40,7 +40,8 @@
       "context.tier",
       "context.runs",
       "context.retries",
-      "context.url"
+      "context.url",
+      "context.verdicts"
     ],
     "decision": [
       "value",
