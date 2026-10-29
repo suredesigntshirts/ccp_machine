@@ -315,7 +315,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   before and after the row), the effects it queued with their detail and the store's acks for them, and its route; a row it cannot
   apply, or a second row of an id it applied already, is a step with the reason and no changes, and a row of an era an
   `ERA_ENDED` row ends is a step naming that era (`era`) and no changes. Run on a history
-  `join.mjs` made, it gives the flow replay page what each row did.
+  `join.mjs` made, it gives the flow replay page what each row did. On a history, replay reads the join's
+  `report.json` beside `events.jsonl` as doctor does (`src/history.js` `joinRefused`): a row refused for the reason
+  the report lists is in `known`, not a divergence; a row the report does not list, or refused for another reason,
+  still is, and a store with no report replays as before.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (on a history, whose rows carry provenance, every row, a live one

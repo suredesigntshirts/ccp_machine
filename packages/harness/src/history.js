@@ -5,7 +5,8 @@
 // field, factKey() and dedupe() apply its identity rules, stepProblems() holds a step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
 // checkLogNeeds() holds a history, its steps and its usage fields to a view's needs file. The schema is a subset of
 // JSON Schema, and so is the checker below.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { specs } from './machines.js';
 import { liveRows } from './live.js';
 
@@ -92,6 +93,16 @@ export function liveProvenance(store) {
  * src/live.js liveRows applies the rule, the one place that does (the history pages run it too), with `store`'s live provenance.
  */
 export const historyRows = (rows, store) => liveRows(rows, liveProvenance(store));
+
+/**
+ * The rows the join's report (report.json beside a history's events.jsonl) lists as refused, "<id>: <reason>" lines:
+ * [] for a store that is not a history or has no report. harness replay and harness doctor both read them here, and
+ * replay takes a row refused for its listed reason as known (harness meta.store.facts).
+ */
+export function joinRefused(store, rows = historyRows(store.events(), basename(store.dir))) {
+  const report = join(store.dir, 'report.json');
+  return rows && existsSync(report) ? JSON.parse(readFileSync(report, 'utf8')).refused ?? [] : [];
+}
 
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
 export function validate(row) {

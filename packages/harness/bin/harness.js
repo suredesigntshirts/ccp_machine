@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { basename, dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
-import { HISTORY } from '../src/history.js';
+import { HISTORY, joinRefused } from '../src/history.js';
 import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, specs, requestFromIssue, issueBody, renderLivePage, loadNeeds, formatOf, checklistFor } from '../src/index.js';
 const HELP = `harness <command> [options]
 
@@ -154,7 +154,9 @@ const HELP = `harness <command> [options]
                                  re-checks them. --steps also writes steps.jsonl beside events.jsonl: for each
                                  row, the actors whose state it changed and the context fields it changed (before
                                  and after), the effects it queued with their detail and the store's acks, and its route, or why
-                                 it could not be applied (history.schema.json steps; the flow replay page reads it)
+                                 it could not be applied (history.schema.json steps; the flow replay page reads it).
+                                 On a history it reads the join's report.json beside events.jsonl, as doctor does:
+                                 a row refused for the reason the report lists is known, not a difference
   doctor [--refreshes PATH]      check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore; on a history, each row
                                  against history.schema.json, and its placeholders by era and field), verify-actors,
@@ -546,7 +548,7 @@ try {
       break;
     }
     case 'replay': {
-      const { rebuilt, steps, ...r } = replay(store, { steps: o.steps });
+      const { rebuilt, steps, ...r } = replay(store, { steps: o.steps, listed: joinRefused(store) });
       if (steps) {
         const file = join(o.dir, HISTORY.steps.file);
         writeFileSync(file, steps.map((s) => JSON.stringify(s) + '\n').join(''));
