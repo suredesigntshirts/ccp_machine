@@ -82,7 +82,7 @@
     "pages": {
       "refreshSlowMs": 3000,
       "refreshCollection": "refreshes",
-      "description": "A page refreshes only when a viewer presses its refresh button: nothing refreshes on a schedule or without a viewer. Each refresh is timed from the press to the rendered page and recorded as one row in the Artifact db collection refreshCollection ({page, at, ms, storeVersion, schemaVersion, bytes, ok}; for a page that reads the history, storeVersion is its row count and schemaVersion its rows' layout, history.schema.json); the page shows the recent rows, and harness doctor --refreshes flags a row slower than refreshSlowMs."
+      "description": "A page refreshes only when a viewer presses its refresh button: nothing refreshes on a schedule or without a viewer. Each refresh is timed from the press to the rendered page and recorded as one row in the Artifact db collection refreshCollection ({page, at, ms, storeVersion, schemaVersion, bytes, ok}; for a page that reads the history, storeVersion is its row count and schemaVersion its rows' layout, history.schema.json); the page shows the recent rows, and harness doctor --refreshes flags a row slower than refreshSlowMs. A section a page reads on demand (pages/<page>/needs.json reads.onDemand: the ledger's Time and tokens, usage.jsonl) reads its file only when a viewer opens it, through the same files capability; it is not a refresh, so it is not timed or recorded, and a failed read is said in that section alone."
     }
   },
   "type": "parallel",

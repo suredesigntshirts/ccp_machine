@@ -181,7 +181,8 @@ const HELP = `harness <command> [options]
                                  render a live page (default mission-control, into <dir>/<P>-live.html): only
                                  the fields pages/<P>/needs.json declares from the one file it names
                                  (mission-control: the store's state.json; ledger: a history's events.jsonl,
-                                 such as scripts/history/join.mjs writes; flow-replay: that and steps.jsonl
+                                 such as scripts/history/join.mjs writes, and, when an item's Time and tokens
+                                 is opened, usage.jsonl beside it (scripts/history/usage.mjs); flow-replay: that and steps.jsonl
                                  beside it, from replay --steps), its age, and a Refresh button that
                                  rereads <F>/<file> through the Artifact files capability and times each
                                  refresh into db; publish with capabilities {files: {project}, db: {}}. Data
@@ -593,7 +594,7 @@ try {
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, renderLivePage(formatOf(needs).parse(readFileSync(source, 'utf8')), { page: o.page, also, project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
         const under = o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : '';
-        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: [needs.reads.file, ...Object.keys(also)].map((f) => `${under}${f}`).join(', ') });
+        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: [needs.reads.file, ...Object.keys(also), ...Object.keys(needs.reads.onDemand ?? {})].map((f) => `${under}${f}`).join(', ') });
         break;
       }
       const st = status(store);

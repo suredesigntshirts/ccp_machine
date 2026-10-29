@@ -106,6 +106,15 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `test/ledger-page.test.js` builds a history with the current code (`contractHistory`: the sim's contract store
   through `extract-store.mjs` and `join.mjs`), renders it and the golden history and checks every count the page
   shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
+  Under each item, a Time and tokens section (#132) is empty until the viewer opens it; opening it reads
+  `usage.jsonl` beside the history (needs `reads.onDemand`, `history.schema.json` usage) through the same files
+  capability, or, opened outside claude.ai, from beside the page over http, and shows a timeline (a lane per run,
+  one bar per segment, coloured by role, the waiting gaps dashed, and the lead's turns) and a table: per run its
+  start, wall duration, active time (the sum of its segments), tokens (input, cache read, cache write and output)
+  and cost, the item's lead turns, the item total, and the whole file's total. A lead turn that wrote rows for
+  several items is listed under each, names the others, and is in no item's total but once in the file's. A file
+  that cannot be read is said in that section alone. `test/ledger-usage.test.js` builds the file from fixture
+  ledgers and store rows; `pages:check` opens a section on the rendered page in Chromium, and once without the file.
 - The flow replay and design log pages (`pages/flow-replay/needs.json`, `pages/design-log/needs.json`, #121) are the
   ledger's live page over the same history, rendered by `--page flow-replay` and `--page design-log` with the same
   projection, data age, Refresh, timing row and banner. Flow replay steps a row at a time (First, Previous, Next,
@@ -186,6 +195,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   and `report.json` lists the dropped rows, the conflicts and the rows that could not be applied at all. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
   An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
+  `usage.mjs <ledger sessions dir> <events.jsonl>` (#132) reads the session ledgers the Stop hook files, the agent
+  and call records beside them and a store's or a history's rows, and prints `usage.jsonl`: one row per agent
+  segment (each start and resume of an agent tied to an item) and one per lead turn that wrote rows for an item,
+  as `history.schema.json` usage declares (its description is the rules, rendered in `spec/SPEC.md`); stderr lists
+  each subagent it could not tie to an item, with why, and the counts.
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
   `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
   GitHub record. The store also holds that row, so extract-store's own rows cover it and a join of both would hold it twice.

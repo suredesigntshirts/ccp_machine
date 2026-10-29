@@ -1,8 +1,12 @@
 {
   "page": "ledger",
   "title": "Ledger report",
-  "description": "Who did the work on each item, as which role and on which model: spawns, starts, runs and usage samples from the one history (spec/history.schema.json). Each era's placeholders are counted in a corner, never shown as values. Replaces the per-session ledger files as its source (#48, V1). The page reads one file, a history's events.jsonl, and of each row only the fields below for its type (\"*\": every row); harness page --live --page ledger renders it, and its refresh button reads the file again through the Artifact files capability.",
-  "reads": { "file": "events.jsonl", "schemaVersion": { "min": 1, "max": 1 } },
+  "description": "Who did the work on each item, as which role and on which model: spawns, starts, runs and usage samples from the one history (spec/history.schema.json). Each era's placeholders are counted in a corner, never shown as values. Replaces the per-session ledger files as its source (#48, V1). The page reads one file, a history's events.jsonl, and of each row only the fields below for its type (\"*\": every row); harness page --live --page ledger renders it, and its refresh button reads the file again through the Artifact files capability. Each item's Time and tokens section reads usage.jsonl beside the history (reads.onDemand: history.schema.json usage, which scripts/history/usage.mjs writes from the session ledgers) only when the viewer opens it, and of each row only the fields listed there.",
+  "reads": {
+    "file": "events.jsonl",
+    "schemaVersion": { "min": 1, "max": 1 },
+    "onDemand": { "usage.jsonl": ["kind", "item", "items", "role", "agentType", "model", "agentId", "session", "segment", "turn", "start", "end", "activeMs", "requests", "input", "cacheRead", "cacheWrite", "output", "cost"] }
+  },
   "events": {
     "WORKER_SPAWNED": ["at", "to", "actor", "event.role", "event.agentType", "event.model"],
     "WORKER_STARTED": ["at", "to", "actor", "event.agentType"],

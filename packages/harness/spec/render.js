@@ -148,6 +148,10 @@ export function renderSpec() {
   const st = HISTORY.steps;
   out.push(`Steps (\`${st.file}\`, joined to the history by \`${st.key}\`): ${st.description}`, '');
   out.push(...Object.entries(st.row.properties).map(([k, d]) => `- \`${k}\`${d.items?.required ? ` (each: ${d.items.required.map((f) => `\`${f}\``).join(', ')})` : ''}: ${d.description}`), '');
+  // Time and tokens by item, read on demand beside the history (usage.jsonl): its rules and each row form's fields.
+  const us = HISTORY.usage;
+  out.push(`Usage (\`${us.file}\`, read on demand): ${us.description}`, '');
+  out.push(...us.row.anyOf.map((f) => `- \`${f.properties.kind.enum[0]}\`: ${f.description} Fields: ${f.required.map((k) => `\`${k}\``).join(', ')}.`), '');
   return out.join('\n');
 }
 

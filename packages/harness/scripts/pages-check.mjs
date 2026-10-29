@@ -2,7 +2,7 @@
 // pages:check: render every harness page from a fixture store and open each in Chromium, so a page
 // change cannot quietly break what the person reads. Fails on horizontal scroll, a broken link, a
 // missing title or a page over 1 MB, at 400 and 1200 px wide in light and dark.
-import { mkdtempSync, existsSync, statSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -119,13 +119,28 @@ const { dir: historyDir } = await contractHistory(join(out, 'live-history'));
 const stateText = readFileSync(join(liveStore.dir, 'state.json'), 'utf8');
 const historyText = readFileSync(join(historyDir, 'events.jsonl'), 'utf8');
 const historyRows = historyText.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+// Time and tokens: a session ledger for the history's agents (its first agent stops after a call and is resumed),
+// built into usage.jsonl by usage.mjs, which the ledger page reads when an item's section is opened.
+const sessionsDir = join(out, 'live-sessions');
+const started = historyRows.filter((r) => r.event.type === 'WORKER_STARTED');
+const lead = started[0].event.agent.split('/')[0];
+const plus = (iso, m) => new Date(Date.parse(iso) + m * 60000).toISOString();
+const counts = (n) => ({ requests: n, input: n, cacheRead: 1000 * n, cacheWrite: 100 * n, output: 10 * n, cost: n / 10, unpriced: 0 });
+const agents = started.map((r, i) => ({ agentId: r.event.agent.split('/')[1], description: '', agentType: r.event.agentType, models: ['claude-opus-5-5'], durationMs: 8 * 60000, tools: 1, ...counts(5 + i) }));
+mkdirSync(join(sessionsDir, lead, 'agents'), { recursive: true });
+mkdirSync(join(sessionsDir, lead, 'calls'), { recursive: true });
+writeFileSync(join(sessionsDir, `${lead}.json`), JSON.stringify({ session: { sessionId: lead, turns: [{ index: 1, start: historyRows[0].at, end: historyRows.at(-1).at, durationMs: Date.parse(historyRows.at(-1).at) - Date.parse(historyRows[0].at), own: counts(3), subagents: agents }] } }));
+writeFileSync(join(sessionsDir, lead, 'agents', `${agents[0].agentId}.json`), JSON.stringify({ sessionId: lead, agentId: agents[0].agentId, agentType: agents[0].agentType, at: started[0].at, resumes: [plus(started[0].at, 5)] }));
+writeFileSync(join(sessionsDir, lead, 'calls', 'toolu_check.json'), JSON.stringify({ sessionId: lead, toolUseId: 'toolu_check', at: plus(started[0].at, 2), kind: 'bash', agentId: agents[0].agentId }));
+const usageText = execFileSync(process.execPath, [fileURLToPath(new URL('./history/usage.mjs', import.meta.url)), sessionsDir, join(historyDir, 'events.jsonl')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+const usageItem = /^item:(.+)$/.exec(started[0].to)[1];
 const LIVE = [
   { page: 'mission-control', dir: liveStore.dir, files: 'harness/state/check/state.json', size: JSON.parse(stateText).version,
     variants: [['current', stateText, false], ['unsupported schemaVersion', JSON.stringify({ ...JSON.parse(stateText), schemaVersion: 99, version: 1e6 }), true]] },
-  { page: 'ledger', dir: historyDir, files: 'harness/state/check/events.jsonl', size: historyRows.length,
+  { page: 'ledger', dir: historyDir, files: 'harness/state/check/events.jsonl', size: historyRows.length, usage: { 'harness/state/check/usage.jsonl': usageText },
     variants: [['current', historyText, false], ['unsupported schemaVersion', historyRows.map((r) => JSON.stringify({ ...r, schemaVersion: 99 }) + '\n').join(''), true]] }
 ];
-const fakeRuntime = ({ text, path }) => {
+const fakeRuntime = ({ text, path, more }) => {
   const rows = [];
   window.__rows = rows;
   window.__reads = [];
@@ -133,7 +148,8 @@ const fakeRuntime = ({ text, path }) => {
     add: async (row) => { rows.push({ name, ...row }); return { id: `r${rows.length}` }; },
     orderBy: () => ({ limit: () => ({ get: async () => ({ docs: rows.filter((r) => r.name === name).slice().reverse().map((r) => ({ data: () => r })) }) }) })
   }) };
-  const files = { read: async (p) => { window.__reads.push(p); if (p !== path) throw { code: 'not_found', message: p }; const bytes = new TextEncoder().encode(text); return { bytes, size: bytes.length, revision: '1' }; } };
+  const served = { ...more, [path]: text };
+  const files = { read: async (p) => { window.__reads.push(p); if (!(p in served)) throw { code: 'not_found', message: p }; const bytes = new TextEncoder().encode(served[p]); return { bytes, size: bytes.length, revision: '1' }; } };
   window.claude = { use: async (name) => (name === 'files' ? files : name === 'db' ? db : null) };
 };
 for (const live of LIVE) {
@@ -146,7 +162,9 @@ for (const [label, text, expectBanner] of live.variants) {
       const tab = await ctx.newPage();
       const errors = [];
       tab.on('pageerror', (e) => errors.push(e.message));
-      await tab.addInitScript(fakeRuntime, { text, path: live.files });
+      // Once without the usage file (light, 400 px): its section must say so and leave the page as it is.
+      const lacking = live.usage && width === 400 && colorScheme === 'light';
+      await tab.addInitScript(fakeRuntime, { text, path: live.files, more: lacking ? {} : live.usage ?? {} });
       await tab.goto(pathToFileURL(livePage).href);
       const where = `${live.page}-live.html (${label}) at ${width}px ${colorScheme}`;
       const before = await tab.evaluate(() => ({ age: document.getElementById('data-age').textContent, reads: window.__reads.length, rows: window.__rows.length }));
@@ -165,6 +183,14 @@ for (const [label, text, expectBanner] of live.variants) {
         inner: window.innerWidth
       }));
       const row = r.rows[0];
+      if (live.usage && !expectBanner) {
+        await tab.click(`details[data-usage="${usageItem}"] summary`);
+        await tab.waitForFunction((i) => /data-run|data-usage-error/.test(document.querySelector(`details[data-usage="${i}"] [data-usage-body]`).innerHTML), usageItem, { timeout: 5000 }).catch(() => {});
+        const u = await tab.evaluate((i) => { const d = document.querySelector(`details[data-usage="${i}"]`); d.scrollIntoView(); return { runs: d.querySelectorAll('[data-run]').length, segments: d.querySelectorAll('[data-segment]').length, waiting: d.querySelectorAll('[data-waiting]').length, error: Boolean(d.querySelector('[data-usage-error]')), tables: document.querySelectorAll('#view table').length, scroll: document.documentElement.scrollWidth, inner: window.innerWidth }; }, usageItem);
+        if (lacking ? !u.error || u.tables < 2 : u.error || u.runs !== 1 || u.segments !== 2 || !u.waiting) failures.push(`${where}: the Time and tokens section of ${usageItem} ${lacking ? 'does not say usage.jsonl cannot be read, or the page lost its tables' : 'does not show one run of two segments with a waiting gap'} (${JSON.stringify(u)})`);
+        if (u.scroll > u.inner + 1) failures.push(`${where}: scrolls sideways with Time and tokens open (${u.scroll} > ${u.inner})`);
+        await tab.screenshot({ path: join(shots, `${live.page}-live-usage${lacking ? '-unreadable' : ''}-${width}-${colorScheme}.png`) }).catch((e) => warnings.push(`${where}: no usage screenshot (${e.message.split('\n')[0]})`));
+      }
       if (!r.title.trim()) failures.push(`${where}: no title`);
       if (r.scroll > r.inner + 1) failures.push(`${where}: scrolls sideways (${r.scroll} > ${r.inner})`);
       if (errors.length) failures.push(`${where}: script error ${errors[0]}`);
