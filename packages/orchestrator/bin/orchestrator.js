@@ -50,7 +50,10 @@ else if (command === 'agents') print(Object.entries(sandboxActors({ dir: '', rep
 else if (command === 'page') console.log(itemPage(itemSpec, dir ? openItem(dir).journal.read() : []));
 else if (command === 'inspect') {
   const examples = flows.map((flow) => ({ ...flow, example: true, entries: play(itemSpec, flow) }));
-  const mine = dir ? [{ name: 'This item', about: 'A real run, read from its journal.', entries: openItem(dir).journal.read() }] : [];
+  // The real run is named by its issue's title (from the journal's first entry), not by its place in the list.
+  const real = dir ? openItem(dir).journal.read() : [];
+  const issue = real[0]?.event?.input?.issue;
+  const mine = dir ? [{ name: issue?.title ?? issue?.url ?? 'This item', about: 'A real run, read from its journal.', entries: real }] : [];
   console.log(itemInspector(itemSpec, [...mine, ...examples], itemLayout));
 }
 else if (command === 'status' && dir) {
