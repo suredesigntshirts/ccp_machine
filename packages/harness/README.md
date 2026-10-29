@@ -118,7 +118,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (`reads.with`), and Refresh reads both files; without the steps, or with the steps of another history, the page
   shows the banner and says how to build them. The design log lists, newest first, the out-of-band rows (who ordered each, the message, what
   was done, the gates it skipped) and the requests, stand-in answers (choice and reason), the person's decisions and
-  grants. On both, a placeholder is counted and never shown as a value, and every count carries `data-count` (flow
+  grants, 50 a page (`LOG_PAGE` in `src/live.js`) with First, Previous, Next, Last and "page N of M · rows a to b of
+  T" (#131). Its calendar shows each month with rows as a grid (weeks in rows, Monday first, UTC days), each day with
+  rows a control marked with how many fall on it; choosing one shows only that day's rows, paged the same way, and its
+  out-of-band cards, and All days returns. It opens on the newest row's month; Earlier and Later month move between
+  months with rows. The page script's `turn()` does this in the browser; the tiles keep the whole history's counts.
+  `test/history-pages.test.js` checks it on `test/fixtures/history-design-log/events.jsonl` (more than 50 rows over
+  five days in two months), and `pages:check` clicks it through in Chromium at 390 and 1280 px, light and dark. On both, a placeholder is counted and never shown as a value, and every count carries `data-count` (flow
   replay's steps, refusals, changed actors and effects too). `test/history-pages.test.js` builds the steps of the
   golden history, the contract history and, with `HARNESS_DOGFOOD2_DIR` set, a joined copy of dogfood2, renders both
   pages on each and checks every count against the rows and the steps, and that every row is a step or a refusal.

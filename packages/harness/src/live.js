@@ -406,10 +406,41 @@ export function step(e) {
   for (const f of g.querySelectorAll('[data-follow]')) f.setAttribute('aria-pressed', String(f.dataset.follow === follow));
 }
 
+// The design log's page size: how many of its table's rows one page shows.
+const LOG_PAGE = 50;
+// A row's UTC day (YYYY-MM-DD), or '' when its time is not one.
+const dayOf = (r) => { const t = Date.parse(text(r.at)); return Number.isNaN(t) ? '' : new Date(t).toISOString().slice(0, 10); };
+// Which of n rows page p shows (p held to the pages there are), and its position line.
+const logPage = (n, p) => {
+  const pages = Math.max(1, Math.ceil(n / LOG_PAGE));
+  const page = Math.min(Math.max(1, p), pages);
+  const from = (page - 1) * LOG_PAGE;
+  const to = Math.min(n, from + LOG_PAGE);
+  return { page, from, to, pos: `page ${page} of ${pages} · rows ${n ? from + 1 : 0} to ${to} of ${n}` };
+};
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// One month grid per month with rows, weeks in rows from Monday, in UTC; a day with rows is a control with its count.
+function calendar(perDay) {
+  const months = [...new Set(Object.keys(perDay).map((d) => d.slice(0, 7)))].sort();
+  return months.map((m, i) => {
+    const [y, mo] = m.split('-').map(Number);
+    const cells = Array((new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7).fill('');
+    for (let d = 1; d <= new Date(Date.UTC(y, mo, 0)).getUTCDate(); d++) {
+      const day = `${m}-${String(d).padStart(2, '0')}`;
+      const n = perDay[day];
+      cells.push(n ? `<button type="button" data-day="${day}" aria-pressed="false" aria-label="${day}: ${n} rows"><span>${d}</span><b data-count="day">${n}</b></button>` : `<span class="m">${d}</span>`);
+    }
+    while (cells.length % 7) cells.push('');
+    const weeks = cells.map((c, j) => (j % 7 ? '' : `<tr>${cells.slice(j, j + 7).map((x) => `<td>${x}</td>`).join('')}</tr>`)).join('');
+    return `<table class="cal" data-cal="${m}"${i === months.length - 1 ? '' : ' hidden'}><caption>${MONTHS[mo - 1]} ${y}</caption><thead><tr>${['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => `<th>${d}</th>`).join('')}</tr></thead><tbody>${weeks}</tbody></table>`;
+  }).join('');
+}
+
 /**
  * The design log: the decisions and what they led to, newest first: requests, stand-in answers (choice and reason),
- * the person's decisions and grants, and every out-of-band step with who ordered it, the message, what was done and
- * the gates it skipped. Every number carries data-count.
+ * the person's decisions and grants, 50 a page, and every out-of-band step with who ordered it, the message, what was
+ * done and the gates it skipped. A calendar shows each UTC day of these rows by month; choosing a day shows only its
+ * rows and cards (turn). The tiles count the whole history, and every number carries data-count.
  */
 export function renderDesignLog(rows, needs) {
   const count = (name, x) => `<b data-count="${name}">${x}</b>`;
@@ -423,15 +454,19 @@ export function renderDesignLog(rows, needs) {
   };
   const of = rows.filter((r) => row[r.event.type] || r.event.type === 'OUT_OF_BAND').sort(timeOrder).reverse();
   const n = (type) => of.filter((r) => r.event.type === type).length;
-  const tr = (r) => {
-    const [kind, where, what, who] = row[r.event.type](r);
-    return `<tr data-kind="${kind}" data-version="${esc(r.version)}"><td class="m">${shownAs(r.at)}</td><td>${kind}</td><td class="m">${where}</td><td>${what}</td><td class="m">${who}</td></tr>`;
-  };
   const oob = of.filter((r) => r.event.type === 'OUT_OF_BAND');
   const rest = of.filter((r) => r.event.type !== 'OUT_OF_BAND');
+  const first = logPage(rest.length, 1);
+  const tr = (r, i) => {
+    const [kind, where, what, who] = row[r.event.type](r);
+    return `<tr data-kind="${kind}" data-version="${esc(r.version)}" data-on="${dayOf(r)}"${i < first.to ? '' : ' hidden'}><td class="m">${shownAs(r.at)}</td><td>${kind}</td><td class="m">${where}</td><td>${what}</td><td class="m">${who}</td></tr>`;
+  };
   const card = (r) =>
-    `<div class="card" data-oob="${esc(r.version)}"><span class="eyebrow">${shownAs(r.at)} · ${shownAs(r.to)}</span><b>${shownAs(r.event.what)}</b>` +
+    `<div class="card" data-oob="${esc(r.version)}" data-on="${dayOf(r)}"><span class="eyebrow">${shownAs(r.at)} · ${shownAs(r.to)}</span><b>${shownAs(r.event.what)}</b>` +
     `<div class="m">Ordered by ${party(r.event.orderedBy)}, message ${shownAs(r.event.message)}. Skipped: ${list(r.event.skipped)}.</div></div>`;
+  const perDay = {};
+  for (const r of of) if (dayOf(r)) perDay[dayOf(r)] = (perDay[dayOf(r)] ?? 0) + 1;
+  const button = (attr, label, pressed) => `<button type="button" ${attr}${pressed == null ? '' : ` aria-pressed="${pressed}"`}>${label}</button>`;
   const tile = (name, label, x, small) => `<div class="tile"><span class="eyebrow">${label}</span>${count(name, x)}<small>${small}</small></div>`;
   return `<div class="tiles">
 ${tile('requests', 'Requests', n('REQUEST_RECEIVED'), 'items filed')}
@@ -441,8 +476,46 @@ ${tile('grants', 'Grants', n('PERSON_GRANTED'), 'what the stand-in may decide')}
 ${tile('outOfBand', 'Out of band', oob.length, 'work done outside the gates')}
 ${tile('placeholders', 'Placeholders', of.reduce((x, r) => x + legacies(r), 0), 'values no source recorded, never shown')}
 </div>
+<div class="log" data-log="" data-at="1">
+<section><h2>By day</h2><p class="m">Each UTC day with how many of the rows below fall on it, decisions and out-of-band steps. Choose a day to show only its rows.</p>
+<div class="stepper"><span data-showing>Showing all days</span>${button('data-day=""', 'All days', true)}${button('data-month="prev"', 'Earlier month')}${button('data-month="next"', 'Later month')}</div>
+${Object.keys(perDay).length ? `<div class="tablewrap">${calendar(perDay)}</div>` : '<div class="empty">No row of this history has a time.</div>'}</section>
 <section><h2>Out of band</h2>${oob.length ? oob.map(card).join('') : '<div class="empty">No out-of-band step in this history.</div>'}</section>
-<section><h2>Decisions, newest first</h2>${rest.length ? `<div class="tablewrap"><table><thead><tr><th>At (UTC)</th><th>Kind</th><th>Where</th><th>What</th><th>Who</th></tr></thead><tbody>${rest.map(tr).join('')}</tbody></table></div>` : '<div class="empty">No decision in this history.</div>'}</section>`;
+<section><h2>Decisions, newest first</h2>${rest.length ? `<div class="stepper">${button('data-page="first"', 'First')}${button('data-page="prev"', 'Previous')}<span class="m" data-pos>${first.pos}</span>${button('data-page="next"', 'Next')}${button('data-page="last"', 'Last')}</div><div class="tablewrap"><table><thead><tr><th>At (UTC)</th><th>Kind</th><th>Where</th><th>What</th><th>Who</th></tr></thead><tbody>${rest.map(tr).join('')}</tbody></table></div>` : '<div class="empty">No decision in this history.</div>'}</section>
+</div>`;
+}
+
+/**
+ * The design log's controls, a click inside its data-log section: a data-month button shows the earlier or later month
+ * with rows; a data-day button shows only that day's rows and out-of-band cards (empty: all days) from page 1; a
+ * data-page button shows the first, previous, next or last page of the rows shown, with its position.
+ */
+export function turn(e) {
+  const b = e.target && e.target.closest ? e.target.closest('[data-page], [data-day], [data-month]') : null;
+  const g = b && b.closest('[data-log]');
+  if (!g) return;
+  const d = b.dataset;
+  const months = [...g.querySelectorAll('[data-cal]')];
+  const now = Math.max(0, months.findIndex((m) => !m.hidden));
+  if ('month' in d) {
+    const to = Math.max(0, Math.min(months.length - 1, now + (d.month === 'next' ? 1 : -1)));
+    months.forEach((m, i) => { m.hidden = i !== to; });
+    return;
+  }
+  const day = 'day' in d ? d.day : g.dataset.log || '';
+  const at = Number(g.dataset.at) || 1;
+  const rows = [...g.querySelectorAll('tr[data-on]')];
+  const mine = rows.filter((r) => !day || r.dataset.on === day);
+  const w = logPage(mine.length, 'day' in d ? 1 : { first: 1, prev: at - 1, next: at + 1, last: Infinity }[d.page] ?? at);
+  rows.forEach((r) => { r.hidden = true; });
+  mine.slice(w.from, w.to).forEach((r) => { r.hidden = false; });
+  for (const c of g.querySelectorAll('[data-oob]')) c.hidden = Boolean(day) && c.dataset.on !== day;
+  for (const x of g.querySelectorAll('[data-day]')) x.setAttribute('aria-pressed', String(x.dataset.day === day));
+  const pos = g.querySelector('[data-pos]');
+  if (pos) pos.textContent = w.pos;
+  g.querySelector('[data-showing]').textContent = day ? `Showing ${day} (UTC)` : 'Showing all days';
+  g.dataset.log = day;
+  g.dataset.at = String(w.page);
 }
 
 /** The data age line: when the page last read its file and when the data last changed. */
@@ -478,6 +551,7 @@ export function client(cfg, meta) {
   showAge();
   document.addEventListener('visibilitychange', showAge);
   $('view').addEventListener('click', step);
+  $('view').addEventListener('click', turn);
   const trend = async () => {
     const db = await use('db').catch(() => null);
     if (!db) return;
