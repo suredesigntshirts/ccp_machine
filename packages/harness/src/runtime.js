@@ -42,7 +42,17 @@ export function harnessVersion() {
 
 const release = (r) => `${r?.version ?? 'no version'}${r?.commit ? `@${r.commit.slice(0, 7)}` : ''}`;
 const parts = (v) => (/^\d+\.\d+\.\d+$/.test(v ?? '') ? v.split('.').map(Number) : null);
-const isAncestor = (a, b) => { try { git('merge-base', '--is-ancestor', a, b); return true; } catch { return false; } };
+const ancestry = new Map(); // a commit's ancestry never changes, so each pair is asked of git once
+const isAncestor = (a, b) => {
+  if (!ancestry.has(`${a} ${b}`)) try { git('merge-base', '--is-ancestor', a, b); ancestry.set(`${a} ${b}`, true); } catch { ancestry.set(`${a} ${b}`, false); }
+  return ancestry.get(`${a} ${b}`);
+};
+// a is a higher x.y.z version than b.
+const higher = (a, b) => { const [x, y] = [parts(a?.version), parts(b?.version)]; return !!x && !!y && (x.map((n, i) => n - y[i]).find((d) => d !== 0) ?? 0) > 0; };
+// The newest release a log's rows name (writerNotOlder): the highest x.y.z version, at a tie the last of them.
+const newestIn = (rows) => rows.reduce((n, r) => (parts(r.harness?.version) && !higher(n, r.harness) ? r.harness : n), null);
+// The release a write records: this one, unless the store names a newer one (a fact or a repair by an older release).
+export const writtenBy = (stored) => (higher(stored, harnessVersion()) ? stored : harnessVersion());
 /**
  * Why `writer` may not write a store that `stored` wrote last (harness meta.invariants writerNotOlder), or null. A store
  * that records no version takes any writer; one whose version is not x.y.z takes none. A writer with no version, or an
@@ -52,7 +62,7 @@ const isAncestor = (a, b) => { try { git('merge-base', '--is-ancestor', a, b); r
 export function writerError(stored, writer, ancestor = isAncestor) {
   if (stored?.version == null) return null;
   const s = parts(stored.version);
-  const last = `${release(stored)}, which last wrote this store: run the newer harness (writerNotOlder)`;
+  const last = `${release(stored)}, the newest release that has written this store: run the newer harness (writerNotOlder)`;
   if (!s) return `from harness ${release(writer)}: the store's release cannot be compared, ${last}`;
   const w = parts(writer?.version);
   const order = w ? w.map((n, i) => n - s[i]).find((d) => d !== 0) ?? 0 : -1;
@@ -161,7 +171,9 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
   if (!event?.type) throw new Error('an event needs a type');
   const bad = !fact && envelopeError(event);
   if (bad) return { version: store.read()?.version ?? 0, refused: true, why: `refused: ${event.type} ${bad}`, effects: [] }; // rule: envelope
-  event = { ...event, receivedAt: now }; // the machine reads the event's own time (AUDIT_PICKED's day), never the sender's
+  // The machine reads the event's own time (AUDIT_PICKED's day) and the release that applies it (a spawn's), never the
+  // sender's; a fact keeps the release its row names (harness meta.invariants envelope).
+  event = { ...event, receivedAt: now, harness: fact ? event.harness ?? null : harnessVersion() };
   return store.withLock(() => {
     const state = store.read();
     if (!state) throw new Error(`no harness in ${store.dir}; run init first`);
@@ -220,8 +232,8 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
     // A machine closes its own pending effects (harness meta.store closes): acks with outcome withdrawn, never queued.
     const queued = effects.map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
     const closed = closing.length ? store.pending().filter((p) => closing.some((c) => p.subject === c.subject && c.params.names.includes(p.name))) : [];
-    store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: harnessVersion(), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
-    const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
+    store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: writtenBy(state.writtenBy), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
+    const { actor: by, source, relayedBy, receivedAt, harness, ...rest } = event;
     store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, ...(relayedBy && { relayedBy }), harness: harnessVersion(), route, event: rest }]);
     store.appendOutbox(queued);
     store.appendAcks(closed.map((p) => ({ effectId: p.id, outcome: 'withdrawn', note: `${p.subject} withdrawn by ${eventId}`, at: now })));
@@ -233,7 +245,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
 // state value and context become the harness's but for the byItem lists, which keep the elements for items it does not
 // hold, and its pending effects are queued as this row's. The result must restore under today's machines.
 function endEra(store, state, event, { to, eventId, now }) {
-  const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
+  const { actor: by, source, relayedBy, receivedAt, harness, ...rest } = event;
   const era = rest.snapshot;
   const held = new Set(Object.keys(era.children ?? {}));
   const was = state.snapshot;
@@ -254,7 +266,7 @@ function endEra(store, state, event, { to, eventId, now }) {
   }
   const version = state.version + 1;
   const queued = (rest.pending ?? []).map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
-  store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: harnessVersion(), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
+  store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: writtenBy(state.writtenBy), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
   store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, harness: harnessVersion(), route: [], event: rest }]);
   store.appendOutbox(queued);
   return { version, effects: queued, route: [] };
@@ -265,8 +277,8 @@ const sameRoute = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([..
 // Admission: why a sent event is refused ({why, rule?}), or null. Every rule here decides only when an event is sent,
 // never when a logged one is applied again (harness meta.store.facts).
 function admission(store, state, event, to, actor) {
-  // No release older than the one that last wrote the store writes it (a store from before the field: its last event's).
-  const older = writerError(state.writtenBy ?? store.events().at(-1)?.harness, harnessVersion());
+  // No release older than the newest that has written the store writes it (a state.json that names none: its log's newest).
+  const older = writerError(state.writtenBy ?? newestIn(store.events()), harnessVersion());
   if (older) return { rule: 'writerNotOlder', why: `refused: ${event.type} ${older}` }; // rule: writerNotOlder
   // A PR is bound to one item, once; the log holds every binding (see pr-binding.js).
   const bound = event.pr != null && bindingError(store.events(), to, event.pr);

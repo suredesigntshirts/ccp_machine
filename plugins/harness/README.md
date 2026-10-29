@@ -80,7 +80,8 @@ To see which you are on, read the ledger stamp `harness`: `commit`/`version` (co
   (`$HARNESS_BIN`, else `packages/harness/bin/harness.js` of the checkout the plugin sits in, with the
   session's `HARNESS_DIR`). The **spawn gate** reads the brief's one line `Harness-Role: <role> item:<id>`;
   a spawn naming one is sent to the store as `WORKER_SPAWNED` (role, sha256 of the prompt, agent type, model,
-  the agent definition by content hash and plugin version, the harness version), which the machine takes or
+  the agent definition by content hash and plugin version; the harness version is the release that applies it, as
+  its log row names it), which the machine takes or
   refuses (no verifier brief yet, an edited verifier brief, a role or agent type the item does not take now).
   A malformed or repeated role line, an item not in the store, or a `harness:builder` or `harness:verifier`
   spawn without one is `roleLine`. A second spawn of an agent type while the session's last one of that type,

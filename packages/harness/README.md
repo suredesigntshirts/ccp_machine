@@ -43,7 +43,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (no event marks itself as the person's). Each `events.jsonl` row is
   `{id, version, at, to, actor, source, harness: {version, commit}, route, event}`, `harness` naming the release
   that applied it: the plugin's version (`plugins/harness/.claude-plugin/plugin.json`) and the git commit; `route`
-  the ids of the routes its transitions took (below). Who may send what is in the machines, as admission rules
+  the ids of the routes its transitions took (below). That release is the event's `harness`, never the sender's
+  (a spawn records it), and the payload does not repeat it (harness `meta.invariants` `envelope`). Who may send what is in the machines, as admission rules
   (`"admission": true` on a guarded transition with no target and no actions) that refuse an event from the wrong
   party (SPEC.md lists them under Refused): `PERSON_DECIDED` only from a person's tap
   on the card the machine asked for (ref: the message id its decision recorded from the ack, see Cards
@@ -70,11 +71,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   machines (event payloads in `test/path-fixtures.json`) and checks each step against the machine.
 - `src/store.js`: a folder per harness. `state.json` is replaced whole under a lock with
   compare-and-set on its version, and carries the spec's `schemaVersion` (harness `meta.store`) and `writtenBy`, the
-  release that last wrote it; `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only. An older release
+  newest release that has written it (a fact or a repair by an older release keeps the newer one); `events.jsonl`, `outbox.jsonl` and `acks.jsonl` are append-only. An older release
   does not write a store a newer one has written (harness `meta.invariants` `writerNotOlder`): `apply` refuses an
   event from an older plugin version or none, or from the same version on a commit the store's commit is not an
-  ancestor of, and the refusal names both (`version@commit`). A store with no `writtenBy` is judged by its last
-  log row's `harness`; one that records no version takes any writer, and one whose version is not x.y.z takes none.
+  ancestor of, and the refusal names both (`version@commit`). A state.json with no `writtenBy` (a release from
+  before the field drops it) is judged by the newest release its log rows name; one that records no version takes
+  any writer, and one whose version is not x.y.z takes none. Such a release never checks, so replay lists each row
+  whose release is older than one before it (`admittedThen`), and `harness doctor` shows them.
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
 - `pages/<page>/needs.json`, `src/pages.js` and `src/live.js`: the page needs contract. A page declares in its needs

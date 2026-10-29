@@ -4,8 +4,8 @@
 // meta.invariants) cover the rest. Every deny names its rule. Under HARNESS_ENFORCE=1 a gate denies; without it, it
 // only records and never denies.
 // - Spawn: a brief names its item role in one line `Harness-Role: <role> item:<id>`. A spawn naming one is sent to
-//   the store as WORKER_SPAWNED (role, sha256 of the prompt, agent type, model, agent definition, harness version)
-//   by this session; the machine takes it or refuses it (no verifier brief yet, an edited verifier brief, ...), and a
+//   the store as WORKER_SPAWNED (role, sha256 of the prompt, agent type, model, agent definition; the harness version
+//   is the one the CLI that applies it records) by this session; the machine takes it or refuses it (no verifier brief yet, an edited verifier brief, ...), and a
 //   refused spawn is denied. A spawn with no role line is allowed and recorded nowhere: its agent can send no item
 //   event. A malformed or repeated role line, or a harness:builder or harness:verifier spawn without one, is denied
 //   (roleLine). SubagentStart (agent-actor.js) binds the started agent to the spawn; its input does not name the Agent
@@ -79,8 +79,7 @@ function spawnCall(input) {
       if (!m) return { rule: 'roleLine', record: { ...base, recorded: false }, why: !lines.length ? `a ${agentType} spawn names its item role in one line "Harness-Role: <role> item:<id>"; this brief has none` : lines.length > 1 ? `the brief has ${lines.length} role lines; it names one` : `the role line "${lines[0].trim()}" is not "Harness-Role: <role> item:<id>"` };
       const [, role, item] = m;
       const definition = agentType.startsWith('harness:') ? definitionOf(agentType) : null;
-      const { version: v, commit } = version();
-      const event = { type: 'WORKER_SPAWNED', role, ...base, toolUseId: how.id, definition, harness: { version: v, commit } };
+      const event = { type: 'WORKER_SPAWNED', role, ...base, toolUseId: how.id, definition };
       const r = runHarness(['send', JSON.stringify(event), '--to', `item:${item}`, '--id', `spawn-${how.id}`], how);
       const ok = r.status === 0 && r.out && !r.out.refused;
       return { rule: fromCli(r, ok), record: { ...base, role, item, recorded: ok }, why: ok ? `recorded the ${role} spawn on item ${item}` : r.out?.why ?? r.err };
