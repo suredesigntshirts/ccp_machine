@@ -111,7 +111,7 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   for (const r of merges.filter((r) => !['ok', 'outOfBand', 'era'].includes(r.result))) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
   // A landing before its era's end was judged by that era's rules (harness meta.invariants reviewOnHead): one line per era.
   const byEra = Map.groupBy(merges.filter((r) => r.result === 'era'), (r) => r.era);
-  for (const [era, rows] of byEra)
+  for (const [era, rows] of [...byEra].sort(([, a], [, b]) => a[0].ended.localeCompare(b[0].ended)))
     admittedThen.push(`era ${era}: ${rows.length} landing${rows.length === 1 ? '' : 's'} before its ERA_ENDED (${rows[0].ended}), judged by that era's rules; today's rule finds no verifier PASS: ${rows.map((r) => r.pr).join(', ')}`);
   // Work done outside the gates (history.schema.json OUT_OF_BAND): listed, never a problem by itself.
   const outOfBandRows = outOfBand(events).map(
