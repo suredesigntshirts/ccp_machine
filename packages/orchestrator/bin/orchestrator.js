@@ -6,6 +6,7 @@
 // orchestrator wait <dir> <seq>  where the item is, once its journal grows past seq or after 50 s
 // orchestrator agents            the session kinds the actors need: { name, tools, claim }
 // orchestrator status <dir>      where the item is, its context and what is pending
+// orchestrator page [dir]        an HTML page of the machine's states and data, and the item's run if dir is given
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +14,8 @@ import { claudeSessions } from '../src/claude.js';
 import { drive } from '../src/driver.js';
 import { openSandboxItem, sandboxActors } from '../src/sandbox.js';
 import { refusal, step, wait, where } from '../src/step.js';
+import { itemSpec, openItem } from '../src/item.js';
+import { itemPage } from '../src/page.js';
 
 const ISSUE = {
   url: 'sandbox:issues/1',
@@ -40,11 +43,12 @@ else if (command === 'step' && dir) print(await step(openSandboxItem(dir), stdin
 else if (command === 'check' && dir) print(refusal(openSandboxItem(dir), stdin()) ?? { ok: true });
 else if (command === 'wait' && dir) print(await wait(dir, Number(seq ?? 0)));
 else if (command === 'agents') print(Object.entries(sandboxActors({ dir: '', repo: '' })).filter(([, a]) => a.claim).map(([name, { tools, claim }]) => ({ name, tools, claim })));
+else if (command === 'page') console.log(itemPage(itemSpec, dir ? openItem(dir).journal.read() : []));
 else if (command === 'status' && dir) {
   const { host } = openSandboxItem(dir);
   print({ ...where(host), context: host.snapshot?.context, pending: host.pending });
 } else {
-  console.error('usage: orchestrator demo [dir] | step <dir> | check <dir> | wait <dir> <seq> | agents | status <dir>');
+  console.error('usage: orchestrator demo [dir] | step <dir> | check <dir> | wait <dir> <seq> | agents | status <dir> | page [dir]');
   process.exit(2);
 }
 process.exit(0);
