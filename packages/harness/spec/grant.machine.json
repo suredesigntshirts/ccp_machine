@@ -41,12 +41,14 @@
                 "actor": "session"
               }
             },
+            "admission": true,
             "description": "Refused unless a session sends it: the host session that posted the checklist acks the postGrantCard effect with the card's message id (harness ack <effect> --card <cmsg id>)."
           },
           {
             "guard": {
               "type": "cardOverreaches"
             },
+            "admission": true,
             "description": "Refused unless it names one message id (cmsg_...) and this ask has no card yet."
           },
           {
@@ -66,18 +68,21 @@
                 "source": "tap"
               }
             },
+            "admission": true,
             "description": "Refused unless the actor is a person and the source a tap: no session, agent or timer can grant."
           },
           {
             "guard": {
               "type": "tapUnbound"
             },
+            "admission": true,
             "description": "Refused unless the tap's ref is this ask's card, the message id CARD_POSTED recorded on the ack of its postGrantCard effect. A tap on no card, an unposted card, a decision's or an audit's card, or an earlier checklist changes nothing."
           },
           {
             "guard": {
               "type": "picksNotOffered"
             },
+            "admission": true,
             "description": "Refused unless picks is a list of the card's own options, each at most once, with exactly one end time: a kind, a box or an end time the machine did not generate is refused."
           },
           {

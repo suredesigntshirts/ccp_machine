@@ -23,6 +23,7 @@
         "guard": {
           "type": "fiveHourExhausted"
         },
+        "route": "dayStartsPaused",
         "target": ".paused",
         "actions": [
           {
@@ -64,6 +65,7 @@
             "guard": {
               "type": "mustPause"
             },
+            "route": "normalPauses",
             "target": "paused",
             "actions": [
               {
@@ -75,6 +77,7 @@
             "guard": {
               "type": "mustWrapUp"
             },
+            "route": "normalWrapsUp",
             "target": "wrappingUp",
             "actions": [
               {
@@ -94,6 +97,7 @@
           "guard": {
             "type": "usageStale"
           },
+          "route": "staleWrapsUp",
           "target": "wrappingUp"
         }
       }
@@ -114,6 +118,7 @@
             "guard": {
               "type": "mustPause"
             },
+            "route": "wrappingUpPauses",
             "target": "paused",
             "actions": [
               {
@@ -125,6 +130,7 @@
             "guard": {
               "type": "mayRun"
             },
+            "route": "wrappingUpResumes",
             "target": "normal",
             "actions": [
               {
@@ -161,6 +167,7 @@
             "guard": {
               "type": "mayRun"
             },
+            "route": "pausedResumes",
             "target": "normal",
             "actions": [
               {
@@ -172,6 +179,7 @@
             "guard": {
               "type": "mustWrapUp"
             },
+            "route": "pausedWrapsUp",
             "target": "wrappingUp",
             "actions": [
               {

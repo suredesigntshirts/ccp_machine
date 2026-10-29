@@ -42,8 +42,8 @@ function waitingOnNothing(snapshot, pending, src = 'harness', path = []) {
  * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers`,
  * verify-facts with `fetcher`, and every PR landed on main, bound or not, against its verifier's PASS (gates.js verifyMerges).
  * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
- * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable and warnings
- * (an untested class) leave `ok` true.
+ * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable, warnings
+ * (an untested class) and admittedThen (events the rules have changed for since they were written) leave `ok` true.
  * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], checked: object}>}
  */
 export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, ledgers, fetcher, verify = true, refreshes } = {}) {
@@ -72,10 +72,14 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s (fix with harness repair)`);
   const { error } = tryRestore(store);
   if (error) problems.push(`state.json does not restore: ${error}`);
+  // An event today's rules would refuse or route otherwise was admitted by the release that wrote it: listed, not a
+  // problem (harness meta.store.facts). A divergence or a different state is: the store is corrupt or lost an event.
+  let admittedThen = [];
   if (!error) {
     const r = replay(store);
     if (r.firstDivergence) problems.push(`replay diverges at ${r.firstDivergence}`);
     for (const d of r.differences) problems.push(`replay: ${d}`);
+    admittedThen = r.admittedThen.map((a) => `${a.id} (${a.type}): admitted when written by harness ${a.release?.version ?? 'unknown'}${a.release?.commit ? `@${a.release.commit.slice(0, 7)}` : ''}; today's rules: ${a.why}`);
   }
   const warnings = [
     ...untestedRuns(readDecisionLog(store)).map(
@@ -97,5 +101,5 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   const outOfBandRows = outOfBand(events).map(
     (o) => `${o.id}: ${o.what} (${[o.pr && prKey(o.pr), o.to, o.sha && `at ${o.sha.slice(0, 7)}`].filter(Boolean).join(' ')}), ordered by ${o.orderedBy.kind}:${o.orderedBy.id}, skipped ${o.skipped.join(', ')}`
   );
-  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
+  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, admittedThen, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
 }

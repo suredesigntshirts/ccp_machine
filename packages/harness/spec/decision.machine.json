@@ -73,12 +73,14 @@
                 ]
               }
             },
+            "admission": true,
             "description": "Refused unless a session or an agent sends it: the stand-in is a session or a subagent of one (harness meta.actors)."
           },
           {
             "guard": {
               "type": "answeredByOrchestratorOrWorker"
             },
+            "admission": true,
             "description": "Refused from the orchestrator and from every worker that reported a run for this item (both recorded on the decision when it is spawned): only the stand-in answers, never the party whose work it judges or the one that routes it. The machine compares the ids it is given; who the sessions are is checked afterwards."
           },
           {
@@ -88,18 +90,21 @@
                 "role": "answerer"
               }
             },
+            "admission": true,
             "description": "Refused when the sender, a session or an agent (harness meta.actors), already holds another role on the item (requester, triager, worker or criterion checker; the item passes them in when it opens the decision): the stand-in that answers played no other part. The person and GitHub are exempt. The machine compares the whole actor; harness verify-actors checks sessions against the platform's ledger and agents against the SubagentStart records."
           },
           {
             "guard": {
               "type": "answerOverreaches"
             },
+            "admission": true,
             "description": "Refused unless the answer is exactly a choice, a confidence between 0 and 1, and optionally a reason. An answer that carries autonomy or threshold is refused: the machine holds both. A missing confidence is refused; there is no default."
           },
           {
             "guard": {
               "type": "choiceNotOffered"
             },
+            "admission": true,
             "description": "Refused unless the answer's choice is one of the decision's options (context.options: approve, revise, reject), the same choices the person's card offers; this list is the one place that says which choices a stand-in may give (harness answer takes one flag per option). At every gate approve moves the item on, revise sends it back (to building from the accept and land gates, to triage from the plan gate, as a person's revise tap does) and reject cancels it (spec workItem, each gate's DECISION_MADE)."
           },
           {
@@ -131,6 +136,7 @@
               "thresholdBefore": "2026-10-28T10:00:41.000Z"
             }
           },
+          "route": "grantDecides",
           "target": "decided",
           "actions": [
             {
@@ -148,6 +154,7 @@
           "guard": {
             "type": "standInMayDecide"
           },
+          "route": "standInDecides",
           "target": "decided",
           "actions": [
             {
@@ -186,12 +193,14 @@
                 "actor": "session"
               }
             },
+            "admission": true,
             "description": "Refused unless a session sends it: the host session that posted the card acks the postDecisionCard effect with the card's message id (harness ack <effect> --card <cmsg id>, the only way to name it). A second ack of the effect is refused and writes nothing."
           },
           {
             "guard": {
               "type": "cardOverreaches"
             },
+            "admission": true,
             "description": "Refused unless it names one message id (cmsg_...) and this decision has no card yet: one decision, one card, recorded once."
           },
           {
@@ -211,18 +220,21 @@
                 "source": "tap"
               }
             },
+            "admission": true,
             "description": "Refused unless the actor is a person and the source a tap."
           },
           {
             "guard": {
               "type": "tapUnbound"
             },
+            "admission": true,
             "description": "Refused unless the tap's ref is this decision's card: the message id CARD_POSTED recorded when the host acked this decision's postDecisionCard effect. A tap before the card is posted, on another decision's card or on no card at all changes nothing. Whether the tap happened is checked afterwards against the platform (harness verify-taps)."
           },
           {
             "guard": {
               "type": "choiceNotOffered"
             },
+            "admission": true,
             "description": "Refused unless the choice is one of the card's options (the decision's options: approve, revise, reject)."
           },
           {
@@ -239,6 +251,7 @@
             "guard": {
               "type": "fromOutside"
             },
+            "admission": true,
             "description": "Sent by the decision's item, passing on the harness's REASK_UNDER_GRANT (spec harness), which takes it only from the orchestrator and only while the person's live grant covers this decision; the same event from outside (any event with an actor) is refused."
           },
           {

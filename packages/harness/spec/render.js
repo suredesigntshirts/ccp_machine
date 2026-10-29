@@ -59,10 +59,10 @@ function states(node, path = [], rows = []) {
   return rows;
 }
 
-// A guarded transition with no target and no actions refuses its event (snapshot.can() is false), so
-// apply() writes nothing: these are the rules on who may send what. A record transition (harness meta.store records)
-// takes its event in any state and does nothing: the facts each machine takes.
-const refuses = (t) => t.guard && !t.target && !asList(t.actions).length;
+// An admission rule ("admission": true: a guard, no target and no actions) refuses its event (snapshot.can() is false), so
+// apply() writes nothing: these are the rules on who may send what, and replay does not run them (meta.store.facts). A
+// record transition (harness meta.store records) takes its event in any state and does nothing: the facts each machine takes.
+const refuses = (t) => t.admission === true;
 const refusalRow = (ev, at, t) => `- \`${ev}\` in ${at}, when \`${t.guard.type}\`${t.guard.params ? ` ${JSON.stringify(t.guard.params)}` : ''}: ${t.description ?? 'refused'}`;
 const records = (t) => t.record === true;
 const recordRow = (ev, at, t) => `- \`${ev}\` in ${at === 'any state' ? 'any state, a final one included' : at}: ${t.description ?? 'recorded'}`;
@@ -70,6 +70,18 @@ function transitions(node, keep, row, path = [], rows = []) {
   const at = path.length ? `\`${path.join('.')}\`` : 'any state';
   for (const [ev, on] of Object.entries(node.on ?? {})) for (const t of asList(on)) if (keep(t)) rows.push(row(ev, at, t));
   for (const [key, child] of Object.entries(node.states ?? {})) transitions(child, keep, row, [...path, key], rows);
+  return rows;
+}
+
+// Every route ("route": <id>, a guarded transition that changes state or runs actions): the ids a log row records.
+function routes(node, path = [], rows = []) {
+  const at = path.length ? `\`${path.join('.')}\`` : 'any state';
+  const add = (ev, on) => {
+    for (const t of asList(on)) if (t?.route) rows.push(`- \`${t.route}\`: \`${ev}\` in ${at}, when \`${t.guard.type}\`${t.guard.params ? ` ${JSON.stringify(t.guard.params)}` : ''}${t.target ? `, to \`${t.target}\`` : ''}`);
+  };
+  for (const [ev, on] of Object.entries(node.on ?? {})) add(ev, on);
+  add('always', node.always);
+  for (const [key, child] of Object.entries(node.states ?? {})) routes(child, [...path, key], rows);
   return rows;
 }
 
@@ -103,6 +115,7 @@ export function renderSpec() {
     // The store layout pages read (meta.store) and how pages refresh (meta.pages).
     if (config.meta?.store) out.push(`Store: \`schemaVersion\` ${config.meta.store.schemaVersion}. ${config.meta.store.description}`, '');
     if (config.meta?.store?.closes) out.push(`Closing effects (\`closes\`): ${config.meta.store.closes}`, '');
+    if (config.meta?.store?.facts) out.push(`Facts (replay): ${config.meta.store.facts}`, '');
     if (config.meta?.store?.records) out.push(`Records (\`records\`): ${config.meta.store.records}`, '');
     if (config.meta?.pages)
       out.push(`Pages: a refresh slower than ${config.meta.pages.refreshSlowMs} ms is flagged; rows go to \`${config.meta.pages.refreshCollection}\`. ${config.meta.pages.description}`, '');
@@ -114,9 +127,11 @@ export function renderSpec() {
     const rows = states(config);
     if (rows.length) out.push('States:', '', ...rows, '');
     const refused = transitions(config, refuses, refusalRow);
-    if (refused.length) out.push('Refused (nothing changes and nothing is written):', '', ...refused, '');
+    if (refused.length) out.push('Refused (admission rules: nothing changes and nothing is written):', '', ...refused, '');
     const recorded = transitions(config, records, recordRow);
     if (recorded.length) out.push('Recorded (taken as a fact: the log row is written, nothing changes):', '', ...recorded, '');
+    const routed = routes(config);
+    if (routed.length) out.push('Routes (the ids a log row records; replay takes them as logged):', '', ...routed, '');
     out.push(`Effects and context updates: ${[...names.actions].sort().map((n) => `\`${n}\``).join(', ')}`, '');
     out.push(`Guards: ${[...names.guards].sort().map((n) => `\`${n}\``).join(', ') || 'none'}`, '');
   }

@@ -30,12 +30,14 @@
                 "actor": "session"
               }
             },
+            "admission": true,
             "description": "Refused unless a session sends it: the host session that posted the card acks the postAuditCard effect with the card's message id (harness ack <effect> --card <cmsg id>)."
           },
           {
             "guard": {
               "type": "cardOverreaches"
             },
+            "admission": true,
             "description": "Refused unless it names one message id (cmsg_...) and this audit has no card yet."
           },
           {
@@ -55,18 +57,21 @@
                 "source": "tap"
               }
             },
+            "admission": true,
             "description": "Refused unless the actor is a person and the source a tap."
           },
           {
             "guard": {
               "type": "tapUnbound"
             },
+            "admission": true,
             "description": "Refused unless the tap's ref is this audit's card, the message id CARD_POSTED recorded on the ack of its postAuditCard effect. A tap on no card, an unposted card or another card changes nothing."
           },
           {
             "guard": {
               "type": "optionNotOffered"
             },
+            "admission": true,
             "description": "Refused unless the option is one of the card's: 0 (all right) or i, 1 to the number of picks (reverse pick i)."
           },
           {

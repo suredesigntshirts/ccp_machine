@@ -4,11 +4,11 @@
 // harness answer answers the item's live decision, never a stale ask of a stopped one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempDir } from './tmp.js';
-import { openStore, init, ack, status } from '../src/index.js';
+import { openStore, init, ack, status, replay } from '../src/index.js';
 import { apply, start } from './send.js';
 
 const bin = new URL('../bin/harness.js', import.meta.url).pathname;
@@ -18,6 +18,12 @@ const CRITERIA = ['a works', 'b works', 'c works'];
 const check = (dir, criterion, verdict, evidence = `test ${criterion}`) =>
   harness(dir, 'send', JSON.stringify({ type: 'CRITERION_CHECKED', criterion, verdict, ...(verdict === 'met' && { evidence }) }), '--to', 'item:x', '--actor', 'session:reviewer');
 const asks = (store) => store.pending().filter((e) => e.name === 'askStandIn');
+const copy = (store) => {
+  const to = tempDir('harness-live-accept-ask-copy-');
+  cpSync(store.dir, to, { recursive: true });
+  return to;
+};
+const asksOf = (store, subject) => store.outbox().find((e) => e.name === 'askStandIn' && e.subject === subject).id;
 const liveAccepts = (store) => status(store).items[0].decisions.filter((d) => d.decisionClass === 'accept');
 
 // An item at tier 2 in awaitingAcceptance, its plan approved by the person; nothing pending but the accept's ask.
@@ -106,4 +112,17 @@ test('a check logged before the rule came in (since) reopens the decision as it 
   const before = '2026-10-28T16:00:00.000Z';
   apply(store, { type: 'CRITERION_CHECKED', criterion: 'a works', verdict: 'unclear', actor: { kind: 'session', id: 'reviewer' }, source: { kind: 'cli', ref: 'harness send' } }, { to: 'item:x', now: before });
   assert.equal(liveAccepts(store)[0].id, 'decision:x:accept:3', 'reopened under the old rule');
+});
+
+test('replay gives the closes the log holds: a withdrawn ack missing from the log is a divergence, not papered over', () => {
+  const { dir, store } = accepting();
+  for (const c of CRITERIA) assert.equal(check(dir, c, 'met').status, 0);
+  const withdrawn = store.acks().filter((a) => a.outcome === 'withdrawn');
+  assert.deepEqual(withdrawn.map((a) => a.effectId), [asksOf(store, 'decision:x:accept:2')], 'the stopped decision\'s ask is closed');
+  const r = replay(store);
+  assert.deepEqual([r.ok, r.firstDivergence, r.admittedThen], [true, null, []]);
+  // The log loses the withdrawn ack: replay closes the ask, the log does not, and the row records its route.
+  const lost = openStore(copy(store));
+  writeFileSync(join(lost.dir, 'acks.jsonl'), lost.acks().filter((a) => a.outcome !== 'withdrawn').map((a) => JSON.stringify(a)).join('\n') + '\n');
+  assert.match(replay(lost).firstDivergence, /closes differ: the log holds none, replay gives /);
 });

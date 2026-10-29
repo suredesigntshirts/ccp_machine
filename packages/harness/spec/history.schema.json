@@ -29,6 +29,11 @@
       ],
       "description": "The harness that applied (or, for a recovered row, would have applied) the event."
     },
+    "route": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "The route the event took when it was written: the ids of the routes (\"route\" in the machine JSON) its transitions took, in order. Replay takes this route (harness meta.store.facts). A row written before routes were recorded has none."
+    },
     "event": {
       "type": "object",
       "required": ["type"],

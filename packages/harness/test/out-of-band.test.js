@@ -5,8 +5,9 @@
 // fake: no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { openStore, init, doctor, status } from '../src/index.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { openStore, init, doctor, status, replay } from '../src/index.js';
 import { apply as applyEvent } from '../src/runtime.js';
 import { apply, start } from './send.js';
 import { tempDir } from './tmp.js';
@@ -96,5 +97,26 @@ test('doctor lists #66 out of band once the store holds its OUT_OF_BAND row, and
     assert.deepEqual(after.problems.filter((l) => /^(merges|replay)/.test(l)), [], `${end}, with the row`);
     assert.equal(after.outOfBand.length, 1);
     assert.match(after.outOfBand[0], /^oob-pr66: landed PR #66 .* \(suredesigntshirts\/ccp_machine#66 item:review-footer at 2d04bb4\), ordered by person:user_01KfkB5Jm6bszTAytbWYG5at, skipped awaitingAcceptance, integrationGate, unverifiedHead, reviewOnHead$/);
+  }
+});
+
+// #96: a logged OUT_OF_BAND row is a fact on replay too. Its guards are admission rules (marked "admission": true),
+// which replay passes over, so it reaches the record again: no state change, no effects, route [] (no route). A row
+// written before routes were recorded (as main wrote dogfood2's oob-review-footer-pr66) replays the same way.
+test('replay applies a logged OUT_OF_BAND row as a fact, with or without its route, and is clean', () => {
+  for (const end of ['done', 'cancelled', 'verifying']) {
+    const store = itemOn66(end);
+    ok(applyEvent(store, oob(), { to: `item:${ITEM}`, id: 'oob-pr66' }), 'OUT_OF_BAND');
+    assert.deepEqual(store.events().at(-1).route, [], `${end}: an OUT_OF_BAND row takes no route`);
+    for (const routed of [true, false]) {
+      if (!routed) {
+        const file = join(store.dir, 'events.jsonl');
+        const rows = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+        writeFileSync(file, rows.map(({ route, ...r }) => JSON.stringify(r.id === 'oob-pr66' ? r : { ...r, route })).join('\n') + '\n');
+      }
+      const r = replay(store);
+      assert.ok(r.ok, `${end}, ${routed ? 'routed' : 'no route logged'}: ${r.firstDivergence ?? r.differences.join('; ')}`);
+      assert.deepEqual(r.admittedThen.filter((a) => a.id === 'oob-pr66'), [], `${end}: today's rules take it too`);
+    }
   }
 });
