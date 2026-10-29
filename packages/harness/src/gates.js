@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import { apply } from './runtime.js';
 import { prKey, prMap, itemOf } from './pr-binding.js';
-import { restFetcher, ghPath, SHA } from './github-read.js';
+import { restFetcher, ghPath, SHA, mapLimit, READS_AT_ONCE } from './github-read.js';
 import { specs } from './machines.js';
 
 /** PASS or FAIL, from a verdict's first non-empty line ("PASS", "Verdict: FAIL", "**PASS** ..."), else null. */
@@ -128,13 +128,14 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
       out.push({ result: 'unreachable', pr: repo, why: `cannot list the PRs landed on main: ${e.message}` });
     }
   }
-  for (const key of new Set([...Object.keys(landed), ...Object.keys(bound)])) {
+  // Each PR is read on its own, READS_AT_ONCE at a time, and listed in this order.
+  const audited = await mapLimit([...new Set([...Object.keys(landed), ...Object.keys(bound)])], READS_AT_ONCE, async (key) => {
     const item = bound[key] ?? null;
     try {
       let head = landed[key];
       if (head === undefined) {
         const p = await fetcher(pullPath(key));
-        if (p?.merged !== true) continue;
+        if (p?.merged !== true) return null;
         head = String(p.head?.sha ?? '');
       }
       const why = [];
@@ -147,16 +148,13 @@ export async function verifyMerges(store, { fetcher = restFetcher } = {}) {
       }
       // A landing an OUT_OF_BAND row of the history records is listed by doctor, not a problem (meta.invariants reviewOnHead).
       const oob = why.length && events.find((e) => e.event?.type === 'OUT_OF_BAND' && prKey(e.event.pr ?? '') === key && (!e.event.sha || e.event.sha === head));
-      if (oob) {
-        out.push({ result: 'outOfBand', pr: key, item, row: oob.id });
-        continue;
-      }
-      out.push({ result: why.length ? 'problem' : 'ok', pr: key, item, ...(why.length && { why: why.join('; ') }) });
+      if (oob) return { result: 'outOfBand', pr: key, item, row: oob.id };
+      return { result: why.length ? 'problem' : 'ok', pr: key, item, ...(why.length && { why: why.join('; ') }) };
     } catch (e) {
-      out.push({ result: 'unreachable', pr: key, item, why: e.message });
+      return { result: 'unreachable', pr: key, item, why: e.message };
     }
-  }
-  return out;
+  });
+  return [...out, ...audited.filter(Boolean)];
 }
 
 export const verifyMergesText = (rows) => rows.map((r) => `${r.result} ${r.pr}${!('item' in r) ? '' : r.item ? ` item:${r.item}` : ' no item'}${r.why ? `: ${r.why}` : ''}`).join('\n');

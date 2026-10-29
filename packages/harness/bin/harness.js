@@ -154,7 +154,8 @@ const HELP = `harness <command> [options]
                                  and after), the effects it queued with their detail and the store's acks, and its route, or why
                                  it could not be applied (history.schema.json steps; the flow replay page reads it)
   doctor [--refreshes PATH]      check the store (version gaps, unknown acks, effects pending over a day,
-                                 a stale lock, a snapshot that will not restore), verify-actors,
+                                 a stale lock, a snapshot that will not restore; on a history, each row
+                                 against history.schema.json, and its placeholders by era and field), verify-actors,
                                  verify-facts, and every merged PR of an item: the store's verifier PASS on
                                  its merge head and a PASS review on GitHub on that sha; exits 1 on a problem.
                                  GitHub unreachable or a ledger not filed for a session's event under 10

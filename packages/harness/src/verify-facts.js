@@ -2,7 +2,7 @@
 // session that wrote it. from-github's checks run inside a session, and a session can replace the code that
 // runs them (or call apply() itself); a re-read later, by anyone holding the store, catches a fact GitHub
 // does not back. It reads the log and GitHub only, and never writes to the store.
-import { restFetcher, malformed, notItsPr, runsState } from './github-read.js';
+import { restFetcher, malformed, notItsPr, runsState, mapLimit, READS_AT_ONCE } from './github-read.js';
 import { prKey, prMap, itemOf, requestedAt } from './pr-binding.js';
 
 const PR = '([\\w.-]+\\/[\\w.-]+#\\d+)';
@@ -14,7 +14,7 @@ const FACT = {
 };
 
 /** Re-check one github-wake row against GitHub: {result: ok|mismatch|unreachable, why?}. */
-async function verifyRow(row, events, fetcher) {
+async function verifyRow(row, events, fetcher, binding = prMap(events)) {
   const type = row.event?.type;
   const ref = String(row.source?.ref ?? '');
   const item = itemOf(row.to);
@@ -23,7 +23,7 @@ async function verifyRow(row, events, fetcher) {
   const [, ref0, sha] = m;
   const pr = prKey(ref0);
   const why = [];
-  const bound = prMap(events)[pr];
+  const bound = binding[pr];
   if (bound !== item) why.push(bound ? `${pr} is bound to item ${bound}, not ${item}` : `no event of item ${item} names ${pr}`);
   const [repo, n] = pr.split('#');
   let step = `repos/${repo}/pulls/${n}`;
@@ -52,17 +52,16 @@ async function verifyRow(row, events, fetcher) {
 }
 
 /**
- * Every github-wake event in the store's log, re-checked against GitHub in log order:
+ * Every github-wake event in the store's log, re-checked against GitHub, READS_AT_ONCE rows at a time, listed in log order:
  * [{result: 'ok'|'mismatch'|'unreachable', id, item, type, ref, why?}]. fetcher as in github-read.js.
  */
 export async function verifyFacts(store, { fetcher = restFetcher } = {}) {
   const events = store.events();
-  const out = [];
-  for (const row of events.filter((e) => e.source?.kind === 'github-wake')) {
-    const r = await verifyRow(row, events, fetcher);
-    out.push({ result: r.result, id: row.id, item: itemOf(row.to), type: row.event?.type, ref: String(row.source.ref ?? ''), ...(r.why && { why: r.why }) });
-  }
-  return out;
+  const binding = prMap(events);
+  return mapLimit(events.filter((e) => e.source?.kind === 'github-wake'), READS_AT_ONCE, async (row) => {
+    const r = await verifyRow(row, events, fetcher, binding);
+    return { result: r.result, id: row.id, item: itemOf(row.to), type: row.event?.type, ref: String(row.source.ref ?? ''), ...(r.why && { why: r.why }) };
+  });
 }
 
 /** One line per fact: `<ok|mismatch|unreachable> <event id> item:<id> <TYPE> <ref>[: why]`. */

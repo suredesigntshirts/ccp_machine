@@ -117,7 +117,7 @@
       "MERGED": { "v": 1, "required": ["pr"] },
       "MERGE_FAILED": { "v": 1 },
       "ORCHESTRATOR_STARTED": { "v": 1 },
-      "PERSON_DECIDED": { "v": 1, "required": ["choice"], "schema": { "properties": { "choice": {} } } },
+      "PERSON_DECIDED": { "v": 1, "required": ["choice"], "description": "A tap on a decision card. choice is the decision's own word (decision context.options: approve, revise, reject); a session's record of the tap (scripts/history/extract-session.mjs) also keeps label, the option the card showed, and where that label is no decision card's (src/card.js), choice is a legacy placeholder.", "schema": { "properties": { "choice": {}, "label": {}, "option": {} } } },
       "PERSON_GRANTED": { "v": 1, "schema": { "properties": { "picks": {} } } },
       "REASK_UNDER_GRANT": { "v": 1, "required": ["decision"] },
       "REQUEST_RECEIVED": { "v": 1, "required": ["request"], "schema": { "properties": { "request": { "properties": { "id": {} } } } } },
@@ -155,6 +155,11 @@
         }
       }
     }
+  },
+  "upcast": {
+    "description": "How E1 (scripts/history/extract-store.mjs) migrates a row from a store that predates a field, as main predates the event envelope: each envelope field listed here, and each field its event type needs (events.types required), that the row does not hold becomes a legacy placeholder, its text the template for its kind ({store}: the archive ref the store was read as; {field}: the path; {type}: the event type), and provenance.placeholders lists it. Nothing else is filled in, and nothing is guessed from other fields (an id that names a PR is not its pr): a row that still fails validate is skipped with why.",
+    "envelope": ["actor", "source", "harness"],
+    "legacy": { "envelope": "{store} predates the event envelope (M1)", "event": "{store} recorded no {field} on its {type} rows then" }
   },
   "identity": {
     "description": "How the merger knows two rows describe one fact (C4). The first rule whose types include the row's type gives its key: the values at the listed paths, joined. A key path the rule abbreviates (abbrev: path to n) is compared on its first n characters, as git abbreviates a commit, so a short sha and the full one are one key. A row missing any key path keeps a key of its own and is never merged. Of rows with one key, the row is kept whose provenance.from.source is the rule's first owner (its owners in order) that has one, else the earliest, and the others' from go to its provenance.also. Rows with one key that disagree on a payload field both have (a key path agrees by its key) are a conflict the merger reports, never merges silently. Two rows of one source (provenance.from.ref) are never one fact: a source records a fact once, so the second row of a key in one source is that key's second fact (a stand-in's answer and its re-ask under a grant share a decision address), and the n-th of one source is one fact only with the n-th of another, in time order.",
@@ -195,7 +200,7 @@
         },
         "effects": {
           "type": "array",
-          "description": "Each effect the row queued (id, name, subject, and its detail as the outbox holds it, null when it has none) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).",
+          "description": "Each effect the row queued (id, name, subject, and its detail as the outbox holds it, null when it has none) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a history joined without its stores' acks).",
           "items": {
             "type": "object",
             "required": ["id", "name", "subject", "detail", "acks"],

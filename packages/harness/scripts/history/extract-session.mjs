@@ -7,7 +7,8 @@
 //   the spawn gate records it), its role and item from the brief's one `Harness-Role: <role> item:<id>` line;
 // - one CARD_POSTED per request_decision call the platform posted (the card's message id from the call's result,
 //   question, options, recommended index), and one PERSON_DECIDED per tap on one of those cards that reached the
-//   session: a decision-chosen wake, tied to its card by the card's message id it names (decision_id);
+//   session: a decision-chosen wake, tied to its card by the card's message id it names (decision_id), its choice
+//   the decision's word for the tapped option (approve, revise, reject: src/card.js choiceOf) and label the option shown;
 // - one MERGED per merge_pull_request call whose result says it landed (the PR, the head the call pinned, the merge
 //   commit the result names).
 // What the session does not hold is a labelled legacy placeholder: the harness release and source (no harness read
@@ -20,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { candidates } from './candidates.mjs';
+import { choiceOf } from '../../src/card.js';
 
 const [dir, ref] = process.argv.slice(2);
 if (!dir || !ref) {
@@ -119,8 +121,8 @@ for (const w of wakes) {
     out.skip(where, 'no request_decision call in this session posted the card it answers');
     continue;
   }
-  const choice = posted.event.options?.[option]?.label;
-  if (!Number.isInteger(option) || choice === undefined) {
+  const label = posted.event.options?.[option]?.label;
+  if (!Number.isInteger(option) || label === undefined) {
     out.skip(where, `the wake names option ${note('option_index')}, which the card does not have`);
     continue;
   }
@@ -134,7 +136,8 @@ for (const w of wakes) {
     source: { kind: 'tap', ref: id },
     ...(relayedBy && { relayedBy }),
     harness: LEGACY.harness,
-    event: { type: 'PERSON_DECIDED', choice, option, card: id, item: legacy('the card it answers names no item') },
+    // The choice in the store's words (the decision card's label for it, src/card.js); the label the card showed beside it.
+    event: { type: 'PERSON_DECIDED', choice: choiceOf(label) ?? legacy(`the card's option "${label}" is no decision card's (approve, revise, reject)`), label, option, card: id, item: legacy('the card it answers names no item') },
   };
   if (out.write(row, { origin: 'recovered', from: from(w.i), where })) out.say({ tap: id, line: w.i + 1, row: row.id });
 }

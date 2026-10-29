@@ -13,7 +13,7 @@ import { verifyFacts, verifyFactsText } from './verify-facts.js';
 import { verifyMerges, verifyMergesText } from './gates.js';
 import { slowRefreshes, slowRefreshText } from './pages.js';
 import { specs } from './machines.js';
-import { outOfBand } from './history.js';
+import { outOfBand, validate, placeholders } from './history.js';
 import { prKey } from './pr-binding.js';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -39,12 +39,12 @@ function waitingOnNothing(snapshot, pending, src = 'harness', path = []) {
 }
 
 /**
- * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers`,
+ * The store's own checks (for a history, its rows against history.schema.json, with its placeholder counts: history), then (unless verify is false) verify-actors against the ledgers in `ledgers`,
  * verify-facts with `fetcher`, and every PR landed on main, bound or not, against its verifier's PASS (gates.js verifyMerges).
  * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
  * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable, warnings
  * (an untested class) and admittedThen (events the rules have changed for since they were written) leave `ok` true.
- * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], checked: object}>}
+ * @returns {Promise<{ok: boolean, problems: string[], unverifiable: string[], warnings: string[], history?: {rows: number, schemaErrors: string[], placeholders: object}, checked: object}>}
  */
 export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, ledgers, fetcher, verify = true, refreshes } = {}) {
   const problems = [];
@@ -68,6 +68,10 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   if (state?.snapshot) problems.push(...waitingOnNothing(state.snapshot, store.pending()));
   for (const e of store.pending())
     if (now - Date.parse(e.at) > pendingMaxMs) problems.push(`effect ${e.id} (${e.name}) pending since ${e.at}`);
+  // A history (its rows carry provenance: history.schema.json, as scripts/history/join.mjs writes it): every row held
+  // to the schema, each error a problem, and its legacy placeholders counted by era and field.
+  const history = events.some((e) => e.provenance) ? { rows: events.length, schemaErrors: events.flatMap(validate), placeholders: placeholders(events) } : null;
+  if (history) problems.push(...history.schemaErrors.map((e) => `schema: ${e}`));
   const lock = join(store.dir, 'lock');
   if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s (fix with harness repair)`);
   const { error } = tryRestore(store);
@@ -101,5 +105,5 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   const outOfBandRows = outOfBand(events).map(
     (o) => `${o.id}: ${o.what} (${[o.pr && prKey(o.pr), o.to, o.sha && `at ${o.sha.slice(0, 7)}`].filter(Boolean).join(' ')}), ordered by ${o.orderedBy.kind}:${o.orderedBy.id}, skipped ${o.skipped.join(', ')}`
   );
-  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, admittedThen, checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
+  return { ok: problems.length === 0, problems, unverifiable, warnings, outOfBand: outOfBandRows, admittedThen, ...(history && { history }), checked: { events: events.length, effects: outbox.length, version: state?.version ?? null, actors: actors.length, facts: facts.length, merges: merges.length } };
 }

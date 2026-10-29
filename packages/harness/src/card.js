@@ -13,6 +13,8 @@ const LABELS = {
   reject: ['Drop it', { plan: 'The item is cancelled.', accept: 'The item is cancelled.', merge: 'The item is cancelled and the PR stays open.' }]
 };
 const CHOICES = specs.decision.context.options.map((c) => [c, ...LABELS[c]]);
+/** The decision's choice (approve, revise, reject) a decision card shows as `label`; undefined for a label no decision card shows. */
+export const choiceOf = (label) => CHOICES.find(([, l]) => l === label)?.[0];
 
 const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
