@@ -231,7 +231,7 @@ tr.usage>td{padding-top:0}tr.usage summary{cursor:pointer;color:var(--accent);fo
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px}.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 .costs button[data-pick],.lane-label button{font:inherit;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);border-radius:6px;padding:1px 8px;cursor:pointer}.lane-label button{padding:0 6px}.tg{display:inline-block;width:1.6em}
 .scrollbox{overflow:auto;max-height:40rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}.wide-tl{min-width:760px}.wide-tl .lane{grid-template-columns:240px 1fr}.wide-tl .lane-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lane[hidden],.hides[hidden]{display:none}.lane.child .lane-label{padding-left:2em}
-.lane-track .wall{top:1px;height:12px;background:var(--accent-soft);border:1px solid var(--line);border-radius:3px}.lane-track .seg{z-index:1}table.runs td,table.runs th{white-space:nowrap}.ids{overflow-wrap:anywhere}.tablewrap.tall{max-height:32rem;overflow:auto}.tablewrap.tall th{position:sticky;top:0;background:var(--surface)}`;
+.lane-track .wall{top:1px;height:12px;background:var(--accent-soft);border:1px solid var(--line);border-radius:3px}.lane-track .seg{z-index:1}table.runs td,table.runs th{white-space:nowrap}.ids{overflow-wrap:anywhere}.tablewrap.tall{max-height:32rem;overflow:auto}.costs td.why{min-width:16em}.costs td code{overflow-wrap:normal;white-space:nowrap}.costs .tile{align-content:start}.tablewrap.tall th{position:sticky;top:0;background:var(--surface)}`;
 
 /**
  * A live page: its data as it was at render (a store's state.json for mission control, a history's rows for the
