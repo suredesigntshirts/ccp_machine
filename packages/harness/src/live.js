@@ -184,7 +184,7 @@ const rowSchema = (r, absentMeans) => (r && r.schemaVersion !== undefined ? r.sc
  * Each row with no provenance after the last row that has one is live, read with `provenance` (history.schema.json
  * live, for this history: src/history.js liveProvenance); the rows themselves are not changed. The one definition:
  * doctor reads a history through src/history.js historyRows, which is this, and the history pages, at render and on
- * Refresh, through logProblem and projectLog with their needs' `live` (src/pages.js loadNeeds).
+ * Refresh, through logProblem and projectLog with their needs' `live` (src/pages.js loadNeeds), as checkLogNeeds does.
  */
 export function liveRows(rows, provenance) {
   const last = rows.findLastIndex((r) => r && r.provenance);

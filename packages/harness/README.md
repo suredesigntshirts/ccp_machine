@@ -111,7 +111,12 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   The history pages read its rows as doctor does: a row the runtime appended after the join's is live (`liveRows`
   in `src/live.js`, with the needs' `live` provenance `loadNeeds` gives for the history named by `--dir`), at render
   and on Refresh; a row with no provenance before a joined one, or a store with none, gets the banner
-  (`test/live-pages-live-rows.test.js` runs the page's own script on Refresh, #155).
+  (`test/live-pages-live-rows.test.js` runs the page's own script on Refresh, #155). `checkPage` and `checkLogNeeds`,
+  which hold a history to a page's needs, read its rows by the same `liveRows`: a live row's missing provenance is no
+  problem, a row with none before a joined one still is (#158). Each field a page reads of a type must be on every row
+  of it, unless the needs file also lists it under `optional` (the ledger's and introspection's RUN_SUCCEEDED
+  `event.pr`: a triage run opens no PR); only a field it reads and `history.schema.json` does not require may be
+  optional (the schema's `events` description is the rule; `test/page-checks-live-rows.test.js`).
   `test/ledger-page.test.js` builds a history with the current code (`contractHistory`: the sim's contract store
   through `extract-store.mjs` and `join.mjs`), renders it and the golden history and checks every count the page
   shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
