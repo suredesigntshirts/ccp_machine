@@ -35,6 +35,32 @@ commit and the verified commit come from git, never from what a session says. Th
 holds each actor's *output* schema (what states exchange); the claim schema belongs to the actor (how it
 gets there), so swapping the executor never touches the machine.
 
+## Follow one input through
+
+Take the verifier's result in the demo, from start to finish. Each step names the function to read.
+
+1. **The machine asks for work.** Entering `verifying` makes XState's `transition()` (in `Host#apply`)
+   return a `xstate.spawnChild` action for the `verify` invoke. It does not run it. `Host#effectOf` turns
+   the action into an effect `{ type: 'run', run: '2.verify', actor: 'verify', input }` and records run
+   `2.verify` as in flight. The run id is the journal position plus the invoke id, so it is unique.
+2. **The driver does the work.** `drive` → `startRun` → `perform`. `verify` is an agent actor, so
+   `prepare` checks out the PR head, runs the tests and writes the job. A session judges it and returns a
+   claim. `perform` checks the claim against the actor's claim schema, and `finish` turns it into the
+   actor's output: the verdict, at the commit the host checked out, never a commit the session names.
+3. **The result comes back as an input.** `startRun` sends `{ run: '2.verify', event: {
+   type: 'xstate.done.actor.verify', output }, source: 'claude:<session>' }` to `send`.
+4. **The host decides whether to take it.** `Host#refusal` → `#refuseCompletion`: run `2.verify` must
+   still be in flight for exactly this invoke, and the output must match `meta.actors.verify`. Then the
+   machine must take the event in its current state.
+5. **The machine picks the next state.** `verify`'s `onDone` lists three targets. Each was bound in
+   `spec.js` (`bindTransition`) to its own guard plus the needs of the state it enters, checked against
+   the context after its `set` action. So a PASS at the PR head enters `awaitingMerge` (which needs
+   `verifiedHead`), a FAIL with builds left goes back to `building`, and anything else goes to
+   `replanning`. The JSON's `description` on each says the same.
+6. **It is written down, then acted on.** `send` appends the entry, with a hash of the new state, to
+   `journal.jsonl` before carrying out the new effects (here, the `ask` run). If the process dies here,
+   `Host.replay` rebuilds the same state from the journal, and `drive` starts the open `ask` run again.
+
 ## Two hosts, one machine
 
 - **Headless**: `node bin/orchestrator.js demo [dir]` drives an item in-process; sessions are `claude -p`

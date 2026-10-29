@@ -16,6 +16,8 @@ const sh = (cwd, cmd, args) => {
     return `$ ${cmd} ${args.join(' ')}\n${err.stdout ?? ''}${err.stderr ?? ''}exit ${err.status}`;
   }
 };
+// Paragraphs joined by blank lines; empty ones (an optional part left out) are dropped.
+const paragraphs = (...parts) => parts.filter(Boolean).join('\n\n');
 const object = (properties) => ({ type: 'object', required: Object.keys(properties), properties });
 const READ = ['Read', 'Glob', 'Grep'];
 
@@ -24,20 +26,37 @@ export const sandboxActors = ({ dir, repo }) => {
   const forge = gitForge(repo);
   return {
     // Both briefs are written before any build, so the verifier's cannot be shaped by what was built.
-    brief: async ({ issue, why }) => ({
-      source: 'host',
-      output: {
-        builder: write(join(dir, 'briefs/builder.md'), `# Build: ${issue.title ?? issue.url}\n\n${issue.url}\n\nDone when:\n${lines(issue.expect)}\n${why ? `\nThe last attempt stalled. Five whys:\n${why}\n` : ''}`),
-        verifier: write(join(dir, 'briefs/verifier.md'), `# Verify: ${issue.title ?? issue.url}\n\nPASS only if every line holds for the commit under review; otherwise FAIL.\n${lines(issue.expect)}\n`)
-      }
-    }),
+    brief: async ({ issue, why }) => {
+      const title = issue.title ?? issue.url;
+      const builder = paragraphs(
+        `# Build: ${title}`,
+        issue.url,
+        `Done when:\n${lines(issue.expect)}`,
+        why && `The last attempt stalled. Five whys:\n${why}`
+      );
+      const verifier = paragraphs(
+        `# Verify: ${title}`,
+        `PASS only if every line holds for the commit under review; otherwise FAIL.\n${lines(issue.expect)}`
+      );
+      return {
+        source: 'host',
+        output: {
+          builder: write(join(dir, 'briefs/builder.md'), `${builder}\n`),
+          verifier: write(join(dir, 'briefs/verifier.md'), `${verifier}\n`)
+        }
+      };
+    },
 
     build: {
       claim: object({ summary: { type: 'string' } }),
       tools: [...READ, 'Edit', 'Write'],
       prepare: ({ issue, brief, verdict }) => ({
         cwd: forge.worktree(join(dir, 'work'), { branch: `item/${issue.url.split('/').pop()}` }),
-        prompt: `${readFileSync(brief, 'utf8')}${verdict ? `\n\nThe last commit failed verification. The verifier's report:\n${readFileSync(verdict.report, 'utf8')}` : ''}\n\nMake the change in this directory by editing files. Do not run git; the host commits for you. Reply with a one-line summary.`
+        prompt: paragraphs(
+          readFileSync(brief, 'utf8'),
+          verdict && `The last commit failed verification. The verifier's report:\n${readFileSync(verdict.report, 'utf8')}`,
+          'Make the change in this directory by editing files. Do not run git; the host commits for you. Reply with a one-line summary.'
+        )
       }),
       finish: ({ summary }, { issue }, { cwd }) => {
         const headSha = forge.commitAll(cwd, `${issue.title ?? issue.url}\n\n${summary}`);
@@ -57,12 +76,19 @@ export const sandboxActors = ({ dir, repo }) => {
         return {
           cwd,
           evidence,
-          prompt: `${readFileSync(brief, 'utf8')}\n\nThe commit under review, ${pr.headSha}, is checked out in this directory. The host ran the tests on it; the evidence below is their real output. You can read files but not run commands, and need not.\n\n${evidence}\n\nGive the verdict, and a report with one line per expectation.`
+          prompt: paragraphs(
+            readFileSync(brief, 'utf8'),
+            `The commit under review, ${pr.headSha}, is checked out in this directory. The host ran the tests on it; ` +
+              'the evidence below is their real output. You can read files but not run commands, and need not.',
+            evidence,
+            'Give the verdict, and a report with one line per expectation.'
+          )
         };
       },
       finish: ({ result, report }, { pr }, { cwd, evidence }, { run }) => {
         forge.removeWorktree(cwd);
-        return { result, sha: pr.headSha, report: write(join(dir, `reports/${run}.md`), `# ${result} at ${pr.headSha}\n\n${report}\n\n## Evidence\n\n${evidence}\n`) };
+        const text = paragraphs(`# ${result} at ${pr.headSha}`, report, '## Evidence', evidence);
+        return { result, sha: pr.headSha, report: write(join(dir, `reports/${run}.md`), `${text}\n`) };
       }
     },
 
@@ -72,7 +98,12 @@ export const sandboxActors = ({ dir, repo }) => {
       tools: [],
       prepare: ({ question, choices, ...facts }) => ({
         cwd: dir,
-        prompt: `You decide for the person. ${question}\nChoose exactly one of: ${choices.join(', ')}.\n\nFacts:\n${JSON.stringify(facts, null, 2)}${facts.verdict?.report ? `\n\nThe verifier's report:\n${readFileSync(facts.verdict.report, 'utf8')}` : ''}\n\nGive your choice and a short why.`
+        prompt: paragraphs(
+          `You decide for the person. ${question}\nChoose exactly one of: ${choices.join(', ')}.`,
+          `Facts:\n${JSON.stringify(facts, null, 2)}`,
+          facts.verdict?.report && `The verifier's report:\n${readFileSync(facts.verdict.report, 'utf8')}`,
+          'Give your choice and a short why.'
+        )
       }),
       finish: (claim, { choices }) => {
         if (!choices.includes(claim.choice)) throw new Error(`${claim.choice} is not one of ${choices.join(', ')}`);

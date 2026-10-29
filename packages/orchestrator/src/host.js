@@ -3,29 +3,33 @@
 // would not take, and returns the journal entry to append and the effects to carry out. The host reads no
 // clock and does no I/O; the driver does both.
 //
-// Effects are XState's own actions, renamed for the outside world:
+// XState's pure transition() does not run anything: it returns the actions a step would run. The host turns
+// four of them into effects for the outside world:
 //   xstate.spawnChild -> { type: 'run', run, actor, input }   start an invoked actor's work
 //   xstate.stopChild  -> { type: 'stop', run }                its state was left; drop its result
-//   delayed raise     -> { type: 'timer', id, event, due }    send event at due
-//   xstate.cancel     -> { type: 'cancel', id }
+//   delayed raise     -> { type: 'timer', id, event, due }    send event at due (an `after` transition)
+//   xstate.cancel     -> { type: 'cancel', id }               the timer's state was left
 import { createHash } from 'node:crypto';
 import { initialTransition, transition } from 'xstate';
 import { machineOf, failing } from './spec.js';
 import { check } from './schema.js';
 
-const DONE = 'xstate.done.actor.';
-const ERROR = 'xstate.error.actor.';
-const INIT = 'xstate.init';
-const AFTER = 'xstate.after.';
+const START = 'xstate.init';
+const DONE = 'xstate.done.actor.'; // + the invoke's id: the actor finished, with event.output
+const ERROR = 'xstate.error.actor.'; // + the invoke's id: the actor failed, with event.error
+const TIMER = 'xstate.after.'; // the event a delayed transition's timer sends
 
 /** A short hash of what the item is: its state and context. Each entry records the one it led to. */
-export const hashOf = (snapshot) => createHash('sha256').update(JSON.stringify([snapshot.value, snapshot.context])).digest('hex').slice(0, 12);
+export const hashOf = (snapshot) => {
+  const json = JSON.stringify([snapshot.value, snapshot.context]);
+  return createHash('sha256').update(json).digest('hex').slice(0, 12);
+};
 
 export class Host {
   #spec;
   #machine;
-  #runs = new Map(); // run id -> { run, id, actor, input }
-  #timers = new Map(); // timer id -> { id, event, due }
+  #runs = new Map(); // run id -> { run, id, actor, input }: actors started and not yet finished
+  #timers = new Map(); // timer id -> { id, event, due }: timers set and not yet fired or cancelled
   journal = [];
   snapshot = null;
 
@@ -38,8 +42,10 @@ export class Host {
   static replay(spec, entries) {
     const host = new Host(spec);
     for (const entry of entries) {
-      const { entry: again } = host.#apply(entry);
-      if (again.hash !== entry.hash) throw new Error(`journal entry ${entry.seq} replays to ${again.hash}, not ${entry.hash}: the spec changed`);
+      const { entry: replayed } = host.#apply(entry);
+      if (replayed.hash !== entry.hash) {
+        throw new Error(`journal entry ${entry.seq} replays to ${replayed.hash}, not ${entry.hash}: the spec changed`);
+      }
     }
     return host;
   }
@@ -50,75 +56,114 @@ export class Host {
 
   /** What is still open: the runs in flight and the timers set, as the effects that started them. */
   get pending() {
-    return [...[...this.#runs.values()].map((r) => ({ type: 'run', ...r })), ...[...this.#timers.values()].map((t) => ({ type: 'timer', ...t }))];
+    const runs = [...this.#runs.values()].map((run) => ({ type: 'run', ...run }));
+    const timers = [...this.#timers.values()].map((timer) => ({ type: 'timer', ...timer }));
+    return [...runs, ...timers];
   }
 
   /** Take one input from outside: { event, at, source, run? }. The first is { type: 'xstate.init', input }. Returns { ok, entry, effects } or { ok: false, reason }. */
   accept(input) {
     const reason = this.#refusal(input);
-    return reason ? { ok: false, reason } : { ok: true, ...this.#apply({ seq: this.journal.length, ...input }) };
+    if (reason) return { ok: false, reason };
+    return { ok: true, ...this.#apply({ seq: this.journal.length, ...input }) };
   }
 
-  // Why an input cannot be taken, or null. An input is the start, a run's completion or error (only from a
-  // run in flight, and a completion only with output its actor's schema allows), a timer that is set, or an
-  // event the spec takes from outside (with a payload its schema allows); and the machine must take it now.
+  // Why an input cannot be taken, or null. Each kind of input has its own check, and then the machine must
+  // take the event in the state it is in.
   #refusal({ event, run }) {
-    const { meta } = this.#spec;
-    const { type, ...payload } = event ?? {};
-    const problems = (schema, value) => check(schema, value, meta.schemas).join('; ');
-    if (!this.snapshot) return type === INIT ? problems(meta.input, event.input) || this.#unmet(initialTransition(this.#machine, event.input)[0]) : 'the item has not started';
-    if (type === INIT) return 'the item has started';
+    const type = event?.type;
+    if (!this.snapshot) return type === START ? this.#refuseStart(event.input) : 'the item has not started';
+    if (type === START) return 'the item has started';
     if (this.done) return 'the item is done';
-    if (type.startsWith(DONE) || type.startsWith(ERROR)) {
-      const open = this.#runs.get(run);
-      if (!open || ![DONE + open.id, ERROR + open.id].includes(type)) return `run ${run} is not in flight for ${type}`;
-      const bad = type.startsWith(DONE) && problems(meta.actors[open.actor], event.output);
-      if (bad) return `${open.actor} output: ${bad}`;
-    } else if (type.startsWith(AFTER)) {
-      if (!this.#timers.has(type)) return `no timer ${type} is set`;
-    } else {
-      if (!meta.events[type]) return `${type} is not an event this machine takes from outside`;
-      const bad = problems(meta.events[type], payload);
-      if (bad) return `${type}: ${bad}`;
-    }
+
+    const reason =
+      type.startsWith(DONE) || type.startsWith(ERROR) ? this.#refuseCompletion(event, run)
+      : type.startsWith(TIMER) ? this.#refuseTimer(type)
+      : this.#refuseOutsideEvent(event);
+    if (reason) return reason;
     return this.snapshot.can(event) ? null : `${type} is not taken in ${JSON.stringify(this.snapshot.value)}`;
   }
 
-  // The initial state's needs, which no transition guards.
-  #unmet(snapshot) {
-    const names = Object.values(snapshot.getMeta()).flatMap((m) => m.needs ?? []);
-    const unmet = failing(this.#spec, names, { context: snapshot.context });
+  // The start: its input must match the spec's input schema, and the first state's needs must hold.
+  #refuseStart(input) {
+    const problems = this.#problems(this.#spec.meta.input, input);
+    if (problems) return problems;
+    const [first] = initialTransition(this.#machine, input);
+    const needs = Object.values(first.getMeta()).flatMap((meta) => meta.needs ?? []);
+    const unmet = failing(this.#spec, needs, { context: first.context });
     return unmet.length ? `the initial state needs ${unmet.join(', ')}` : null;
   }
 
-  #apply(entry) {
-    const { seq, event, run } = entry;
-    if (run) this.#runs.delete(run); // it finished; its stopChild is no effect
-    if (event.type.startsWith(AFTER)) this.#timers.delete(event.type);
-    const [snapshot, actions] = event.type === INIT ? initialTransition(this.#machine, event.input) : transition(this.#machine, this.snapshot, event);
-    this.snapshot = snapshot;
-    const recorded = { ...entry, hash: hashOf(snapshot) };
-    this.journal.push(recorded);
-    return { entry: recorded, effects: actions.flatMap((a) => this.#effect(a, seq, entry.at)) };
+  // A completion or error only from the run in flight for that invoke, and output its actor's schema allows.
+  #refuseCompletion(event, run) {
+    const open = this.#runs.get(run);
+    if (!open || (event.type !== DONE + open.id && event.type !== ERROR + open.id)) {
+      return `run ${run} is not in flight for ${event.type}`;
+    }
+    if (event.type.startsWith(ERROR)) return null;
+    const problems = this.#problems(this.#spec.meta.actors[open.actor], event.output);
+    return problems && `${open.actor} output: ${problems}`;
   }
 
-  #effect({ type, params }, seq, at) {
-    if (type === 'xstate.spawnChild') {
-      const r = { run: `${seq}.${params.id}`, id: params.id, actor: params.src, input: params.input };
-      this.#runs.set(r.run, r);
-      return [{ type: 'run', ...r }];
-    }
-    if (type === 'xstate.stopChild') {
-      const r = [...this.#runs.values()].find((x) => x.id === params.id);
-      return r && this.#runs.delete(r.run) ? [{ type: 'stop', run: r.run }] : [];
-    }
-    if (type === 'xstate.raise' && params.delay != null) {
-      const t = { id: params.id, event: params.event, due: new Date(Date.parse(at) + params.delay).toISOString() };
-      this.#timers.set(t.id, t);
-      return [{ type: 'timer', ...t }];
-    }
-    if (type === 'xstate.cancel') {
-      return this.#timers.delete(params.sendId) ? [{ type: 'cancel', id: params.sendId }] : [];
+  // A timer only while it is set.
+  #refuseTimer(type) {
+    return this.#timers.has(type) ? null : `no timer ${type} is set`;
+  }
+
+  // Any other event only if the spec takes it from outside, with a payload its schema allows.
+  #refuseOutsideEvent({ type, ...payload }) {
+    const schema = this.#spec.meta.events[type];
+    if (!schema) return `${type} is not an event this machine takes from outside`;
+    const problems = this.#problems(schema, payload);
+    return problems && `${type}: ${problems}`;
+  }
+
+  #problems(schema, value) {
+    return check(schema, value, this.#spec.meta.schemas).join('; ');
+  }
+
+  // Step the machine with an accepted input and record it. A finished run and a fired timer are closed first,
+  // so leaving their state does not emit a stop or cancel for them.
+  #apply(entry) {
+    const { seq, event, run, at } = entry;
+    if (run) this.#runs.delete(run);
+    if (event.type.startsWith(TIMER)) this.#timers.delete(event.type);
+
+    const [snapshot, actions] =
+      event.type === START ? initialTransition(this.#machine, event.input) : transition(this.#machine, this.snapshot, event);
+    this.snapshot = snapshot;
+
+    const recorded = { ...entry, hash: hashOf(snapshot) };
+    this.journal.push(recorded);
+    const effects = actions.flatMap((action) => this.#effectOf(action, seq, at));
+    return { entry: recorded, effects };
+  }
+
+  // The effect an action asks of the outside world, and the host's own record of what is open.
+  #effectOf({ type, params }, seq, at) {
+    switch (type) {
+      case 'xstate.spawnChild': {
+        const run = { run: `${seq}.${params.id}`, id: params.id, actor: params.src, input: params.input };
+        this.#runs.set(run.run, run);
+        return [{ type: 'run', ...run }];
+      }
+      case 'xstate.stopChild': {
+        const open = [...this.#runs.values()].find((run) => run.id === params.id);
+        if (!open) return [];
+        this.#runs.delete(open.run);
+        return [{ type: 'stop', run: open.run }];
+      }
+      case 'xstate.raise': {
+        if (params.delay == null) break;
+        const due = new Date(Date.parse(at) + params.delay).toISOString();
+        const timer = { id: params.id, event: params.event, due };
+        this.#timers.set(timer.id, timer);
+        return [{ type: 'timer', ...timer }];
+      }
+      case 'xstate.cancel': {
+        if (!this.#timers.delete(params.sendId)) return [];
+        return [{ type: 'cancel', id: params.sendId }];
+      }
     }
     throw new Error(`no effect for action ${type}`);
   }

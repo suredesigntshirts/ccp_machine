@@ -4,11 +4,15 @@ import assert from 'node:assert/strict';
 import { itemSpec } from '../src/item.js';
 
 const states = Object.entries(itemSpec.states);
-const transitions = (s) => [
-  ...Object.values(s.on ?? {}),
-  ...Object.values(s.after ?? {}),
-  ...(s.invoke ? [s.invoke.onDone, s.invoke.onError] : [])
-].flatMap((t) => [t ?? []].flat()).map((t) => (typeof t === 'string' ? { target: t } : t));
+// Every transition out of a state, each as an object (XState also takes a bare target or a list).
+const transitions = (s) => {
+  const all = [...Object.values(s.on ?? {}), ...Object.values(s.after ?? {})];
+  if (s.invoke) all.push(s.invoke.onDone, s.invoke.onError);
+  return all
+    .filter(Boolean)
+    .flat()
+    .map((t) => (typeof t === 'string' ? { target: t } : t));
+};
 
 test('every guard a state needs or a transition takes is defined', () => {
   const used = states.flatMap(([, s]) => [...(s.meta?.needs ?? []), ...transitions(s).map((t) => t.guard).filter(Boolean)]);

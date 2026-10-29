@@ -30,10 +30,14 @@ async function stepNow($, input) {
     started.add(s.run)
     // A spawn's cwd did not reach the subagent in Claude Code 2.1.312 (it ran in the session's folder), so the
     // prompt names the folder too.
-    const prompt = `Work in the folder ${s.cwd}, with absolute paths under it.\n\n${s.prompt}\n\nWhen you are done, call mcp__orchestrator__return once with { "claim": <your claim> }, the claim matching this JSON schema:\n${JSON.stringify(s.schema)}`
+    const prompt = [
+      `Work in the folder ${s.cwd}, with absolute paths under it.`,
+      s.prompt,
+      `When you are done, call mcp__orchestrator__return once with { "claim": <your claim> }, the claim matching this JSON schema:\n${JSON.stringify(s.schema)}`
+    ].join('\n\n')
     const { agentId, deny } = await $.agent.spawn({ subagentType: `orchestrator:${s.actor}`, prompt, description: `${s.actor} ${s.run}`, cwd: s.cwd })
-    if (agentId) sessions.set(agentId, { run: s.run, claim: undefined })
-    else return stepNow($, { run: s.run, failed: `the session could not start: ${deny}`, source: 'orchestrator' })
+    if (!agentId) return stepNow($, { run: s.run, failed: `the session could not start: ${deny}`, source: 'orchestrator' })
+    sessions.set(agentId, { run: s.run, claim: undefined })
   }
   for (const t of out.timers ?? []) {
     if (timers.has(t.id)) continue

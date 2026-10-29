@@ -7,7 +7,12 @@ import { openItem } from './item.js';
 import { check } from './schema.js';
 
 /** Where an item is: its state, whether it is done (and its output then), and how long its journal is. */
-export const where = (host) => ({ state: host.snapshot?.value ?? null, done: host.done, seq: host.journal.length, ...(host.done ? { output: host.snapshot.output } : {}) });
+export const where = (host) => ({
+  state: host.snapshot?.value ?? null,
+  done: host.done,
+  seq: host.journal.length,
+  ...(host.done ? { output: host.snapshot.output } : {})
+});
 
 /** Why an input about a run cannot be taken ({ refused } or { rejected }), or null when it can. */
 export const refusal = ({ host, actors }, { run, claim }) => {
@@ -29,20 +34,31 @@ export const step = async (item, input) => {
   const no = input?.run && refusal(item, input);
   if (no) return no;
   const { host } = item;
-  const waiting = [];
-  const refused = [];
+
+  // The sessions port for this one step: the run this input answers gets its claim (or its failure); every
+  // other run's job is noted as a session to start, and its work parks until a later step answers it.
+  const toStart = [];
   const sessions = (job, { run }) => {
-    if (run !== input?.run) return waiting.push({ run, ...job }), new Promise(() => {});
-    return 'failed' in input ? Promise.reject(new Error(input.failed)) : Promise.resolve({ claim: input.claim, source: input.source });
+    if (run !== input?.run) {
+      toStart.push({ run, ...job });
+      return new Promise(() => {});
+    }
+    if ('failed' in input) return Promise.reject(new Error(input.failed));
+    return Promise.resolve({ claim: input.claim, source: input.source });
   };
+
+  const refused = [];
   const driver = drive({ ...item, sessions, clock: noTimers, log: (x) => x.refused && refused.push(x.refused) });
   if (input?.event) driver.send(input);
   await Promise.race([driver.settled, driver.idle()]);
-  const open = new Map(host.pending.map((p) => [p.run ?? p.id, p]));
+
+  const openRuns = new Map(host.pending.filter((p) => p.type === 'run').map((p) => [p.run, p]));
   return {
     ...where(host),
     ...(refused.length ? { refused: refused.join('; ') } : {}),
-    sessions: waiting.filter(({ run }) => open.has(run)).map(({ run, prompt, cwd, tools, schema }) => ({ run, actor: open.get(run).actor, prompt, cwd, tools, schema })),
+    sessions: toStart
+      .filter(({ run }) => openRuns.has(run))
+      .map(({ run, prompt, cwd, tools, schema }) => ({ run, actor: openRuns.get(run).actor, prompt, cwd, tools, schema })),
     timers: host.pending.filter((p) => p.type === 'timer')
   };
 };
@@ -50,6 +66,8 @@ export const step = async (item, input) => {
 /** Where the item in dir is, once its journal grows past seq or after seconds: a cheap way to watch it. */
 export const wait = async (dir, seq, seconds = 50) => {
   const until = Date.now() + seconds * 1000;
-  while (openItem(dir).journal.read().length <= seq && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 1000));
+  while (openItem(dir).journal.read().length <= seq && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
   return where(openItem(dir).host);
 };

@@ -46,9 +46,9 @@
         "src": "verify",
         "input": { "issue": "context.issue", "brief": "context.briefs.verifier", "pr": "context.pr" },
         "onDone": [
-          { "target": "awaitingMerge", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
-          { "target": "building", "guard": "failed", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
-          { "target": "replanning", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] }
+          { "target": "awaitingMerge", "description": "PASS at the PR head (awaitingMerge needs verifiedHead)", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
+          { "target": "building", "guard": "failed", "description": "FAIL with a build left (building needs buildsLeft)", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] },
+          { "target": "replanning", "description": "anything else: FAIL with no builds left, or a verdict on an old head", "actions": [{ "type": "set", "params": { "verdict": "event.output" } }] }
         ],
         "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       },
@@ -61,8 +61,8 @@
         "src": "ask",
         "input": { "question": { "value": "Merge this PR at the verified commit?" }, "choices": { "value": ["approve", "reject"] }, "pr": "context.pr", "verdict": "context.verdict" },
         "onDone": [
-          { "target": "merging", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] },
-          { "target": "replanning", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] }
+          { "target": "merging", "description": "approved (merging needs approved)", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] },
+          { "target": "replanning", "description": "rejected", "actions": [{ "type": "set", "params": { "decision": "event.output" } }] }
         ],
         "onError": { "target": "replanning", "actions": [{ "type": "set", "params": { "failure": "event.error" } }] }
       },

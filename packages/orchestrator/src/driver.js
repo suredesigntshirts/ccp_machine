@@ -13,10 +13,10 @@ import { check } from './schema.js';
 export const systemClock = { now: () => new Date().toISOString(), setTimeout, clearTimeout };
 
 export const drive = ({ host, journal, actors, sessions, clock = systemClock, log = () => {} }) => {
-  const inFlight = new Map(); // run -> AbortController
-  const inSession = new Set(); // runs waiting on a session
+  const inFlight = new Map(); // run -> AbortController, for each actor started
+  const inSession = new Set(); // runs whose actor is waiting on a session
   const timers = new Map(); // timer id -> clock handle
-  const whenIdle = [];
+  const whenIdle = []; // resolvers waiting for the item to go idle
   let settle;
   const settled = new Promise((resolve, reject) => (settle = { resolve, reject }));
 
@@ -24,18 +24,21 @@ export const drive = ({ host, journal, actors, sessions, clock = systemClock, lo
   // once pending callbacks have run, so a session that has already answered is not taken for one waited on.
   const checkIdle = () =>
     setImmediate(() => {
-      if ([...inFlight.keys()].every((run) => inSession.has(run))) whenIdle.splice(0).forEach((resolve) => resolve(host.snapshot));
+      const onlySessionsLeft = [...inFlight.keys()].every((run) => inSession.has(run));
+      if (onlySessionsLeft) whenIdle.splice(0).forEach((resolve) => resolve(host.snapshot));
     });
 
+  // One input in: journal it if the host takes it, then carry out its effects.
   const send = (input) => {
     try {
       const result = host.accept({ at: clock.now(), ...input });
-      if (!result.ok) log({ refused: result.reason, ...input });
-      else {
+      if (result.ok) {
         journal.append(result.entry);
         log({ entry: result.entry });
         result.effects.forEach(carryOut);
         if (host.done) close();
+      } else {
+        log({ refused: result.reason, ...input });
       }
       checkIdle();
       return result;
@@ -45,9 +48,11 @@ export const drive = ({ host, journal, actors, sessions, clock = systemClock, lo
     }
   };
 
+  // Do an actor's work: { output, source }, or a thrown error.
   const perform = async ({ actor: name, input, run }, ctx) => {
     const actor = actors[name];
     if (typeof actor === 'function') return actor(input, ctx);
+
     const job = { ...(await actor.prepare(input, ctx)), tools: actor.tools, schema: actor.claim };
     inSession.add(run);
     checkIdle();
@@ -61,40 +66,55 @@ export const drive = ({ host, journal, actors, sessions, clock = systemClock, lo
     }
   };
 
-  const carryOut = (effect) => {
-    if (effect.type === 'run') {
-      const controller = new AbortController();
-      inFlight.set(effect.run, controller);
-      perform(effect, { run: effect.run, signal: controller.signal })
-        .then(
-          ({ output, source }) => ({ source, event: { type: `xstate.done.actor.${effect.id}`, output } }),
-          (err) => ({ source: err?.source ?? effect.actor, event: { type: `xstate.error.actor.${effect.id}`, error: String(err?.message ?? err) } })
-        )
-        .then((input) => inFlight.delete(effect.run) && send({ ...input, run: effect.run }));
-    } else if (effect.type === 'stop') {
-      inFlight.get(effect.run)?.abort();
-      inFlight.delete(effect.run);
-    } else if (effect.type === 'timer') {
-      const fire = () => timers.delete(effect.id) && send({ event: effect.event, source: 'timer' });
-      timers.set(effect.id, clock.setTimeout(fire, Math.max(0, Date.parse(effect.due) - Date.parse(clock.now()))));
-    } else if (effect.type === 'cancel') {
-      clock.clearTimeout(timers.get(effect.id));
-      timers.delete(effect.id);
-    }
+  // Start a run; when its work ends, send its completion or error back in under its run id.
+  const startRun = ({ run, id, actor, input }) => {
+    const controller = new AbortController();
+    inFlight.set(run, controller);
+    perform({ actor, input, run }, { run, signal: controller.signal })
+      .then(
+        ({ output, source }) => ({ source, event: { type: `xstate.done.actor.${id}`, output } }),
+        (err) => ({ source: err?.source ?? actor, event: { type: `xstate.error.actor.${id}`, error: String(err?.message ?? err) } })
+      )
+      .then((finished) => inFlight.delete(run) && send({ ...finished, run })); // a stopped run's result is dropped
   };
 
+  const stopRun = ({ run }) => {
+    inFlight.get(run)?.abort();
+    inFlight.delete(run);
+  };
+
+  const setTimer = ({ id, event, due }) => {
+    const fire = () => timers.delete(id) && send({ event, source: 'timer' });
+    const wait = Math.max(0, Date.parse(due) - Date.parse(clock.now()));
+    timers.set(id, clock.setTimeout(fire, wait));
+  };
+
+  const cancelTimer = ({ id }) => {
+    clock.clearTimeout(timers.get(id));
+    timers.delete(id);
+  };
+
+  const carryOut = (effect) => ({ run: startRun, stop: stopRun, timer: setTimer, cancel: cancelTimer })[effect.type](effect);
+
+  // The item is done: drop whatever is still open.
   const close = () => {
-    inFlight.forEach((c) => c.abort());
-    timers.forEach((t) => clock.clearTimeout(t));
+    inFlight.forEach((controller) => controller.abort());
+    timers.forEach((handle) => clock.clearTimeout(handle));
     settle.resolve(host.snapshot);
   };
 
+  // Resume: start again what the journal left open.
   host.pending.forEach(carryOut);
   if (host.done) close();
+
   return {
     send,
     settled,
     /** Resolves with the snapshot once this process has nothing left to do but wait. */
-    idle: () => new Promise((resolve) => (whenIdle.push(resolve), checkIdle()))
+    idle: () =>
+      new Promise((resolve) => {
+        whenIdle.push(resolve);
+        checkIdle();
+      })
   };
 };
