@@ -327,8 +327,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   minutes). Every `agent:` actor is checked against the SubagentStart hook's record
   (`ledger/sessions/<session_id>/agents/<agent_id>.json`): `ok`, `no record` (no such subagent started in that
   session, another agent_type, or no session ledger yet) or `outside window` (before the subagent started or
-  after the session's last filed turn). The start is the earliest one a hook recorded: that record's `at`, or the
-  bind's call record `ledger/sessions/<session_id>/calls/start-<agent_id>.json`. It exits 1 on any failure and never writes; run it once the sessions'
+  after the session's last filed turn). The start is the earliest one recorded: that record's `at`, the
+  bind's call record `ledger/sessions/<session_id>/calls/start-<agent_id>.json`, or the store's own
+  `WORKER_STARTED` row naming that agent, sent by its parent session (an agent bound before call records
+  existed has only that row); a row from any other session does not count. It exits 1 on any failure and never writes; run it once the sessions'
   turns have ended.
 - Roles (spec workItem, Roles): an item records its requester, triagers, workers, criterion checkers and
   stand-in answerers by actor, a session or an agent (a subagent), and refuses an event from an actor that
