@@ -1,0 +1,27 @@
+{
+  "page": "introspection",
+  "title": "Where the time and money went",
+  "description": "Cost and time of the harness's own work (#143), modelled on the ccp cost timeline: headline figures (cost at list price, per landed PR, overhead share, active time, the last hour and day), cost by role, by model and by item (each item's bar split by role; select an item for its runs and lead turns, a lead turn shared by several items listed under each and counted once), a timeline of runs in tree order (each lead session, then the agents it spawned: wall time pale, active segments solid, waits dashed; expand and collapse), every run, and coverage: subagents tied to no item, sessions with no ledger and the placeholders among the fields read. The page reads a history's events.jsonl and, beside it, usage.jsonl (reads.with; history.schema.json usage, which scripts/history/usage.mjs writes), of each only the fields below; harness page --live --page introspection renders it, and its refresh button reads both again through the Artifact files capability. The roles whose runs are overhead are view.overheadRoles, each a spawn role (harness meta.agentEvents.roles).",
+  "reads": {
+    "file": "events.jsonl",
+    "schemaVersion": { "min": 1, "max": 1 },
+    "with": {
+      "usage.jsonl": ["kind", "item", "items", "role", "agentType", "model", "agentId", "session", "segment", "turn", "start", "end", "activeMs", "requests", "input", "cacheRead", "cacheWrite", "output", "cost", "unbound.agentId", "unbound.agentType", "unbound.reason", "unbound.cost"]
+    }
+  },
+  "events": {
+    "RUN_SUCCEEDED": ["to", "event.pr"],
+    "MERGED": ["to", "event.pr"],
+    "*": ["at", "actor"]
+  },
+  "spec": {
+    "workItem": { "events": ["RUN_SUCCEEDED", "MERGED"] }
+  },
+  "view": {
+    "overheadRoles": ["verifier", "triager", "stand-in"]
+  },
+  "db": {
+    "collection": "refreshes",
+    "fields": ["page", "at", "ms", "storeVersion", "schemaVersion", "bytes", "ok", "error"]
+  }
+}

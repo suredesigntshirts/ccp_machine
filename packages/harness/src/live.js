@@ -3,8 +3,9 @@
 // render a page and to check it against its needs file; `harness page --live` also inlines its source in the page
 // (each `export ` dropped), so the refresh button and flow replay's step buttons run the same code. It has no imports and touches no Node API. Everything a page reads goes
 // through project() or projectLog(), which copy only the fields the page's needs file declares, of its file and of the
-// file it reads beside it (reads.with: flow replay's steps.jsonl, which harness replay --steps writes). The ledger's
-// Time and tokens sections read usage.jsonl (reads.onDemand) only when one is opened (client, usageSection).
+// file it reads beside it (reads.with: flow replay's steps.jsonl, which harness replay --steps writes, joined row by
+// row; introspection's usage.jsonl, which scripts/history/usage.mjs writes, read as rows of its own: projectBeside).
+// The ledger's Time and tokens sections read usage.jsonl (reads.onDemand) only when one is opened (client, usageSection).
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -181,11 +182,14 @@ function logProblem(rows, needs, absentMeans, also = {}) {
   const { min, max } = needs.reads.schemaVersion;
   const off = rows.findIndex((r) => { const v = rowSchema(r, absentMeans); return !(typeof v === 'number' && v >= min && v <= max); });
   if (off >= 0) return `This history's ${file} has schemaVersion ${esc(rowSchema(rows[off], absentMeans))} at line ${off + 1}; ${page} reads ${min} to ${max}. ${none}`;
-  // The file it reads beside the history (steps.jsonl): one step per row, joined by version and id.
+  // Each file it reads beside the history: one joined row by row (needs.joins: steps.jsonl, one step per row, by version
+  // and id), or one read as rows of its own (usage.jsonl, each with its kind).
   for (const name of Object.keys(needs.reads.with ?? {})) {
     const steps = also[name];
-    const again = `Build it again beside the history: harness replay --steps. ${none}`;
+    const joined = Boolean(needs.joins && needs.joins[name]);
+    const again = `Build it again beside the history: ${joined ? 'harness replay --steps' : 'scripts/history/usage.mjs'}. ${none}`;
     if (!Array.isArray(steps)) return `This page reads ${esc(name)} beside this ${file}, and there is none. ${again}`;
+    if (!joined) { const p = usageRowsProblem(steps, name); if (p) return `${p} ${again}`; continue; }
     const bad = steps.findIndex((s) => !s || s.unreadable);
     if (bad >= 0) return `Line ${bad + 1} of this ${esc(name)} is not JSON. ${again}`;
     const by = new Map(steps.map((s) => [s.version, s]));
@@ -219,7 +223,7 @@ function pick(o, paths) {
  * only the fields declared for that file.
  */
 export function projectLog(rows, needs, also = {}) {
-  const [name, fields] = Object.entries(needs.reads.with ?? {})[0] ?? [];
+  const [name, fields] = Object.entries(needs.reads.with ?? {}).find(([n]) => needs.joins && needs.joins[n]) ?? [];
   const steps = new Map((name && Array.isArray(also[name]) ? also[name] : []).map((s) => [s.version, s]));
   return rows.map((r) => {
     const out = pick(r, ['event.type', ...logFields(needs, r.event.type)]);
@@ -227,6 +231,10 @@ export function projectLog(rows, needs, also = {}) {
     return out;
   });
 }
+
+/** Each file the page reads beside the history as rows of its own (reads.with, not joined): only its declared fields. */
+export const projectBeside = (also, needs) =>
+  Object.fromEntries(Object.entries(needs.reads.with ?? {}).filter(([n]) => !(needs.joins && needs.joins[n]) && Array.isArray(also[n])).map(([n, fields]) => [n, also[n].map((r) => pick(r, fields))]));
 
 // How each file a page reads is parsed and projected, what its data age and timing row say, and which view renders it.
 const FORMATS = {
@@ -253,9 +261,9 @@ const FORMATS = {
 };
 export const formatOf = (needs) => FORMATS[needs.reads.file];
 // The view that renders each page that reads the history; any other page is mission control's.
-const VIEWS = { ledger: renderLedger, 'flow-replay': renderFlowReplay, 'design-log': renderDesignLog };
-/** The page's data, rendered by its view. */
-export const renderData = (view, needs) => (VIEWS[needs.page] ?? renderView)(view, needs);
+const VIEWS = { ledger: renderLedger, 'flow-replay': renderFlowReplay, 'design-log': renderDesignLog, introspection: renderIntrospection };
+/** The page's data, rendered by its view; beside: the files it reads beside the history as rows of their own (projectBeside). */
+export const renderData = (view, needs, beside = {}) => (VIEWS[needs.page] ?? renderView)(view, needs, beside);
 
 // A history value as text, and the placeholders in a row: a placeholder is counted, never shown as a value.
 const text = (v) => (v == null || isLegacy(v) ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
@@ -333,6 +341,19 @@ const usageSum = (list) => ({ tokens: list.reduce((x, r) => x + num(r.input) + n
 const ms = (a, b) => Date.parse(b) - Date.parse(a);
 const isTime = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 
+// One agent's run from its segments: wall span (first start to last end), active time (the sum of the segments),
+// the waiting gaps between them, tokens and cost.
+function runOf(key, list) {
+  list.sort((a, b) => a.segment - b.segment);
+  const ends = list.map((s) => s.end).filter(isTime);
+  const end = isTime(list.at(-1).end) ? list.at(-1).end : ends.sort().at(-1) ?? null;
+  const gaps = list.slice(1).map((s, i) => ({ from: isTime(list[i].end) ? list[i].end : null, to: s.start }))
+    .map((g) => ({ ...g, ms: g.from ? Math.max(0, ms(g.from, g.to)) : null }));
+  const first = list[0];
+  return { key, agentId: first.agentId, session: first.session, item: first.item, role: first.role, agentType: first.agentType, model: first.model, start: first.start, end, segments: list, gaps,
+    wallMs: end ? ms(first.start, end) : null, activeMs: list.reduce((x, s) => x + num(s.activeMs), 0), activeKnown: list.every((s) => typeof s.activeMs === 'number'), ...usageSum(list) };
+}
+
 /** One item's runs (segments, wall span, active time, waiting gaps, tokens, cost), lead turns, total and the file's total. */
 export function usageOf(rows, item) {
   const segs = rows.filter((r) => r.kind === 'segment');
@@ -343,16 +364,7 @@ export function usageOf(rows, item) {
     if (!by.has(key)) by.set(key, []);
     by.get(key).push(s);
   }
-  const runs = [...by].map(([key, list]) => {
-    list.sort((a, b) => a.segment - b.segment);
-    const ends = list.map((s) => s.end).filter(isTime);
-    const end = isTime(list.at(-1).end) ? list.at(-1).end : ends.sort().at(-1) ?? null;
-    const gaps = list.slice(1).map((s, i) => ({ from: isTime(list[i].end) ? list[i].end : null, to: s.start }))
-      .map((g) => ({ ...g, ms: g.from ? Math.max(0, ms(g.from, g.to)) : null }));
-    const first = list[0];
-    return { key, agentId: first.agentId, session: first.session, role: first.role, agentType: first.agentType, model: first.model, start: first.start, end, segments: list, gaps,
-      wallMs: end ? ms(first.start, end) : null, activeMs: list.reduce((x, s) => x + num(s.activeMs), 0), activeKnown: list.every((s) => typeof s.activeMs === 'number'), ...usageSum(list) };
-  }).sort((a, b) => a.start.localeCompare(b.start));
+  const runs = [...by].map(([key, list]) => runOf(key, list)).sort((a, b) => a.start.localeCompare(b.start));
   const lead = leads.filter((l) => l.items.includes(item)).sort((a, b) => a.start.localeCompare(b.start)).map((l) => ({ ...l, shared: l.items.filter((x) => x !== item), ...usageSum([l]) }));
   const own = lead.filter((l) => !l.shared.length);
   return { runs, lead, total: { ...usageSum([...runs.flatMap((r) => r.segments), ...own]), activeMs: runs.reduce((x, r) => x + r.activeMs, 0) + own.reduce((x, l) => x + num(l.activeMs), 0) }, all: usageSum([...segs, ...leads]) };
@@ -403,9 +415,242 @@ ${u.lead.length ? `<tr><th colspan="6">Lead turns</th></tr>${u.lead.map(leadRow)
 // The usage file's text as the section shows it: its rows, only the fields the needs file declares (reads.onDemand).
 function usageSection(textIn, item, needs, name) {
   const rows = parseLog(textIn);
-  const bad = rows.findIndex((r) => !r || r.unreadable || (r.kind !== 'segment' && r.kind !== 'lead'));
-  if (bad >= 0) return `<div class="empty" data-usage-error>Line ${bad + 1} of ${esc(name)} is ${rows[bad] && rows[bad].unreadable ? 'not JSON' : 'not a usage row (history.schema.json usage)'}, so nothing from it is shown.</div>`;
+  const bad = usageRowsProblem(rows, name);
+  if (bad) return `<div class="empty" data-usage-error>${bad} Nothing from it is shown.</div>`;
   return renderUsage(rows.map((r) => pick(r, needs.reads.onDemand[name])), item);
+}
+// Why usage rows cannot be shown (a line not JSON, or a row with no kind: history.schema.json usage), or null.
+function usageRowsProblem(rows, name) {
+  const bad = rows.findIndex((r) => !r || r.unreadable || typeof r.kind !== 'string');
+  return bad < 0 ? null : `Line ${bad + 1} of ${esc(name)} is ${rows[bad] && rows[bad].unreadable ? 'not JSON' : 'not a usage row (history.schema.json usage)'}.`;
+}
+
+// Introspection (usage.jsonl beside the history, reads.with): where the time and money went. Every figure is a sum
+// of usage rows, each agent's run (its segments) and each lead turn counted once; a placeholder adds nothing.
+const COUNTS = ['requests', 'input', 'cacheRead', 'cacheWrite', 'output', 'cost'];
+const sums = (list) => Object.fromEntries(COUNTS.map((k) => [k, list.reduce((x, r) => x + num(r[k]), 0)]));
+const named = (v, none = 'unknown') => (v == null || isLegacy(v) ? none : String(v));
+const LEAD = 'lead';
+const NO_MODEL = 'lead turns (model not in usage.jsonl)';
+const add = (o, k, v) => { o[k] = (o[k] ?? 0) + v; };
+
+/**
+ * The figures of the introspection page, from usage rows and history rows, each projected to the declared fields:
+ * runs (one per agent, its segments joined), lead turns, the sessions they make up in tree order, totals, cost by
+ * role, model and item (a lead turn shared by several items is listed under each and counted once, in `shared`),
+ * overhead (needs.view.overheadRoles), landed PRs, the last hour and day before the newest end, and what is left out:
+ * subagents tied to no item, sessions the history names with no ledger, and the placeholders among the fields read.
+ */
+export function costsOf(usage, rows, needs) {
+  const segs = usage.filter((r) => r.kind === 'segment');
+  const leads = usage.filter((r) => r.kind === 'lead' && Array.isArray(r.items)).map((l) => ({ ...l, role: LEAD, cost: num(l.cost) }))
+    .sort((a, b) => a.start.localeCompare(b.start));
+  const ledgers = usage.filter((r) => r.kind === 'session');
+  const by = new Map();
+  for (const s of segs) {
+    const key = `${s.session}/${s.agentId}`;
+    if (!by.has(key)) by.set(key, []);
+    by.get(key).push(s);
+  }
+  const runs = [...by].map(([key, list]) => { const r = runOf(key, list); return { ...r, ...sums(list), role: named(r.role), model: named(r.model) }; })
+    .sort((a, b) => a.start.localeCompare(b.start));
+  const work = [...runs, ...leads];
+  const total = { ...sums(work), activeMs: work.reduce((x, r) => x + num(r.activeMs), 0), runs: runs.length, leadTurns: leads.length,
+    activeUnknown: segs.filter((s) => typeof s.activeMs !== 'number').length + leads.filter((l) => typeof l.activeMs !== 'number').length };
+  const byRole = {};
+  const byModel = {};
+  for (const r of runs) { add(byRole, r.role, r.cost); add(byModel, r.model, r.cost); }
+  for (const l of leads) { add(byRole, LEAD, l.cost); add(byModel, NO_MODEL, l.cost); }
+  // The item each history row is sent to, and its PR: the merged one, else the last one a run reported.
+  const itemOf = (to) => { const m = /^item:([^/]+)/.exec(typeof to === 'string' ? to : ''); return m ? m[1] : null; };
+  const merged = new Map();
+  const reported = new Map();
+  for (const r of rows) {
+    const type = r.event.type;
+    if (type !== 'MERGED' && type !== 'RUN_SUCCEEDED') continue;
+    const item = itemOf(r.to);
+    const pr = text(r.event.pr);
+    if (item && pr) (type === 'MERGED' ? merged : reported).set(item, pr);
+  }
+  const landed = new Set(merged.values()).size;
+  const names = [...new Set([...runs.map((r) => r.item), ...leads.flatMap((l) => l.items)])].sort();
+  const items = names.map((item) => {
+    const mine = runs.filter((r) => r.item === item);
+    const lead = leads.filter((l) => l.items.includes(item)).map((l) => ({ ...l, shared: l.items.filter((x) => x !== item) }));
+    const own = lead.filter((l) => !l.shared.length);
+    const roles = {};
+    for (const r of mine) add(roles, r.role, r.cost);
+    for (const l of own) add(roles, LEAD, l.cost);
+    return { item, runs: mine, lead, byRole: roles, pr: merged.get(item) ?? reported.get(item) ?? null, merged: merged.has(item),
+      cost: [...mine, ...own].reduce((x, r) => x + r.cost, 0), activeMs: [...mine, ...own].reduce((x, r) => x + num(r.activeMs), 0) };
+  }).sort((a, b) => b.cost - a.cost || a.item.localeCompare(b.item));
+  const sharedTurns = leads.filter((l) => l.items.length > 1);
+  const shared = { turns: sharedTurns, cost: sharedTurns.reduce((x, l) => x + l.cost, 0) };
+  const roles = (needs.view && needs.view.overheadRoles) || [];
+  const overheadCost = runs.filter((r) => roles.includes(r.role)).reduce((x, r) => x + r.cost, 0);
+  // The lead's sessions in tree order: each with its turns and the agents it spawned.
+  const ids = [...new Set([...ledgers.map((l) => l.session), ...work.map((r) => r.session)])];
+  const sessions = ids.map((session) => {
+    const turns = leads.filter((l) => l.session === session);
+    const agents = runs.filter((r) => r.session === session);
+    const times = [...turns.flatMap((l) => [l.start, l.end]), ...agents.flatMap((r) => [r.start, r.end])].filter(isTime).sort();
+    const own = { ...sums(turns), activeMs: turns.reduce((x, l) => x + num(l.activeMs), 0) };
+    return { session, turns, agents, own, items: [...new Set(turns.flatMap((l) => l.items))].sort(), start: times[0] ?? null, end: times.at(-1) ?? null,
+      withChildren: own.cost + agents.reduce((x, r) => x + r.cost, 0), childSums: sums(agents.flatMap((r) => r.segments)) };
+  }).filter((s) => s.turns.length || s.agents.length).sort((a, b) => a.start.localeCompare(b.start));
+  // The last hour and day: work that ended in them, before the newest end in the file (a run's cost is at its end).
+  const endOf = (r) => (isTime(r.end) ? r.end : null);
+  const newest = work.map(endOf).filter(Boolean).sort().at(-1) ?? null;
+  const within = (h) => (newest ? work.filter((r) => endOf(r) && ms(endOf(r), newest) < h * 3600000).reduce((x, r) => x + r.cost, 0) : 0);
+  const unbound = ledgers.flatMap((l) => (Array.isArray(l.unbound) ? l.unbound : []).map((u) => ({ ...u, session: l.session })));
+  // Sessions the history names (a session or one of its agents sent a row) with no ledger read (no session row).
+  const filed = new Set(ledgers.map((l) => l.session));
+  const senders = new Set();
+  for (const r of rows) {
+    const a = r.actor;
+    if (!a || isLegacy(a) || typeof a.id !== 'string') continue;
+    if (a.kind === 'session') senders.add(a.id);
+    if (a.kind === 'agent') senders.add(a.id.split('/')[0]);
+  }
+  const noLedger = [...senders].filter((s) => !filed.has(s)).sort();
+  // The placeholders among the fields read, by file and field, with the first reason.
+  const marks = new Map();
+  const mark = (file, field, v) => {
+    if (!isLegacy(v)) return;
+    const k = `${file} ${field}`;
+    if (!marks.has(k)) marks.set(k, { file, field, count: 0, why: v.legacy });
+    marks.get(k).count++;
+  };
+  for (const r of usage) {
+    for (const [k, v] of Object.entries(r)) if (k !== 'unbound') mark('usage.jsonl', k, v);
+    for (const u of Array.isArray(r.unbound) ? r.unbound : []) for (const [k, v] of Object.entries(u)) mark('usage.jsonl', `unbound.${k}`, v);
+  }
+  for (const r of rows) {
+    mark('events.jsonl', 'actor', r.actor);
+    if (r.event.type === 'MERGED' || r.event.type === 'RUN_SUCCEEDED') { mark('events.jsonl', 'to', r.to); mark('events.jsonl', 'event.pr', r.event.pr); }
+  }
+  return {
+    runs, leads, sessions, total, byRole, byModel, items, shared, landed, perPr: landed ? total.cost / landed : null,
+    overhead: { roles, cost: overheadCost, share: total.cost ? overheadCost / total.cost : null },
+    newest, lastHour: within(1), lastDay: within(24),
+    unbound: { list: unbound, count: unbound.length, cost: unbound.reduce((x, u) => x + num(u.cost), 0) },
+    noLedger, ledgers: ledgers.length, placeholders: [...marks.values()]
+  };
+}
+
+const and = (list) => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`);
+const roleClass = (role) => `r-${String(role).replace(/[^a-z0-9-]/gi, '')}`;
+const short = (id) => esc(String(id).slice(0, 8));
+
+/**
+ * The introspection page: headline figures, cost by role, model and item (select an item for its runs and lead
+ * turns), a timeline of runs in tree order (expand and collapse; look()), every run, and coverage: what the numbers
+ * cannot see. Every figure is computed from the two files (costsOf); each one that leaves something out says so.
+ */
+export function renderIntrospection(rows, needs, beside = {}) {
+  const usage = beside['usage.jsonl'] || [];
+  const c = costsOf(usage, rows, needs);
+  const t = c.total;
+  const left = [
+    c.unbound.count && `${c.unbound.count} subagent${c.unbound.count === 1 ? '' : 's'} tied to no item (${usd(c.unbound.cost)})`,
+    c.noLedger.length && `${c.noLedger.length} session${c.noLedger.length === 1 ? '' : 's'} with no ledger`,
+    'lead turns that wrote no row for an item'
+  ].filter(Boolean);
+  const leaves = `Leaves out ${and(left)}: see Coverage.`;
+  const roles = c.overhead.roles;
+  const tile = (label, value, small, key) => `<div class="tile" data-figure="${key}"><span class="eyebrow">${label}</span><b>${value}</b><small>${small}</small></div>`;
+  const tiles = `<div class="tiles">
+${tile('Cost, list price', usd(t.cost), `${t.runs} runs and ${t.leadTurns} lead turns, each once. ${leaves}`, 'cost')}
+${tile('Per landed PR', c.perPr == null ? '—' : usd(c.perPr), c.landed ? `all of that cost over ${c.landed} merged PR${c.landed === 1 ? '' : 's'}, unmerged items' work included` : 'no PR merged in this history', 'per-pr')}
+${tile('Overhead', pct(c.overhead.share), `${usd(c.overhead.cost)} of runs as ${roles.length ? and(roles) : 'no role'} (the overhead roles its needs file declares)`, 'overhead')}
+${tile('Active time', span(t.activeMs), `runs' segments and lead turns${t.activeUnknown ? `; leaves out ${t.activeUnknown} whose active time is a placeholder` : ''}`, 'active')}
+${tile('Last hour', usd(c.lastHour), c.newest ? `work that ended in the hour to ${esc(clock(c.newest))} UTC, the newest end in usage.jsonl` : 'no end time in usage.jsonl', 'last-hour')}
+${tile('Last day', usd(c.lastDay), c.newest ? `work that ended in the 24 hours to ${esc(clock(c.newest))} UTC` : 'no end time in usage.jsonl', 'last-day')}
+</div>`;
+  const max = (o) => Math.max(1e-9, ...Object.values(o));
+  const bars = (o, attr) => {
+    const list = Object.entries(o).sort((a, b) => b[1] - a[1]);
+    if (!list.length) return '<div class="empty">No cost in usage.jsonl.</div>';
+    const top = max(o);
+    return `<div class="hbars">${list.map(([k, v]) => `<div class="hbar" ${attr}="${esc(k)}"><span class="hl">${esc(k)}</span><span class="ht"><span class="seg ${roleClass(k)}" style="width:${((v / top) * 100).toFixed(2)}%"></span></span><span class="hv">${usd(v)}</span></div>`).join('')}</div>`;
+  };
+  const byRole = `<section><h2>Cost by role</h2><p class="m">Each run's cost under its spawn's role, each lead turn's under lead, each once. A role no spawn recorded is unknown. ${leaves}</p>${bars(c.byRole, 'data-role')}</section>`;
+  const byModel = `<section><h2>Cost by model</h2><p class="m">Each run's cost under the models its ledger lists. usage.jsonl records no model for a lead turn, so lead turns are a bar of their own. ${leaves}</p>${bars(c.byModel, 'data-model')}</section>`;
+  // Cost by item: a bar split by role, and a selectable row that shows the item's runs and lead turns.
+  const pr = (i) => { const n = i.pr && /\/pull\/(\d+)/.exec(i.pr); return i.pr ? `<a href="${esc(i.pr)}">${n ? `#${n[1]}` : esc(i.pr)}</a>${i.merged ? '' : ' <span class="m">not merged</span>'}` : ''; };
+  const top = Math.max(1e-9, ...c.items.map((i) => i.cost), c.shared.cost);
+  const split = (o, whole) => `<span class="ht stack" style="width:${((whole / top) * 100).toFixed(2)}%">${Object.entries(o).sort((a, b) => b[1] - a[1]).map(([r, v]) => `<span class="seg ${roleClass(r)}" title="${esc(r)} ${usd(v)}" style="width:${whole ? ((v / whole) * 100).toFixed(2) : 0}%"></span>`).join('')}</span>`;
+  const legend = `<div class="legend m">${[...new Set(Object.keys(c.byRole))].map((r) => `<span><i class="sw seg ${roleClass(r)}"></i>${esc(r)}</span>`).join('')}</div>`;
+  const itemRow = (i) => `<tr data-item="${esc(i.item)}"><td><button type="button" data-pick="${esc(i.item)}" aria-pressed="false">${esc(i.item)}</button></td><td>${pr(i)}</td><td class="wide">${split(i.byRole, i.cost)}</td><td>${usd(i.cost)}</td><td>${span(i.activeMs)}</td><td>${i.runs.length}</td><td>${i.lead.length}</td></tr>`;
+  const sharedRow = c.shared.turns.length ? `<tr data-item=""><td><b>Shared lead turns</b></td><td></td><td class="wide">${split({ [LEAD]: c.shared.cost }, c.shared.cost)}</td><td>${usd(c.shared.cost)}</td><td>${span(c.shared.turns.reduce((x, l) => x + num(l.activeMs), 0))}</td><td></td><td>${c.shared.turns.length}</td></tr>` : '';
+  const detailRow = (label, r, note = '') => `<tr><td>${label}${note}</td><td class="m">${esc(clock(r.start))}</td><td>${span(num(r.activeMs))}</td><td>${num(r.requests)}</td><td>${usd(r.cost)}</td></tr>`;
+  const detail = (i) => `<div class="card pick" data-detail="${esc(i.item)}" hidden><span class="eyebrow">item ${esc(i.item)}</span><b>${usd(i.cost)}</b> <span class="m">its runs and the lead turns that wrote only for it</span>
+<div class="tablewrap"><table><thead><tr><th>Run or turn</th><th>Start (UTC)</th><th>Active</th><th>Requests</th><th>Cost</th></tr></thead><tbody>
+${i.runs.map((r) => detailRow(`<b>${esc(r.role)}</b> <span class="m">${esc(r.model)} · ${esc(r.agentId)}${r.segments.length > 1 ? ` · ${r.segments.length} segments` : ''}</span>`, r)).join('')}
+${i.lead.map((l) => detailRow(`lead turn ${esc(l.turn)} <span class="m">of ${short(l.session)}</span>`, l, l.shared.length ? `<br><span class="m" data-shared="${esc(l.shared.join(' '))}">also wrote for ${esc(l.shared.join(', '))}: counted once, under Shared lead turns, not in this item's cost</span>` : '')).join('')}
+</tbody></table></div></div>`;
+  const byItem = `<section data-costs-items><h2>Cost by item</h2><p class="m">Each item's runs and the lead turns that wrote rows for it alone, the bar split by role. A lead turn that wrote for several items is listed under each and counted once, on the Shared lead turns row. Select an item to see its runs and lead turns. ${leaves}</p>${legend}
+<div class="tablewrap"><table><thead><tr><th>Item</th><th>PR</th><th>By role</th><th>Cost</th><th>Active</th><th>Runs</th><th>Lead turns</th></tr></thead><tbody>${c.items.map(itemRow).join('')}${sharedRow}</tbody></table></div>
+${c.items.map(detail).join('')}</section>`;
+  // The timeline: each lead session, then the agents it spawned; a pale bar is wall time, solid marks are turns or
+  // segments, a dashed line a wait between segments. A session row starts collapsed and says what it hides.
+  const times = [...c.sessions.flatMap((s) => [s.start, s.end]), ...c.runs.flatMap((r) => r.segments.flatMap((g) => [g.start, g.end]))].filter(isTime).map(Date.parse);
+  const [t0, t1] = times.length ? [Math.min(...times), Math.max(...times)] : [0, 1];
+  const x = (iso) => ((Date.parse(iso) - t0) / Math.max(1, t1 - t0)) * 100;
+  const mark = (cls, from, to, attrs, title) => `<span class="${cls}" ${attrs} style="left:${x(from).toFixed(3)}%;width:${Math.max(0, x(to) - x(from)).toFixed(3)}%" title="${esc(title)}"></span>`;
+  const wall = (from, to) => (isTime(from) && isTime(to) ? mark('wall', from, to, 'data-wall', `wall ${clock(from)} to ${clock(to)} UTC`) : '');
+  const sessionLane = (s) => {
+    const hides = `${s.agents.length} run${s.agents.length === 1 ? '' : 's'}, ${usd(s.withChildren - s.own.cost)}`;
+    const marks = s.turns.map((l) => mark(`seg ${roleClass(LEAD)}`, l.start, l.end, `data-turn="${esc(s.session)}#${esc(l.turn)}"`, `lead turn ${l.turn}: ${clock(l.start)} to ${clock(l.end)} UTC, ${usd(l.cost)}`)).join('');
+    const toggle = s.agents.length ? `<button type="button" data-toggle="${esc(s.session)}" aria-expanded="false" aria-label="Expand ${short(s.session)}">▸</button>` : '<span class="tg"></span>';
+    return `<div class="lane" data-session="${esc(s.session)}"><span class="lane-label">${toggle} <b>lead</b> <span class="m">${short(s.session)}</span>${s.agents.length ? ` <span class="m hides" data-hides="${esc(s.session)}" data-hidden-cost="${(s.withChildren - s.own.cost).toFixed(6)}">+ ${hides}</span>` : ''}</span><div class="lane-track">${wall(s.start, s.end)}${marks}</div></div>` +
+      s.agents.map((r) => `<div class="lane child" data-parent="${esc(s.session)}" hidden><span class="lane-label"><b>${esc(r.role)}</b> <span class="m">${esc(r.item)} · ${esc(r.agentId.slice(0, 7))}</span></span><div class="lane-track">${wall(r.start, r.end)}` +
+        r.segments.map((g) => mark(`seg ${roleClass(r.role)}`, g.start, isTime(g.end) ? g.end : g.start, `data-segment="${esc(r.key)}#${esc(g.segment)}"`, `${r.role} segment ${g.segment}: ${clock(g.start)} to ${isTime(g.end) ? `${clock(g.end)} UTC` : 'end not recorded'}`)).join('') +
+        r.gaps.filter((g) => g.from).map((g) => mark('wait', g.from, g.to, 'data-waiting', `waiting ${span(g.ms)}`)).join('') + '</div></div>').join('');
+  };
+  const timeline = `<section data-timeline><h2>Timeline</h2><p class="m">Runs in tree order: each lead session, then the agents it spawned. Pale bar: wall time. Solid marks: lead turns and agent segments. Dashed: an agent paused, waiting to be resumed. ▸ expands a session; a collapsed one shows the count and cost of the runs it hides. Times are UTC.</p>
+<div class="stepper"><button type="button" data-all="open">Expand all</button><button type="button" data-all="shut">Collapse all</button></div>
+${c.sessions.length ? `<div class="scrollbox"><div class="timeline wide-tl">${c.sessions.map(sessionLane).join('')}<div class="axis m"><span>${esc(clock(new Date(t0).toISOString()))} UTC</span><span>${esc(clock(new Date(t1).toISOString()))} UTC</span></div></div></div>` : '<div class="empty">No run and no lead turn in usage.jsonl.</div>'}</section>`;
+  // Every run, in the same tree order: own counts, and cost with children for a session.
+  const itemLink = (item) => { const i = c.items.find((x) => x.item === item); return i && i.pr ? `<a href="${esc(i.pr)}">${esc(item)}</a>` : esc(item); };
+  const cells = (n) => ['requests', 'input', 'cacheRead', 'cacheWrite', 'output'].map((k) => `<td>${tok(n[k])}</td>`).join('');
+  const runRow = (s) => `<tr data-run="${esc(s.session)}"><td><b>lead</b> <span class="m">${short(s.session)}</span></td><td>lead</td><td>${s.items.map(itemLink).join(', ')}</td><td class="m">not recorded</td><td class="m">${esc(clock(s.start))}</td><td>${s.start && s.end ? span(ms(s.start, s.end)) : '—'}</td><td>${span(s.own.activeMs)}</td>${cells(s.own)}<td>${usd(s.own.cost)}</td><td>${usd(s.withChildren)}</td></tr>` +
+    s.agents.map((r) => `<tr class="sub" data-run="${esc(r.key)}"><td>↳ ${esc(named(r.agentType, ''))} <span class="m">${esc(r.agentId.slice(0, 7))}${r.segments.length > 1 ? ` · ${r.segments.length} segments` : ''}</span></td><td>${esc(r.role)}</td><td>${itemLink(r.item)}</td><td class="m">${esc(r.model)}</td><td class="m">${esc(clock(r.start))}</td><td>${span(r.wallMs)}</td><td>${r.activeKnown ? '' : '≥ '}${span(r.activeMs)}</td>${cells(r)}<td>${usd(r.cost)}</td><td>${usd(r.cost)}</td></tr>`).join('');
+  const every = `<section><h2>Every run</h2><p class="m">Each lead session and the agents it spawned, in tree order. A session's own counts are its lead turns that wrote rows for an item; with children adds its agents. Each item links to its PR when there is one. ${leaves}</p>
+<div class="tablewrap tall"><table class="runs"><thead><tr><th>Run</th><th>Role</th><th>Item</th><th>Model</th><th>Start</th><th>Wall</th><th>Active</th><th>Requests</th><th>Input</th><th>Cache read</th><th>Cache write</th><th>Output</th><th>Own cost</th><th>With children</th></tr></thead><tbody>${c.sessions.map(runRow).join('')}</tbody></table></div></section>`;
+  // Coverage: what the numbers cannot see.
+  const unboundRows = c.unbound.list.map((u) => `<tr data-unbound="${esc(u.session)}/${esc(u.agentId)}"><td class="m">${short(u.session)}/${esc(String(u.agentId).slice(0, 7))}</td><td>${shownAs(u.agentType)}</td><td>${typeof u.cost === 'number' ? usd(u.cost) : PLACEHOLDER}</td><td class="m why">${esc(u.reason)}</td></tr>`).join('');
+  const coverage = `<section data-coverage><h2>Coverage</h2><p class="m">What the numbers above cannot see. usage.jsonl holds ${c.ledgers} session ledger${c.ledgers === 1 ? '' : 's'}; a lead turn that wrote no row for an item is in none of its rows, so no figure here counts it.</p>
+<h3>Subagents tied to no item: <b data-count="unbound">${c.unbound.count}</b>, ${usd(c.unbound.cost)}</h3><p class="m">No binding record and no WORKER_STARTED row names them, so they are in no total above.</p>
+${c.unbound.count ? `<div class="tablewrap tall"><table><thead><tr><th>Agent</th><th>Type</th><th>Cost</th><th>Why no item</th></tr></thead><tbody>${unboundRows}</tbody></table></div>` : ''}
+<h3>Sessions with no ledger: <b data-count="no-ledger">${c.noLedger.length}</b></h3><p class="m">Sessions the history names, as a sender or as the session of an agent that sent a row, with no ledger in usage.jsonl: their time and cost are not here at all.</p>
+${c.noLedger.length ? `<p class="m ids">${c.noLedger.map(esc).join(', ')}</p>` : ''}
+<h3>Placeholders: <b data-count="placeholders">${c.placeholders.reduce((x, p) => x + p.count, 0)}</b></h3><p class="m">Fields this page reads that no source recorded. A placeholder adds nothing to a sum; an agent's counts on an earlier segment are placeholders because its ledger counts them on its last.</p>
+${c.placeholders.length ? `<div class="tablewrap"><table><thead><tr><th>File</th><th>Field</th><th>Rows</th><th>First reason</th></tr></thead><tbody>${c.placeholders.map((p) => `<tr data-placeholder="${esc(p.file)} ${esc(p.field)}"><td class="m">${esc(p.file)}</td><td><code>${esc(p.field)}</code></td><td>${p.count}</td><td class="m why">${esc(p.why)}</td></tr>`).join('')}</tbody></table></div>` : ''}</section>`;
+  return `<div class="costs" data-costs>${tiles}<div class="grid2">${byRole}${byModel}</div>${byItem}${timeline}${every}${coverage}</div>`;
+}
+
+/**
+ * The introspection page's controls, a click inside its data-costs section: a data-toggle button expands or collapses
+ * one session's runs (a collapsed one shows what it hides), a data-all button all of them, and a data-pick button
+ * selects an item (again: none) and shows its runs and lead turns.
+ */
+export function look(e) {
+  const b = e.target && e.target.closest ? e.target.closest('[data-toggle], [data-all], [data-pick]') : null;
+  const g = b && b.closest('[data-costs]');
+  if (!g) return;
+  const set = (id, open) => {
+    for (const t of g.querySelectorAll('[data-toggle]')) if (t.dataset.toggle === id) { t.setAttribute('aria-expanded', String(open)); t.textContent = open ? '▾' : '▸'; }
+    for (const r of g.querySelectorAll('[data-parent]')) if (r.dataset.parent === id) r.hidden = !open;
+    for (const h of g.querySelectorAll('[data-hides]')) if (h.dataset.hides === id) h.hidden = open;
+  };
+  if ('toggle' in b.dataset) set(b.dataset.toggle, b.getAttribute('aria-expanded') !== 'true');
+  if ('all' in b.dataset) for (const t of g.querySelectorAll('[data-toggle]')) set(t.dataset.toggle, b.dataset.all === 'open');
+  if ('pick' in b.dataset) {
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    for (const p of g.querySelectorAll('[data-pick]')) p.setAttribute('aria-pressed', String(on && p === b));
+    for (const d of g.querySelectorAll('[data-detail]')) d.hidden = !(on && d.dataset.detail === b.dataset.pick);
+  }
 }
 
 /**
@@ -687,12 +932,12 @@ export function ageText(meta, now) {
 }
 
 /** The page shell: header with the data age and the refresh button, the data (or the banner), and the refresh trend. */
-export function renderShell(view, problem, cfg, meta) {
+export function renderShell(view, problem, cfg, meta, beside = {}) {
   return `<div class="wrap">
 <header><span class="eyebrow">Harness · ${esc(cfg.page)} · live</span><h1>${esc(cfg.title)}</h1>
 <div class="age"><span id="data-age" class="m">${esc(ageText(meta, meta.readAt))}</span>
 <button id="refresh" type="button">Refresh</button><span id="refresh-msg" class="m" role="status"></span></div></header>
-<div id="view">${problem ? banner(problem, formatOf(cfg.needs).of) : renderData(view, cfg.needs)}</div>
+<div id="view">${problem ? banner(problem, formatOf(cfg.needs).of) : renderData(view, cfg.needs, beside)}</div>
 <section id="refreshes"><h2>Refreshes</h2><div id="trend" class="m">Each refresh is timed and recorded here when the page is open on claude.ai.</div></section>
 </div>`;
 }
@@ -712,6 +957,7 @@ export function client(cfg, meta) {
   $('view').addEventListener('click', step);
   $('view').addEventListener('focusin', step);
   $('view').addEventListener('click', turn);
+  $('view').addEventListener('click', look);
   // An item's Time and tokens section reads the usage file (reads.onDemand) when the viewer opens it, through the
   // files capability; outside claude.ai, from beside the page. A failed read says so there and touches nothing else.
   $('view').addEventListener('toggle', async (e) => {
@@ -757,7 +1003,7 @@ export function client(cfg, meta) {
       if (!files) throw { code: 'unavailable', message: 'this view cannot read project files (open it on claude.ai as a project member)' };
       const r = await files.read(cfg.path);
       const data = f.parse(new TextDecoder().decode(r.bytes));
-      // The file it reads beside its own (reads.with), each a JSONL file as the history is.
+      // The files it reads beside its own (reads.with), each a JSONL file as the history is.
       const also = {};
       let bytes = r.size;
       for (const [name, path] of Object.entries(cfg.also || {})) {
@@ -767,7 +1013,7 @@ export function client(cfg, meta) {
       }
       const problem = schemaProblem(data, cfg.needs, cfg.absentMeans, also);
       const view = problem ? null : f.project(data, cfg.needs, also);
-      $('view').innerHTML = problem ? banner(problem, f.of) : renderData(view, cfg.needs);
+      $('view').innerHTML = problem ? banner(problem, f.of) : renderData(view, cfg.needs, projectBeside(also, cfg.needs));
       const ms = Math.round(performance.now() - t0);
       meta = { readAt: new Date().toISOString(), of: f.of, ...(view ? f.age(view) : { version: null, updatedAt: null }) };
       showAge();

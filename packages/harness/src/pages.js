@@ -8,18 +8,20 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { specs as SPECS } from './machines.js';
 import { CSS, wrapPage } from './page.js';
 import { rowsOf } from './intake.js';
-import { schemaProblem, renderShell, renderView, renderData, viewKeys, formatOf } from './live.js';
+import { schemaProblem, renderShell, renderView, renderData, viewKeys, formatOf, projectBeside } from './live.js';
 import { checkLogNeeds, HISTORY } from './history.js';
 
 const ROOT = new URL('../pages/', import.meta.url);
 export const PAGES = readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
 const REPO = new URL('../../../', import.meta.url);
-// A page's needs, with the diagram it names (needs.diagram, a file beside it: flow replay's diagram.json) read in, so
-// the inlined page script has it too.
+// A page's needs, with the diagram it names (needs.diagram, a file beside it: flow replay's diagram.json) read in, and
+// the key each file it reads beside the history is joined to its rows by (joins: history.schema.json steps.key; a
+// file with no key, usage.jsonl, is rows of its own), so the inlined page script has them too.
 export function loadNeeds(page) {
   const read = (file) => JSON.parse(readFileSync(new URL(`${page}/${file}`, ROOT), 'utf8'));
   const needs = read('needs.json');
-  return needs.diagram ? { ...needs, diagram: { file: needs.diagram, ...read(needs.diagram) } } : needs;
+  const joins = Object.fromEntries(Object.keys(needs.reads.with ?? {}).flatMap((f) => [HISTORY.steps, HISTORY.usage].filter((p) => p.file === f && p.key).map((p) => [f, p.key])));
+  return { ...needs, ...(needs.reads.with && { joins }), ...(needs.diagram && { diagram: { file: needs.diagram, ...read(needs.diagram) } }) };
 }
 
 // What breaks a page's diagram: a box in an undeclared zone or whose repo path does not exist, and an arrow, sender
@@ -103,6 +105,29 @@ function strictView(view, needs, reads) {
   );
 }
 
+// Wrap the rows of a file read beside the history as rows of its own (reads.with, not joined) so a read of a field
+// its needs do not declare is recorded; an array is passed through to its elements.
+function strictBeside(beside, needs, reads) {
+  const prefixes = (list) => new Set(list.flatMap((f) => f.split('.').map((_, i, a) => a.slice(0, i + 1).join('.'))));
+  const out = {};
+  for (const [name, rows] of Object.entries(beside)) {
+    const allowed = prefixes(needs.reads.with[name]);
+    const wrap = (obj, path) =>
+      new Proxy(obj, {
+        get(target, key, recv) {
+          const v = Reflect.get(target, key, recv);
+          if (typeof key !== 'string' || key in Object.prototype) return v;
+          if (Array.isArray(target)) return /^\d+$/.test(key) && v && typeof v === 'object' ? wrap(v, path) : v;
+          const p = path ? `${path}.${key}` : key;
+          if (!allowed.has(p) && !(key in target)) reads.add(`${name} field ${p}`);
+          return v && typeof v === 'object' ? wrap(v, p) : v;
+        }
+      });
+    out[name] = rows.map((r) => wrap(r, ''));
+  }
+  return out;
+}
+
 // Wrap projected history rows so a read of a field the needs file does not declare for the row's type, or for the
 // file it reads beside the history (a row's step), is recorded. An array is passed through to its elements.
 function strictLog(rows, needs, reads) {
@@ -149,6 +174,9 @@ export function checkPage(page, { state, history, also = {}, specs = SPECS, need
     for (const s of refs.states ?? []) if (!stateNode(config, s)) say(`names ${machine} state "${s}", which spec/${machine}.machine.json does not have`);
     for (const e of refs.events ?? []) if (!hasEvent(config, e)) say(`names ${machine} event ${e}, which spec/${machine}.machine.json does not take`);
   }
+  // The roles a view counts as overhead (needs.view.overheadRoles) are spawn roles (harness meta.agentEvents.roles).
+  const known = Object.keys(specs.harness?.meta?.agentEvents?.roles ?? {});
+  for (const r of needs.view?.overheadRoles ?? []) if (!known.includes(r)) say(`counts role "${r}" as overhead, which harness meta.agentEvents.roles does not name`);
   if (needs.reads.file === 'events.jsonl') {
     out.push(...checkLogNeeds(needs, history, HISTORY, also));
     const named = needs.spec && Object.values(needs.spec).flatMap((m) => m.events ?? []);
@@ -157,7 +185,7 @@ export function checkPage(page, { state, history, also = {}, specs = SPECS, need
     const problem = schemaProblem(history, needs, absentMeansOf(needs), also);
     if (problem) { say(problem); return out; }
     const reads = new Set();
-    renderData(strictLog(formatOf(needs).project(history, needs, also), needs, reads), needs);
+    renderData(strictLog(formatOf(needs).project(history, needs, also), needs, reads), needs, strictBeside(projectBeside(also, needs), needs, reads));
     for (const r of reads) say(`reads ${r}, which ${file} does not declare`);
     return out;
   }
@@ -195,8 +223,15 @@ const LIVE_CSS = `${CSS}
 .bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}
 tr.usage>td{padding-top:0}tr.usage summary{cursor:pointer;color:var(--accent);font-weight:600}[data-usage-body]{display:grid;gap:10px;padding-top:8px;position:sticky;left:10px;max-width:calc(100vw - 58px)}tr.sub td{color:var(--muted);font-size:.8rem}
 .timeline{display:grid;gap:4px}.lane{display:grid;grid-template-columns:minmax(72px,22%) 1fr;gap:8px;align-items:center}.lane-label{font-size:.8rem;overflow-wrap:anywhere}.lane-track{position:relative;height:14px;background:var(--bg);border-radius:3px}
-.lane-track span{position:absolute;top:2px;height:10px;border-radius:2px;min-width:2px}.seg{background:var(--accent)}.seg.r-verifier{background:var(--ok)}.seg.r-stand-in{background:var(--warn)}.seg.r-triager,.seg.r-unknown{background:var(--muted)}.seg.r-lead{background:var(--fg)}.seg.shared{opacity:.45}
-.lane-track .wait{top:6px;height:0;border-top:2px dashed var(--muted);border-radius:0;overflow:visible}.wait i{position:absolute;top:-1px;left:50%;transform:translateX(-50%);font:500 .6rem/1 var(--mono);font-style:normal;color:var(--muted);white-space:nowrap}.axis{display:flex;justify-content:space-between;gap:8px}`;
+.lane-track span{position:absolute;top:2px;height:10px;border-radius:2px;min-width:2px}.seg{background:var(--accent)}.seg.r-verifier{background:var(--ok)}.seg.r-stand-in{background:var(--warn)}.seg.r-triager{background:var(--muted)}.seg.r-unknown{background:repeating-linear-gradient(135deg,var(--muted) 0 3px,transparent 3px 6px)}.seg.r-lead{background:var(--fg)}.seg.shared{opacity:.45}
+.lane-track .wait{top:6px;height:0;border-top:2px dashed var(--muted);border-radius:0;overflow:visible}.wait i{position:absolute;top:-1px;left:50%;transform:translateX(-50%);font:500 .6rem/1 var(--mono);font-style:normal;color:var(--muted);white-space:nowrap}.axis{display:flex;justify-content:space-between;gap:8px}
+.costs{display:grid;gap:28px}.costs h3{font-size:.95rem}.grid2{display:grid;gap:28px;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))}.grid2>*{min-width:0}
+.hbars{display:grid;gap:6px}.hbar{display:grid;grid-template-columns:minmax(80px,38%) 1fr auto;gap:8px;align-items:center;font-size:.85rem}.hl{overflow-wrap:anywhere}.hv{font-variant-numeric:tabular-nums}
+.ht{display:flex;height:12px;background:var(--bg);border-radius:3px;overflow:hidden;min-width:2px}.ht>.seg{display:block;height:100%;min-width:1px}.ht.stack{background:none}td.wide{min-width:160px;width:40%}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px}.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.costs button[data-pick],.lane-label button{font:inherit;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);border-radius:6px;padding:1px 8px;cursor:pointer}.lane-label button{padding:0 6px}.tg{display:inline-block;width:1.6em}
+.scrollbox{overflow:auto;max-height:40rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}.wide-tl{min-width:760px}.wide-tl .lane{grid-template-columns:240px 1fr}.wide-tl .lane-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lane[hidden],.hides[hidden]{display:none}.lane.child .lane-label{padding-left:2em}
+.lane-track .wall{top:1px;height:12px;background:var(--accent-soft);border:1px solid var(--line);border-radius:3px}.lane-track .seg{z-index:1}table.runs td,table.runs th{white-space:nowrap}.ids{overflow-wrap:anywhere}.tablewrap.tall{max-height:32rem;overflow:auto}.costs td.why{min-width:16em}.costs td code{overflow-wrap:normal;white-space:nowrap}.costs .tile{align-content:start}.tablewrap.tall th{position:sticky;top:0;background:var(--surface)}`;
 
 /**
  * A live page: its data as it was at render (a store's state.json for mission control, a history's rows for the
@@ -224,7 +259,7 @@ export function renderLivePage(data, { page = 'mission-control', also = {}, proj
   const problem = schemaProblem(data, needs, cfg.absentMeans, also);
   const view = problem ? null : format.project(data, needs, also);
   const meta = { readAt: now, of: format.of, ...(view ? format.age(view) : { version: null, updatedAt: null }) };
-  const body = `${renderShell(view, problem, cfg, meta)}\n<script>${LIVE_SRC}\nclient(${json(cfg)}, ${json(meta)});</script>`;
+  const body = `${renderShell(view, problem, cfg, meta, problem ? {} : projectBeside(also, needs))}\n<script>${LIVE_SRC}\nclient(${json(cfg)}, ${json(meta)});</script>`;
   return wrapPage(cfg.title, body, { standalone, css: LIVE_CSS });
 }
 

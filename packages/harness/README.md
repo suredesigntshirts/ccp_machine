@@ -151,6 +151,26 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   pages on each and checks every count against the rows and the steps, and that every row is a step or a refusal.
   `test/flow-replay-diagram.test.js` checks the pretty-printed values, the diagram data against the repo, what each
   step lights, and the inlined `step()` lighting and explaining boxes.
+- The introspection page (`pages/introspection/needs.json`, #143): where the time and money went, the ledger's live
+  page over the same history with `usage.jsonl` beside it (`reads.with`, read with the history at render and on
+  Refresh, as rows of their own: a file whose part of `history.schema.json` names a `key`, the steps, is joined to the
+  rows instead). `harness page --live --page introspection --dir <history>` renders it; of each file it reads only
+  the fields its needs file declares. `costsOf()` in `src/live.js` makes every figure from the two files, each agent's
+  run (its segments) and each lead turn once: headline tiles (cost at list price, cost per landed PR, the overhead
+  share of the runs whose role is one of the needs file's `view.overheadRoles`, named on the page and held by
+  `checkPage` to the spawn roles, harness `meta.agentEvents.roles`; active time; the cost of work that ended in the
+  hour and the day before the newest end in usage.jsonl), cost by role, by model (usage.jsonl has no model for a lead
+  turn: its own bar) and by item (each bar split by role; selecting an item shows its runs and lead turns; a lead turn
+  that wrote for several items is listed under each and counted once, on a Shared lead turns row), a timeline in tree
+  order (each lead session, then the agents it spawned: wall time a pale bar, turns and segments solid, waits dashed;
+  a session starts collapsed, saying the count and cost of the runs it hides, and `look()` expands and collapses it),
+  every run (requests, input, cache read, cache write, output, own cost and cost with children; an item links to its
+  PR, the merged one else the last one a run reported) and coverage: the subagents tied to no item, with their count
+  and cost (usage.jsonl's session rows), the sessions the history names with no ledger, and the placeholders among the
+  fields read. Each figure that leaves something out says so. `test/introspection.test.js` builds the files from
+  fixture ledgers and store rows and checks the totals, the shared turn, the overhead share, the resumed agent and that
+  doubling every cost doubles every dollar figure; `pages:check` expands and collapses a timeline row and selects an
+  item in Chromium at 390 and 1280 px, light and dark.
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
@@ -223,7 +243,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
   `usage.mjs <ledger sessions dir> <events.jsonl>` (#132) reads the session ledgers the Stop hook files, the agent
   and call records beside them and a store's or a history's rows, and prints `usage.jsonl`: one row per agent
-  segment (each start and resume of an agent tied to an item) and one per lead turn that wrote rows for an item,
+  segment (each start and resume of an agent tied to an item), one per lead turn that wrote rows for an item and one
+  per session ledger it read, naming each subagent it lists that no item could be tied to (with why and its cost),
   as `history.schema.json` usage declares (its description is the rules, rendered in `spec/SPEC.md`); stderr lists
   each subagent it could not tie to an item, with why, and the counts.
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
