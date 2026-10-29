@@ -152,7 +152,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
   `meta.sources`, `upcast` migrates a row from a store that predates a field (the schema's `upcast`: each envelope
-  field and each field its event type needs that the row lacks becomes a labelled `legacy` placeholder),
+  field and each field its event type needs that the row lacks becomes a labelled `legacy` placeholder), `eraEnd`
+  writes the `ERA_ENDED` row that ends a store's era (its actor and source placeholders, as no one sent it),
   `placeholders` (by era: the store a row was read from, else the kind of source, then by field) and `outOfBand`
   list what doctor will report, and `dedupe` applies the identity
   rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
@@ -205,11 +206,17 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   read from a copy of the Library's `harness/` folder: the stores `state/main`, `state/dogfood` and `state/dogfood2`
   (refs `main`, `dogfood`, `dogfood2`), both repos in `archive/github/` (`github/<owner>--<repo>`) and every session
   in `archive/sessions/` (`sessions/<id>`); a source missing refuses the build with nothing written. It runs the
-  extractors on each, joins their rows, gives each store's rows the routes its own outbox logged, and puts each
-  store's acks (not its withdrawals, which the replay writes itself) in `acks.jsonl` on the effects replay queued
-  again for that store's rows, with the same id, name, subject and params, in time order as replay feeds them, so no
-  effect its store acked is pending; `report.json` also lists each source with its rows and every skip with its
-  reason, and `acks` counts the acks carried. Without `--from` acks are not carried, and every effect is pending.
+  extractors on each and joins their rows. Each store is an era (#141, harness `meta.store.eras`): its rows were
+  admitted by the rules of their time, so the join ends each one with an `ERA_ENDED` row after its last row
+  (`history.js` `eraEnd`), carrying the store's `state.json` snapshot as it is and the effects its outbox holds that
+  its acks never close. Replay does not apply an era's rows (the store's own, and a GitHub or session row addressed
+  to an item the era's record holds, before its mark): their step names the era and changes nothing, and the mark
+  puts the era's record of each of its items in place (a later era's record of an item wins), with its pending
+  effects. Only the rows after an item's era, and rows no era holds, meet today's machine. Two stores' rows are never
+  one fact, so an id two stores share is two rows, each a fact of its own era, and an item filed again in a later
+  store is filed in both. `report.json` also lists each source with its rows and every skip with its reason, and
+  `eras` gives each era's rows, the items its record holds and the effects it left pending. A store with no
+  `state.json` refuses the build. Without `--from` no era is ended, and every effect is pending.
   An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
   `usage.mjs <ledger sessions dir> <events.jsonl>` (#132) reads the session ledgers the Stop hook files, the agent
   and call records beside them and a store's or a history's rows, and prints `usage.jsonl`: one row per agent
@@ -248,7 +255,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/replay.js`: `harness replay` rebuilds the harness from `events.jsonl` on a scratch copy and compares
   state values, children and shared context keys with `state.json`, and regenerated effects with the outbox;
   it names the first divergent event and exits 1. Context keys only one side has are notes (a spec change).
-  Each logged event is a fact (harness `meta.store.facts`): it was admitted by the release that wrote it, so it is
+  On a history whose stores' eras are ended (`ERA_ENDED`, harness `meta.store.eras`), an era's rows are not applied
+  (`eraFacts`): the mark, applied as a fact only, puts the era's own record in place. Each other logged event is a fact (harness `meta.store.facts`): it was admitted by the release that wrote it, so it is
   applied with `apply(..., {fact})`, which runs no admission rule (no host refusal, no machine admission rule) and
   takes the route its row recorded (`route`): each route is taken exactly when the row names it, and a route that
   cannot be taken again is a divergence. A row from before routes were recorded has none: it takes today's routes
@@ -264,7 +272,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `harness replay --steps` also writes `steps.jsonl` beside `events.jsonl` (history.schema.json `steps`), from the
   same replay: for each row, the actors whose state it changed and the context fields it changed (the scratch copy
   before and after the row), the effects it queued with their detail and the store's acks for them, and its route; a row it cannot
-  apply, or a second row of an id it applied already, is a step with the reason and no changes. Run on a history
+  apply, or a second row of an id it applied already, is a step with the reason and no changes, and a row of an era an
+  `ERA_ENDED` row ends is a step naming that era (`era`) and no changes. Run on a history
   `join.mjs` made, it gives the flow replay page what each row did.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.

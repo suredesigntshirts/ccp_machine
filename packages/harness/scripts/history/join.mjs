@@ -5,18 +5,21 @@
 // the current code (as harness replay does, each row a fact), and report.json lists the dropped rows, the conflicts and
 // the rows that could not be applied. With --from <dir> (a copy of the Library's harness/ folder) it builds the one
 // history from every source SOURCES lists: it runs the extractors on each (E1 extract-store.mjs, E3 extract-github.mjs,
-// E2 extract-session.mjs) and joins their rows; each store's outbox gives its rows their routes, its acks go to the
-// effects replay queued again for its rows (acks.jsonl), and report.json also lists each source's rows and skips, each
-// skip with its reason. It reads its inputs only and writes nothing outside --out, which must not exist yet.
+// E2 extract-session.mjs) and joins their rows; each store is an era, ended by an ERA_ENDED row carrying its state.json
+// and the effects it never acked (history.js eraEnd, harness meta.store.eras), so replay takes each item's state at its
+// era's end from the store's own record and applies today's machine only to the rows after; report.json also lists each
+// source's rows and skips, each skip with its reason, and each era's rows, items and pending effects. It reads its
+// inputs only and writes nothing outside --out, which must not exist yet.
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { validate, dedupe } from '../../src/history.js';
+import { validate, dedupe, eraEnd } from '../../src/history.js';
 import { openStore } from '../../src/store.js';
 import { init, apply } from '../../src/runtime.js';
-import { effectKey } from '../../src/replay.js';
+import { effectKey, eraFacts } from '../../src/replay.js';
+import { specs } from '../../src/machines.js';
 
 // The one history's sources under --from: these stores (state/<name>), these repos (archive/github/<owner>--<repo>)
 // and every session archived (archive/sessions/<id>). Each is read as the archive ref it is joined under.
@@ -35,9 +38,8 @@ const parse = (text) => text.split('\n').filter((l) => l.trim()).map((l) => JSON
 const read = (f) => parse(readFileSync(f, 'utf8'));
 const readIf = (f) => (existsSync(f) ? read(f) : []);
 
-// The rows: each candidate file's or, with --from, each source's by its extractor, and each store's outbox and acks.
+// The rows: each candidate file's or, with --from, each source's by its extractor, each store's ended by its era's mark.
 const sources = [];
-const stores = new Map();
 let rows = [];
 if (o.from) {
   const at = (...p) => join(o.from, ...p);
@@ -53,7 +55,9 @@ if (o.from) {
     const got = parse(r.stdout);
     rows.push(...got);
     sources.push({ ref, rows: got.length, skips: parse(r.stderr).filter((l) => l.skip).map(({ skip, reason }) => ({ ...skip, reason })) });
-    if (script === 'extract-store.mjs') stores.set(ref, { outbox: readIf(join(dir, 'outbox.jsonl')), acks: readIf(join(dir, 'acks.jsonl')) });
+    if (script !== 'extract-store.mjs') continue;
+    const state = existsSync(join(dir, 'state.json')) ? JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8')) : fail(`${dir}: no state.json, the record that ends its era; nothing written`);
+    rows.push(eraEnd(ref, state, readIf(join(dir, 'outbox.jsonl')), readIf(join(dir, 'acks.jsonl')), got.map((r) => r.at).sort().at(-1)));
   }
 } else rows = files.flatMap(read);
 
@@ -67,58 +71,34 @@ if (!history.length) fail('no rows, nothing written');
 const store = openStore(o.out);
 init(store, {}, history[0].at);
 // Each row is a fact, admitted when it was written: it is applied without the admission rules (harness meta.store.facts),
-// so no row is refused for a rule that changed since. A row that cannot be applied at all is listed as refused.
+// so no row is refused for a rule that changed since. A row of an era an ERA_ENDED row ends is not applied at all: the
+// mark brings the era's own record of it (harness meta.store.eras). A row that cannot be applied is listed as refused.
 // A row that records its route takes it. For a row from before routes were recorded, the effects its source store
-// logged (its outbox; --outbox, by event id): a row whose effects today's route does not give takes the route that
-// gives them, as replay does. Without an outbox such a row takes today's route.
+// logged (--outbox, by event id): a row whose effects today's route does not give takes the route that gives them, as
+// replay does. Without an outbox such a row takes today's route.
 const logged = new Map();
-const key = (ref, id) => `${ref}\n${id}`;
-for (const f of o.outbox ?? []) for (const e of read(f)) logged.set(key('', e.eventId), [...(logged.get(key('', e.eventId)) ?? []), effectKey(e)]);
-for (const [ref, s] of stores) for (const e of s.outbox) logged.set(key(ref, e.eventId), [...(logged.get(key(ref, e.eventId)) ?? []), effectKey(e)]);
-const loggedFor = (r) => logged.get(key(stores.has(r.provenance.from.ref) ? r.provenance.from.ref : '', r.id)) ?? [];
-const routing = o.outbox || stores.size;
+for (const f of o.outbox ?? []) for (const e of read(f)) logged.set(e.eventId, [...(logged.get(e.eventId) ?? []), effectKey(e)]);
 
-// A store's acks (not its withdrawals, which replay writes itself as each row closes them) go to the joined store in
-// time order, as replay feeds them: an ack reaches the effect replay queued again with the same id and the same name,
-// subject and params, for the row of that store that replay applied under that id.
-const appliedFrom = new Map(); // event id -> the row replay applied under it: its source ref and version
-const hostAcks = [...stores].flatMap(([ref, s]) => {
-  const effects = new Map(s.outbox.map((e) => [e.id, e]));
-  return s.acks.filter((a) => a.outcome !== 'withdrawn' && effects.has(a.effectId)).map((a) => ({ ref, ack: a, effect: effects.get(a.effectId) }));
-}).sort((a, b) => String(a.ack.at ?? '').localeCompare(String(b.ack.at ?? '')));
-let fed = 0;
-let acked = 0;
-const feed = (upTo) => {
-  const batch = [];
-  let outbox;
-  for (; fed < hostAcks.length && (upTo === undefined || String(hostAcks[fed].ack.at ?? '') <= upTo); fed++) {
-    const { ref, ack, effect } = hostAcks[fed];
-    if (appliedFrom.get(effect.eventId)?.ref !== ref) continue;
-    outbox ??= new Map(store.outbox().map((e) => [e.id, e]));
-    const queued = outbox.get(effect.id);
-    if (queued && effectKey(queued) === effectKey(effect)) batch.push(ack);
-  }
-  if (batch.length) store.withLock(() => store.appendAcks(batch));
-  acked += batch.length;
-};
-
+const eras = eraFacts(history);
+const applied = new Map(); // event id -> the version of the row replay applied under it
 const refused = [];
 for (const r of history) {
-  feed(r.at);
+  if (eras.has(r)) continue;
   try {
-    const fact = r.route ? { route: r.route } : routing ? { matches: (fx) => JSON.stringify(fx.map(effectKey)) === JSON.stringify(loggedFor(r)) } : {};
+    const fact = r.route ? { route: r.route } : o.outbox ? { matches: (fx) => JSON.stringify(fx.map(effectKey)) === JSON.stringify(logged.get(r.id) ?? []) } : {};
     const done = apply(store, { ...r.event, actor: r.actor, source: r.source, ...(r.relayedBy && { relayedBy: r.relayedBy }) }, { to: r.to === 'harness' ? undefined : r.to, id: r.id, now: r.at, fact });
     // An id applied already (two sources can share one) is applied once, as replay applies it: the later row is refused.
-    if (done.duplicate) refused.push(`${r.id}: replay applies one event per id, and row ${appliedFrom.get(r.id).version} applied ${r.id} already`);
-    else appliedFrom.set(r.id, { ref: r.provenance.from.ref, version: r.version });
+    if (done.duplicate) refused.push(`${r.id}: replay applies one event per id, and row ${applied.get(r.id)} applied ${r.id} already`);
+    else applied.set(r.id, r.version);
   } catch (e) {
     refused.push(`${r.id}: ${e.message}`);
   }
 }
-feed();
 const state = store.read();
 store.write({ ...state, version: history.at(-1).version }, state.version);
 writeFileSync(join(o.out, 'events.jsonl'), history.map((r) => JSON.stringify(r) + '\n').join(''));
-const report = { candidates: o.from ? sources.length : files.length, read: rows.length, rows: history.length, dropped, conflicts, refused, acks: acked, ...(o.from && { sources }) };
+// Each era: the rows it holds as facts, the items its record holds and the effects it left pending.
+const eraReport = Object.fromEntries(history.filter((r) => r.event.type === specs.harness.meta.store.eras.event).map((m) => [m.event.era, { rows: [...eras.values()].filter((e) => e === m.event.era).length, items: Object.keys(m.event.snapshot.children ?? {}).length, pending: m.event.pending.length }]));
+const report = { candidates: o.from ? sources.length : files.length, read: rows.length, rows: history.length, dropped, conflicts, refused, eras: eraReport, ...(o.from && { sources }) };
 writeFileSync(join(o.out, 'report.json'), JSON.stringify(report, null, 1) + '\n');
-console.log(JSON.stringify({ out: o.out, read: rows.length, rows: history.length, dropped: dropped.length, conflicts: conflicts.length, refused: refused.length, acks: acked, ...(o.from && { skips: sources.reduce((n, s) => n + s.skips.length, 0) }) }));
+console.log(JSON.stringify({ out: o.out, read: rows.length, rows: history.length, dropped: dropped.length, conflicts: conflicts.length, refused: refused.length, eras: Object.keys(eraReport).length, ...(o.from && { skips: sources.reduce((n, s) => n + s.skips.length, 0) }) }));

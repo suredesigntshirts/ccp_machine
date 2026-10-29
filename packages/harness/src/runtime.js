@@ -15,6 +15,7 @@ const SCHEMA_VERSION = specs.harness.meta.store.schemaVersion;
 // The envelope every event carries: who sent it and where it came from. The machines' guards read both.
 // The actor kinds and their id forms are the spec's (harness meta.actors): an agent is <session_id>/<agent_id>.
 const ACTORS = specs.harness.meta.actors;
+const ERAS = specs.harness.meta.store.eras;
 export const ACTOR_KINDS = Object.keys(ACTORS);
 export const SOURCE_KINDS = Object.keys(specs.harness.meta.sources);
 // No event says it is the person's: `person` is refused, and the person's touches are taps on posted cards and, for a grant, their messages.
@@ -152,7 +153,8 @@ export function init(store, input = {}, now = new Date().toISOString()) {
  * no admission rule runs (harness meta.store.facts), neither a host refusal nor a machine admission rule; only its state
  * change does. A row that recorded its route (fact.route) takes that route; a row from before routes were recorded takes
  * today's, or, when its effects differ from the logged ones (fact.matches), the one route taken or passed over that gives
- * them. `rerouted`, in the result, says how the route differs from today's.
+ * them. `rerouted`, in the result, says how the route differs from today's. An ERA_ENDED fact ends an era: its record
+ * becomes the harness's state (harness meta.store.eras, endEra below).
  * @returns {{version: number, duplicate?: boolean, refused?: boolean, why?: string, effects: object[], route?: string[], rerouted?: string}}
  */
 export function apply(store, event, { to, id, now = new Date().toISOString(), dryRun = false, fact = null } = {}) {
@@ -165,6 +167,7 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
     if (!state) throw new Error(`no harness in ${store.dir}; run init first`);
     const eventId = id ?? `e${state.version}`;
     if (state.appliedIds.includes(eventId)) return { version: state.version, duplicate: true, effects: [] };
+    if (fact && !dryRun && event.type === ERAS.event) return endEra(store, state, event, { to, eventId, now });
     // The harness restored, collecting the effects of the event it is sent and the routes it takes; for a fact, with
     // the routes forced (taken: the logged route; force: one route of a search).
     const rung = rungAt(store, now);
@@ -224,6 +227,37 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
     store.appendAcks(closed.map((p) => ({ effectId: p.id, outcome: 'withdrawn', note: `${p.subject} withdrawn by ${eventId}`, at: now })));
     return { version, effects: queued, route, ...(rerouted && { rerouted }), ...(closed.length && { closed: closed.map((p) => p.id) }) };
   });
+}
+
+// An era's end, only as a fact (harness meta.store.eras): the children its record holds replace the harness's, its
+// state value and context become the harness's but for the byItem lists, which keep the elements for items it does not
+// hold, and its pending effects are queued as this row's. The result must restore under today's machines.
+function endEra(store, state, event, { to, eventId, now }) {
+  const { actor: by, source, relayedBy, receivedAt, ...rest } = event;
+  const era = rest.snapshot;
+  const held = new Set(Object.keys(era.children ?? {}));
+  const was = state.snapshot;
+  const context = { ...was.context };
+  for (const [k, v] of Object.entries(era.context ?? {})) {
+    const item = ERAS.byItem[k] && ((x) => new RegExp(ERAS.byItem[k]).exec(String(x))?.[1]);
+    context[k] = item ? [...new Set([...(was.context?.[k] ?? []).filter((x) => !held.has(item(x))), ...v])] : v;
+  }
+  const snapshot = { ...was, value: era.value, context, children: { ...was.children, ...era.children } };
+  const next = { ...state, snapshot };
+  try {
+    const actor = restore(next, null, () => {}).start();
+    const error = actor.getSnapshot().status === 'error' && actor.getSnapshot().error;
+    actor.stop();
+    if (error) throw error;
+  } catch (e) {
+    throw new Error(`${rest.era}'s record does not restore under today's machines: ${e.message ?? e}`);
+  }
+  const version = state.version + 1;
+  const queued = (rest.pending ?? []).map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
+  store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: harnessVersion(), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
+  store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, harness: harnessVersion(), route: [], event: rest }]);
+  store.appendOutbox(queued);
+  return { version, effects: queued, route: [] };
 }
 
 const sameRoute = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
