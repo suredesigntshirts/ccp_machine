@@ -193,15 +193,16 @@
         },
         "effects": {
           "type": "array",
-          "description": "Each effect the row queued (id, name, subject) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).",
+          "description": "Each effect the row queued (id, name, subject, and its detail as the outbox holds it, null when it has none) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).",
           "items": {
             "type": "object",
-            "required": ["id", "name", "subject", "acks"],
+            "required": ["id", "name", "subject", "detail", "acks"],
             "additionalProperties": false,
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "name": { "type": "string", "minLength": 1 },
               "subject": { "type": ["string", "null"] },
+              "detail": {},
               "acks": { "type": "array", "items": { "type": "object", "required": ["outcome"], "properties": { "outcome": { "type": "string" }, "at": { "type": ["string", "null"] }, "note": { "type": ["string", "null"] } } } }
             }
           }

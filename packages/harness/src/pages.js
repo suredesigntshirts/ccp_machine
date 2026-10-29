@@ -4,7 +4,7 @@
 // the spec to that declaration and names the page and the missing piece; renderLivePage() builds the page that
 // reads only what the declaration lists. The store layout (schemaVersion) and the refresh rules are the spec's
 // (harness.machine.json meta.store and meta.pages).
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { specs as SPECS } from './machines.js';
 import { CSS, wrapPage } from './page.js';
 import { rowsOf } from './intake.js';
@@ -13,7 +13,32 @@ import { checkLogNeeds, HISTORY } from './history.js';
 
 const ROOT = new URL('../pages/', import.meta.url);
 export const PAGES = readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-export const loadNeeds = (page) => JSON.parse(readFileSync(new URL(`${page}/needs.json`, ROOT), 'utf8'));
+const REPO = new URL('../../../', import.meta.url);
+// A page's needs, with the diagram it names (needs.diagram, a file beside it: flow replay's diagram.json) read in, so
+// the inlined page script has it too.
+export function loadNeeds(page) {
+  const read = (file) => JSON.parse(readFileSync(new URL(`${page}/${file}`, ROOT), 'utf8'));
+  const needs = read('needs.json');
+  return needs.diagram ? { ...needs, diagram: { file: needs.diagram, ...read(needs.diagram) } } : needs;
+}
+
+// What breaks a page's diagram: a box in an undeclared zone or whose repo path does not exist, and an arrow, sender
+// rule, actor kind or store write naming a box it does not declare.
+function diagramProblems(d) {
+  const out = [];
+  const ids = new Set(d.boxes.map((b) => b.id));
+  const zones = new Set(d.zones.map((z) => z.id));
+  const named = (where, id) => { if (!ids.has(id)) out.push(`diagram ${where} names box ${id}, which ${d.file} does not declare`); };
+  for (const b of d.boxes) {
+    if (!zones.has(b.zone)) out.push(`diagram box ${b.id} is in zone ${b.zone}, which ${d.file} does not declare`);
+    if (!b.path || !existsSync(new URL(b.path, REPO))) out.push(`diagram box ${b.id} names ${b.path}, which does not exist in the repo`);
+  }
+  for (const a of d.arrows) for (const id of [a.from, a.to]) named(`arrow ${a.from} → ${a.to}`, id);
+  d.senders.forEach((s, i) => s.boxes.forEach((id) => named(`sender rule ${i + 1}`, id)));
+  for (const [kind, id] of Object.entries(d.actors)) named(`actor kind ${kind}`, id);
+  for (const id of Object.keys(d.writes)) named('writes', id);
+  return out;
+}
 export const STORE_LAYOUT = SPECS.harness.meta.store;
 export const PAGE_RULES = SPECS.harness.meta.pages;
 // What a file a page reads means when it carries no schemaVersion: the store's layout, or the history's.
@@ -116,6 +141,7 @@ export function checkPage(page, { state, history, also = {}, specs = SPECS, need
   const say = (msg) => out.push(`${page}: ${msg}`);
   const file = `pages/${page}/needs.json`;
   if (needs.page !== page) say(`${file} names page "${needs.page}"`);
+  if (needs.diagram) diagramProblems(needs.diagram).forEach(say);
   for (const [kind, id] of Object.entries(needs.kinds ?? {})) if (!specs[id]) say(`kind ${kind} is spec machine "${id}", which the spec does not have`);
   for (const [machine, refs] of Object.entries(needs.spec ?? {})) {
     const config = specs[machine];
@@ -159,6 +185,11 @@ const LIVE_CSS = `${CSS}
 .banner{border-radius:10px;padding:14px 16px;border:2px solid var(--bad);background:var(--bad-soft);color:var(--bad)}
 .stepper{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.stepper button{font:inherit;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}h3{margin:0;font-size:1rem}.step[hidden]{display:none}
 .step{overflow-wrap:anywhere}.step ul{margin:4px 0;padding-left:18px}.step h4{margin:8px 0 0;font-size:.9rem}.step code{white-space:pre-wrap;word-break:break-word}.refused{color:var(--bad)}button[aria-pressed=true]{font-weight:700}
+.step pre.json{display:block;margin:4px 0;padding:8px 10px;font:12px/1.45 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:6px;max-height:280px;overflow:auto;white-space:pre}
+.diagram{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}.diagram svg{display:block;width:100%;min-width:720px;height:auto}.about{min-height:2.6em}
+.zone{fill:none;stroke:var(--line);stroke-dasharray:5 4}.zl{fill:var(--muted);font:500 10px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.box{cursor:pointer;outline:none}.box rect{fill:var(--surface);stroke:var(--muted);stroke-width:1}.box text{fill:var(--fg);font:600 12px var(--sans)}.box.on rect{fill:var(--accent-soft);stroke:var(--accent);stroke-width:2.4}.box.sel rect,.box:focus-visible rect{stroke:var(--warn);stroke-width:2.4;stroke-dasharray:5 3}
+.arrow polyline{fill:none;stroke:var(--muted);stroke-opacity:.45;stroke-width:1.2;marker-end:url(#fr-ah)}.arrow.on polyline{stroke:var(--accent);stroke-opacity:1;stroke-width:2.4;marker-end:url(#fr-ah-on)}#fr-ah path{fill:var(--muted);fill-opacity:.45}#fr-ah-on path{fill:var(--accent)}
 .bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}`;
 
 /**

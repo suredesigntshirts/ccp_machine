@@ -191,12 +191,20 @@ test('the golden history\'s steps light what their rows did, on the page harness
   const steps = parseLog(readFileSync(join(dir, 'steps.jsonl'), 'utf8'));
   const page = shown(renderLivePage(rows, { page: 'flow-replay', also: { 'steps.jsonl': steps } }));
   const litOf = (v) => new RegExp(`<div class="card step" data-version="${v}" data-group="[^"]+" data-lit="([^"]*)"`).exec(page)?.[1].split(' ');
-  const tap = rows.find((r) => r.event.type === 'PERSON_DECIDED');
-  const tapStep = steps.find((s) => s.version === tap.version);
-  assert.ok(tapStep.refused == null && tapStep.actors.some((a) => a.address.includes('/decision:')), 'the golden tap is applied and changes its decision');
-  assert.deepEqual(litOf(tap.version).filter((b) => ['person', 'lead', 'decision', 'events', 'state'].includes(b)).sort(), ['decision', 'events', 'lead', 'person', 'state']);
-  const merged = rows.find((r) => r.event.type === 'MERGED' && r.actor.kind === 'github');
-  assert.deepEqual(litOf(merged.version).slice(0, 4), ['github', 'lead', 'identity', 'cli']);
-  for (const s of steps.filter((s) => s.effects.length)) assert.ok(litOf(s.version).includes('outbox'), `row ${s.version} queued effects`);
+  const kindBox = { harness: 'harness', item: 'item', decision: 'decision', budget: 'budget', audit: 'audit', grant: 'grant' };
+  for (const s of steps) {
+    const lit = litOf(s.version);
+    const applied = s.refused == null;
+    assert.ok(lit.includes('events'), `row ${s.version} is in the history`);
+    assert.equal(lit.includes('state'), applied, `row ${s.version}: the snapshot is written when replay applies it`);
+    assert.equal(lit.includes('outbox'), applied && s.effects.length > 0, `row ${s.version}: the outbox when it queued effects`);
+    assert.equal(lit.includes('acks'), applied && s.effects.some((f) => f.acks.length > 0), `row ${s.version}: the acks when one of its effects has an ack`);
+    for (const c of applied ? [...s.actors, ...s.context] : []) assert.ok(lit.includes(kindBox[c.address.split('/').pop().split(':')[0]]), `row ${s.version}: ${c.address} changed`);
+  }
+  const first = (type, n) => litOf(rows.find((r) => r.event.type === type && r.actor.kind).version).slice(0, n);
+  assert.deepEqual(first('PERSON_DECIDED', 2), ['person', 'lead'], 'a tap: the person, relayed by the lead');
+  assert.deepEqual(first('WORKER_STARTED', 2), ['identity', 'cli'], 'a start: SubagentStart binds the agent');
+  assert.deepEqual(first('WORKER_SPAWNED', 4), ['lead', 'spawnGate', 'identity', 'cli'], 'a spawn: the lead\'s Agent call, recorded by the spawn gate');
+  assert.ok(steps.some((s) => s.refused == null && s.actors.length) && steps.some((s) => s.effects.length) && steps.some((s) => s.refused != null), 'the golden history changes actors, queues effects and has rows replay cannot apply');
   assert.equal(steps.filter((s) => s.effects.some((f) => f.detail !== undefined)).length, steps.filter((s) => s.effects.length).length, 'each queued effect carries its detail');
 });

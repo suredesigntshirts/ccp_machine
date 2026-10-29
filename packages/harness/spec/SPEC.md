@@ -522,4 +522,4 @@ Steps (`steps.jsonl`, joined to the history by `version`): What each row of a hi
 - `route`: The ids of the routes the row took on replay; null when it was refused.
 - `actors` (each: `address`, `before`, `after`): Each actor whose state the row changed: its address (harness, item:<id>, item:<id>/<child id>) and its state before and after, as text (null: the actor was not there).
 - `context` (each: `address`, `field`, `before`, `after`): Each context field the row changed: the actor's address, the field, and its value before and after (null: absent).
-- `effects` (each: `id`, `name`, `subject`, `acks`): Each effect the row queued (id, name, subject) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).
+- `effects` (each: `id`, `name`, `subject`, `detail`, `acks`): Each effect the row queued (id, name, subject, and its detail as the outbox holds it, null when it has none) and the acks the store holds for it, oldest first (none: pending, or a store that keeps no acks, as a joined history).
