@@ -117,6 +117,19 @@ test('T: extract skips a row it cannot turn, naming the line and why; join refus
   assert.deepEqual(readdirSync(store), ['events.jsonl']);
 });
 
+test('T: extract-store lists a legacy placeholder in provenance.placeholders and still skips one the schema does not allow', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
+  const { provenance, ...stored } = rowsOf(readFileSync(RECOVERED, 'utf8'))[0];
+  const dir = join(tmp, 'store');
+  mkdirSync(dir);
+  const bad = { ...stored, id: 'bad-placeholder', at: { legacy: 'no time was recorded' } };
+  writeFileSync(join(dir, 'events.jsonl'), [stored, bad].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const ex = extract(dir, 'fixture/events.jsonl', tmp);
+  assert.deepEqual(ex.rows.map((r) => [r.id, r.provenance.placeholders]), [[stored.id, ['event.message']]]);
+  assert.deepEqual(ex.skips.map((s) => s.skip.line), [2], 'a placeholder in a field the schema does not allow one in is skipped');
+  assert.match(ex.skips[0].reason, /at:/);
+});
+
 test('T: dogfood2 goes through both scripts into a store that replays, passes doctor and shows the same stages', { skip: !DOGFOOD2 && 'the dogfood2 case did not run: HARNESS_DOGFOOD2_DIR names no store (CI has no Library). Run it against a path to dogfood2; it works on a copy' }, async () => {
   const tmp = mkdtempSync(join(tmpdir(), 'history-tracer-'));
   const original = shaDir(DOGFOOD2);
@@ -129,9 +142,9 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.equal(ex.rows.length, lines);
   const out = join(tmp, 'joined');
   // The copy's outbox gives each row the route its logged effects took (harness meta.store.facts).
-  const { report, history } = joinTo([ex.file, RECOVERED, '--outbox', join(copy, 'outbox.jsonl')], out);
-  assert.equal(history.length, lines + 1, 'one history row per events.jsonl line, and the recovered row');
-  assert.deepEqual(history.filter((r) => r.provenance.origin === 'recovered').map((r) => r.id), ['oob-review-footer-pr66']);
+  const { report, history } = joinTo([ex.file, '--outbox', join(copy, 'outbox.jsonl')], out);
+  assert.equal(history.length, lines, 'one history row per events.jsonl line');
+  assert.deepEqual(history.filter((r) => r.event?.type === 'OUT_OF_BAND').map((r) => r.id), ['oob-review-footer-pr66', 'oob-stand-in-acts-for-owner-pr117'], 'both landings out of band, from the store alone');
   assert.deepEqual([report.dropped, report.conflicts], [[], []]);
   isHistory(history);
   const store = openStore(out);
@@ -140,9 +153,9 @@ test('T: dogfood2 goes through both scripts into a store that replays, passes do
   assert.deepEqual(report.refused, [], 'join applies every row as a fact (R1, #85): it refuses none');
   const R1 = ['spawn-toolu_01KyZNYss7BW3tKekro5RPeK', 'spawn-toolu_011auzhHXfFayBACUm5eqxZP', 'start-a1789bcb30965ef75', 'spawn-toolu_01Ey5FUaAHa6NiXrTdCmtYqD', 'spawn-toolu_01SHeiefeUku4ueafvSeLRyu'];
   assert.ok(R1.every((id) => history.some((h) => h.id === id)), 'the rows the tracer refused before R1 are in the history');
-  const d = await doctor(store, { verify: false, now: Date.parse(history.at(-1).at) });
+  const d = await doctor(store, { verify: false, now: Date.parse(history.at(-1).at), pendingMaxMs: Infinity }); // acks are not history, so every effect is pending, however long the store runs
   assert.deepEqual(d.problems, []);
-  assert.deepEqual(d.outOfBand.map((l) => l.split(':')[0]), ['oob-review-footer-pr66'], 'doctor lists the #66 landing out of band');
+  assert.deepEqual(d.outOfBand.map((l) => l.split(':')[0]), ['oob-review-footer-pr66', 'oob-stand-in-acts-for-owner-pr117'], 'doctor lists both landings out of band');
   assert.deepEqual(stages(out), stages(copy), 'mission control shows the same items in the same stages');
   assert.equal(shaDir(copy), copied, 'the copy is untouched');
   assert.equal(shaDir(DOGFOOD2), original, 'the store is untouched');

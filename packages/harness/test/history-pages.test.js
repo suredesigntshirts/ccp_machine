@@ -221,7 +221,7 @@ test('both pages render a joined dogfood2 history, with counts that match its ro
   const ex = spawnSync(process.execPath, [join(SCRIPTS, 'extract-store.mjs'), copy, 'library/harness/state/dogfood2/events.jsonl'], { encoding: 'utf8' });
   assert.equal(ex.status, 0, ex.stderr);
   writeFileSync(join(tmp, 'candidates.jsonl'), ex.stdout);
-  const j = spawnSync(process.execPath, [join(SCRIPTS, 'join.mjs'), join(tmp, 'candidates.jsonl'), join(SCRIPTS, 'recovered/dogfood2.jsonl'), '--out', join(tmp, 'joined')], { encoding: 'utf8' });
+  const j = spawnSync(process.execPath, [join(SCRIPTS, 'join.mjs'), join(tmp, 'candidates.jsonl'), '--out', join(tmp, 'joined')], { encoding: 'utf8' });
   assert.equal(j.status, 0, j.stderr);
   const rows = parseLog(readFileSync(join(tmp, 'joined', 'events.jsonl'), 'utf8'));
   for (const page of PAGES) {
