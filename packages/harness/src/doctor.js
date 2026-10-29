@@ -2,7 +2,7 @@
 // wrong and where, so the orchestrator can stop and report instead of building on a broken store; what
 // cannot be checked yet (GitHub unreachable, a ledger not filed yet for a session that has just acted) is
 // unverifiable, listed but not a problem.
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tryRestore } from './runtime.js';
 import { replay } from './replay.js';
@@ -39,7 +39,8 @@ function waitingOnNothing(snapshot, pending, src = 'harness', path = []) {
 }
 
 /**
- * The store's own checks (for a history, its rows against history.schema.json, with its placeholder counts: history), then (unless verify is false) verify-actors against the ledgers in `ledgers`,
+ * The store's own checks (for a history, its rows against history.schema.json, with its placeholder counts and the rows its
+ * join's report lists refused, by reason class: history), then (unless verify is false) verify-actors against the ledgers in `ledgers`,
  * verify-facts with `fetcher`, and every PR landed on main, bound or not, against its verifier's PASS (gates.js verifyMerges).
  * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
  * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable, warnings
@@ -70,7 +71,10 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
     if (now - Date.parse(e.at) > pendingMaxMs) problems.push(`effect ${e.id} (${e.name}) pending since ${e.at}`);
   // A history (its rows carry provenance: history.schema.json, as scripts/history/join.mjs writes it): every row held
   // to the schema, each error a problem, and its legacy placeholders counted by era and field.
-  const history = events.some((e) => e.provenance) ? { rows: events.length, schemaErrors: events.flatMap(validate), placeholders: placeholders(events) } : null;
+  const history = events.some((e) => e.provenance) ? { rows: events.length, schemaErrors: events.flatMap(validate), placeholders: placeholders(events), refused: {} } : null;
+  // The rows the join could not apply, as its report lists them ("<id>: <reason>"): known, not a divergence (harness meta.store.facts).
+  const report = join(store.dir, 'report.json');
+  const listed = history && existsSync(report) ? JSON.parse(readFileSync(report, 'utf8')).refused ?? [] : [];
   if (history) problems.push(...history.schemaErrors.map((e) => `schema: ${e}`));
   const lock = join(store.dir, 'lock');
   if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s (fix with harness repair)`);
@@ -80,8 +84,12 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   // problem (harness meta.store.facts). A divergence or a different state is: the store is corrupt or lost an event.
   let admittedThen = [];
   if (!error) {
-    const r = replay(store);
+    const r = replay(store, { listed });
     if (r.firstDivergence) problems.push(`replay diverges at ${r.firstDivergence}`);
+    for (const k of r.known) {
+      const reason = k.slice(k.indexOf(': ') + 2).replace(/"[^"]*"/g, '"…"');
+      history.refused[reason] = (history.refused[reason] ?? 0) + 1;
+    }
     for (const d of r.differences) problems.push(`replay: ${d}`);
     admittedThen = r.admittedThen.map((a) => `${a.id} (${a.type}): admitted when written by harness ${a.release?.version ?? 'unknown'}${a.release?.commit ? `@${a.release.commit.slice(0, 7)}` : ''}; today's rules: ${a.why}`);
   }
@@ -100,7 +108,11 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   for (const r of facts.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`verify-facts: ${verifyFactsText([r])}`);
   // A PR landed on main, bound or not, needs the verifier's PASS on its landed head, in the store and as a review on GitHub.
   const merges = verify ? await verifyMerges(store, fetcher ? { fetcher } : {}) : [];
-  for (const r of merges.filter((r) => !['ok', 'outOfBand'].includes(r.result))) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
+  for (const r of merges.filter((r) => !['ok', 'outOfBand', 'era'].includes(r.result))) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
+  // A landing before its era's end was judged by that era's rules (harness meta.invariants reviewOnHead): one line per era.
+  const byEra = Map.groupBy(merges.filter((r) => r.result === 'era'), (r) => r.era);
+  for (const [era, rows] of byEra)
+    admittedThen.push(`era ${era}: ${rows.length} landing${rows.length === 1 ? '' : 's'} before its ERA_ENDED (${rows[0].ended}), judged by that era's rules; today's rule finds no verifier PASS: ${rows.map((r) => r.pr).join(', ')}`);
   // Work done outside the gates (history.schema.json OUT_OF_BAND): listed, never a problem by itself.
   const outOfBandRows = outOfBand(events).map(
     (o) => `${o.id}: ${o.what} (${[o.pr && prKey(o.pr), o.to, o.sha && `at ${o.sha.slice(0, 7)}`].filter(Boolean).join(' ')}), ordered by ${o.orderedBy.kind}:${o.orderedBy.id}, skipped ${o.skipped.join(', ')}`

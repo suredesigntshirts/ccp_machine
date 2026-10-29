@@ -243,7 +243,8 @@ export function apply(store, event, { to, id, now = new Date().toISOString(), dr
 
 // An era's end, only as a fact (harness meta.store.eras): the children its record holds replace the harness's, its
 // state value and context become the harness's but for the byItem lists, which keep the elements for items it does not
-// hold, and its pending effects are queued as this row's. The result must restore under today's machines.
+// hold, and its pending effects are queued as this row's, each keeping its era's id as sourceId. The result must
+// restore under today's machines.
 function endEra(store, state, event, { to, eventId, now }) {
   const { actor: by, source, relayedBy, receivedAt, harness, ...rest } = event;
   const era = rest.snapshot;
@@ -265,7 +266,7 @@ function endEra(store, state, event, { to, eventId, now }) {
     throw new Error(`${rest.era}'s record does not restore under today's machines: ${e.message ?? e}`);
   }
   const version = state.version + 1;
-  const queued = (rest.pending ?? []).map((e, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e }));
+  const queued = (rest.pending ?? []).map(({ id: sourceId, ...e }, i) => ({ id: `${eventId}.${i}`, eventId, at: now, ...e, ...(sourceId && { sourceId }) }));
   store.write({ version, schemaVersion: SCHEMA_VERSION, writtenBy: writtenBy(state.writtenBy), snapshot, appliedIds: [...state.appliedIds, eventId].slice(-SEEN_IDS_KEPT), updatedAt: now }, state.version);
   store.appendEvents([{ id: eventId, version, at: now, to: to ?? 'harness', actor: by, source, harness: harnessVersion(), route: [], event: rest }]);
   store.appendOutbox(queued);
@@ -320,9 +321,12 @@ export const cardAddress = (e) => e.detail?.address || e.subject;
  */
 export function ack(store, effectIds, { outcome = 'done', note, card, by, now = new Date().toISOString() } = {}) {
   const outbox = new Map(store.outbox().map((e) => [e.id, e]));
-  const unknown = effectIds.filter((id) => !outbox.has(id));
+  // An effect an era carried keeps the id its era's host knows it by (sourceId, harness meta.store.eras): either names it.
+  const bySource = new Map([...outbox.values()].filter((e) => e.sourceId != null).map((e) => [e.sourceId, e.id]));
+  const ids = effectIds.map((id) => (outbox.has(id) ? id : bySource.get(id) ?? id));
+  const unknown = effectIds.filter((_, i) => !outbox.has(ids[i]));
   if (unknown.length) throw new Error(`unknown effects: ${unknown.join(', ')}`);
-  const post = outcome === 'done' && effectIds.map((id) => outbox.get(id)).find((e) => CARD_EFFECTS.includes(e.name));
+  const post = outcome === 'done' && ids.map((id) => outbox.get(id)).find((e) => CARD_EFFECTS.includes(e.name));
   if (post) {
     const taken = store.events().find((x) => x.event.type === 'CARD_POSTED' && (x.event.effect === post.id || x.event.card === card));
     const r = effectIds.length > 1 ? { why: 'a card effect is acked on its own' } : taken ? { why: taken.event.effect === post.id ? `${post.id} already has its card ${taken.event.card}` : `${card} is already the card of ${taken.to}` }
@@ -330,8 +334,14 @@ export function ack(store, effectIds, { outcome = 'done', note, card, by, now = 
     if (r.why || r.duplicate) throw new Error(`${r.why ?? `${post.id} already has its card`}: ack ${post.id} alone with the card's message id (--card cmsg_...), once. Nothing acked`);
   }
   // Under the lock, like every writer (harness meta.invariants oneWriter), so repair cannot rewrite acks.jsonl under it.
-  store.withLock(() => store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now }))));
-  return { acked: effectIds.length };
+  // An effect acked already, by either id, is a duplicate: nothing is written for it (harness meta.store.eras).
+  const { fresh, duplicate } = store.withLock(() => {
+    const acked = new Set(store.acks().map((a) => a.effectId));
+    const fresh = [...new Set(ids.filter((id) => !acked.has(id)))];
+    store.appendAcks(fresh.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now })));
+    return { fresh, duplicate: effectIds.filter((_, i) => acked.has(ids[i])) };
+  });
+  return { acked: fresh.length, ...(duplicate.length && { duplicate }) };
 }
 
 // The guard of the admission rule that refuses an event ("admission": true in the machine JSON), if one does.

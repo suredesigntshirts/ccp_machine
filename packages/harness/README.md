@@ -235,7 +235,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   its acks never close. Replay does not apply an era's rows (the store's own, and a GitHub or session row addressed
   to an item the era's record holds, before its mark): their step names the era and changes nothing, and the mark
   puts the era's record of each of its items in place (a later era's record of an item wins), with its pending
-  effects. Only the rows after an item's era, and rows no era holds, meet today's machine. Two stores' rows are never
+  effects, each under a new id (`era:<store>.<n>`) and keeping the id its store gave it as `sourceId` (#146), so
+  the host acks it by either id. Only the rows after an item's era, and rows no era holds, meet today's machine. Two stores' rows are never
   one fact, so an id two stores share is two rows, each a fact of its own era, and an item filed again in a later
   store is filed in both. `report.json` also lists each source with its rows and every skip with its reason, and
   `eras` gives each era's rows, the items its record holds and the effects it left pending. A store with no
@@ -320,7 +321,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   there, not counted as a problem. A landing that no row records is still a problem (harness `meta.invariants`
   `reviewOnHead`). Every event the rules have changed for since it was written (replay's `admittedThen`) is
   listed as `admittedThen`, with its id and the release that wrote it (`version@commit`), and is not a problem; a
-  replay divergence or a rebuilt state that differs (a corrupt store or a lost event) still is.
+  replay divergence or a rebuilt state that differs (a corrupt store or a lost event) still is. On a history whose
+  eras are ended (#146), a landing is judged by the rules of the era it landed in, the first `ERA_ENDED` row at or
+  after its `merged_at`: a landing before the last one with no PASS as today's rule reads it is not a problem, and
+  `admittedThen` lists those landings in one line per era, with their count and PRs; a landing after the last
+  `ERA_ENDED` row meets today's rule. A row the join's `report.json` (beside `events.jsonl`) lists as refused, with
+  the reason replay gives it, is not a divergence: `history.refused` counts those rows by reason (quoted values as
+  `"…"`). A row the report does not list still is.
 - `scripts/pages-check.mjs`: `npm run pages:check` renders mission control, every item page and the decision
   log from a fixture store with `harness page`, then opens each in Chromium (Playwright, pinned as a root dev
   dependency) at 400 and 1200 px in light and dark. It fails on sideways scroll, a relative link to a missing
@@ -541,8 +548,8 @@ harness verify-actors --store .harness # later: every session in the log has a l
 harness send "{\"type\":\"VERIFIER_BRIEF_FIXED\",\"sha256\":\"$(sha256sum < verifier-brief.md | cut -d' ' -f1)\"}" --to item:a
 harness verdict verdict.md --to item:a --pr <PR url> --sha <head sha>   # the verifier's: review + VERDICT_GIVEN
 harness merge-gate --pr <PR url> --sha <head sha>   # may it merge now (the plugin's merge gate asks this)
-harness effects                     # what the host still has to do
-harness ack e3.0 --note "dispatched"   # any other effect: a note, no card
+harness effects                     # what the host still has to do (an era's effect shows its sourceId too)
+harness ack e3.0 --note "dispatched"   # any other effect: a note, no card; acked already is a duplicate, not a second ack
 harness page --standalone           # .harness/mission-control.html
 harness page --live --project chan_... --files-path harness/state/dogfood   # live mission control, refreshed on a press
 ```
@@ -564,3 +571,29 @@ The host (an orchestrator thread) is the only writer. It runs each effect (dispa
 decision card, merge a PR), acknowledges it, and turns what comes back (CI result, a person's tap)
 into the next `send`, naming who sent it. A session that takes over a store sends
 `{"type":"ORCHESTRATOR_STARTED"}` first, so runs it reports itself are refused.
+
+## Making the one history the live store
+
+A runbook for the lead (#146), not a command. The live store is `state/dogfood2`; the one history takes its place,
+and dogfood2 is kept as it is, an archive the history was read from. Run it when no wake is running, so nothing
+writes dogfood2 between the copy and the switch.
+
+1. Copy the Library's `harness/` folder into a scratch folder: `cp -r /mnt/project-files/harness <scratch>/harness`.
+2. Build the history: `node packages/harness/scripts/history/join.mjs --from <scratch>/harness --out <scratch>/history`.
+   Its summary should show 0 conflicts; `report.json` lists the rows it could not apply, each with its reason.
+3. Check it: `HARNESS_LIBRARY_DIR=<scratch>/harness harness --dir <scratch>/history doctor`. It should give 0 schema
+   errors and `ok: true`, or name each problem left with a reason it is real (a session whose ledger does not cover
+   its rows). Old eras' landings are in `admittedThen`, one line per era, and the rows `report.json` lists in
+   `history.refused`, counted by reason.
+4. Check the effects: `harness --dir <scratch>/history effects` lists every effect dogfood2 has not acked, as
+   `era:dogfood2.<n>` with its dogfood2 id in `sourceId`; there are as many as `harness --dir <scratch>/harness/state/dogfood2 effects` lists.
+5. Put it in place as a new store, `state/history`, and copy dogfood2's host files `enforced.json` (so the store
+   stays enforced) and `handoff-notes.md` into it. Keep `report.json` there: doctor reads it.
+6. Switch: set `HARNESS_DIR` to `/mnt/project-files/harness/state/history` wherever it names dogfood2 (the lead's
+   environment and the allow rules in `.claude/settings.json`). From then on the hooks and the CLI write the history,
+   and dogfood2 is not written again.
+
+The host does with an era's effects what it did before: it runs each and acks it, by the id it knows
+(`harness ack e27.1`) or by the new one (`harness ack era:dogfood2.0`); either acks the same effect, and a second ack,
+by either id, is a duplicate that writes nothing. An era's effects are queued at the time of its `ERA_ENDED` row, so
+doctor counts one as pending over a day only a day after the build.

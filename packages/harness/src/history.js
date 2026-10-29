@@ -67,13 +67,14 @@ export function upcast(row, store) {
 
 /**
  * The row that ends a store's era (harness meta.store.eras, history.schema.json ERA_ENDED): after its last row (`lastAt`),
- * carrying its state.json snapshot and the effects its outbox holds that its acks never close. No one sent it: its actor
+ * carrying its state.json snapshot and the effects its outbox holds that its acks never close, each with the id its host
+ * knows it by. No one sent it: its actor
  * and source are placeholders (upcast legacy.era), and so is its harness when state.json names no writer.
  */
 export function eraEnd(store, state, outbox, acks, lastAt) {
   const say = { legacy: HISTORY.upcast.legacy.era.replaceAll('{store}', store) };
   const acked = new Set(acks.map((a) => a.effectId));
-  const pending = outbox.filter((e) => !acked.has(e.id)).map(({ id, eventId, at, ...e }) => e);
+  const pending = outbox.filter((e) => !acked.has(e.id)).map(({ eventId, at, ...e }) => e);
   const at = [lastAt, state.updatedAt].filter(Boolean).sort().at(-1);
   const row = { id: `era:${store}`, version: 1, at, to: 'harness', actor: say, source: say, harness: state.writtenBy ?? say, event: { type: specs.harness.meta.store.eras.event, era: store, snapshot: state.snapshot, pending } };
   return { ...row, provenance: { origin: 'migrated', from: { source: 'store', ref: store }, placeholders: legacyPaths(row) } };
