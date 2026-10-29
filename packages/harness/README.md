@@ -137,7 +137,17 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `extract-store.mjs <store dir> <archive ref>` (E1) reads a store's `events.jsonl` and prints each row as a
   history row (provenance `migrated`, `from` the archive ref and the line, `placeholders` each field holding a
   `legacy` placeholder) or, on stderr, a skip naming the line
-  and why. `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
+  and why. `extract-github.mjs <archive repo dir> <archive ref>` (E3) reads one repo's folder of the GitHub archive
+  (`harness/archive/github/<owner>--<repo>/`), refusing it, with nothing written, unless every page the manifest
+  lists matches its sha256, and prints a MERGED row per landed PR and a CHECKS_PASSED or CHECKS_FAILED row per
+  completed check suite on a PR's head (provenance `recovered`, `from` the archive ref with the page file and the
+  record's index; actor, source and harness `legacy` placeholders, since GitHub holds none). Each PR goes to its
+  item by the store's PR binding (`src/pr-binding.js`: a branch naming an item filed in the repo's issues, else the
+  Item id line of an issue it closes; one PR to one item, once) or to "no item" with why; stderr lists every PR,
+  every skipped record with why, and the count, which must equal the pulls pages'. Both extractors write through
+  one candidate writer, `candidates.mjs`, which adds provenance, lists placeholders, validates and reports skips.
+  Where a store and GitHub both hold a landing or a CI result, the join keeps the store's row and puts GitHub's
+  source in its `provenance.also` (identity rules in `spec/SPEC.md`, History). `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
   each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted; a

@@ -95,7 +95,7 @@ function archive(pages = PAGES) {
 }
 const extract = (dir) => {
   const r = run('extract-github.mjs', [dir, REF]);
-  const said = rowsOf(r.stderr);
+  const said = r.status ? [] : rowsOf(r.stderr);
   return { r, rows: rowsOf(r.stdout), prs: said.filter((l) => l.pr), skips: said.filter((l) => l.skip), count: said.at(-1) };
 };
 
@@ -148,7 +148,7 @@ test('E3: every PR maps to its item by the store\'s PR binding, or to "no item" 
   assert.match(prs[2].why, /wip-set is bound to acme\/widgets#2/);
   assert.equal(prs[1].why, undefined);
   assert.deepEqual(
-    skips.map((s) => [s.skip.ref, s.skip.line, s.reason.split(':')[0]]),
+    skips.map((s) => [s.skip.ref, s.skip.line, s.reason.split(':')[0]]).sort((a, b) => a[0].localeCompare(b[0]) || a[1] - b[1]),
     [
       [`${REF}/pages/check-runs-2-001.json.gz`, 3, 'check suite 101 is not completed'],
       [`${REF}/pages/check-runs-2-001.json.gz`, 4, `check run 24 is on ${H('9')}`],
