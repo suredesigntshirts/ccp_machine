@@ -15,6 +15,7 @@
       "Bash(node /home/user/harness-archive/tools/salvage.mjs page:*)",
       "Bash(node /home/user/harness-archive/tools/salvage.mjs finalize:*)",
       "Bash(HARNESS_DIR=/mnt/project-files/harness/state/dogfood2 HARNESS_LIBRARY_DIR=/mnt/project-files/harness node /home/user/harness-run/packages/harness/bin/harness.js:*)",
+      "Bash(HARNESS_DIR=/mnt/project-files/harness/state/history HARNESS_LIBRARY_DIR=/mnt/project-files/harness node /home/user/harness-run/packages/harness/bin/harness.js:*)",
       "Bash(node /home/user/harness-run/packages/harness/bin/harness.js:*)",
       "Agent(claude)",
       "Agent(harness:builder)",

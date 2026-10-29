@@ -603,9 +603,13 @@ writes dogfood2 between the copy and the switch.
    `era:dogfood2.<n>` with its dogfood2 id in `sourceId`; there are as many as `harness --dir <scratch>/harness/state/dogfood2 effects` lists.
 5. Put it in place as a new store, `state/history`, and copy dogfood2's host files `enforced.json` (so the store
    stays enforced) and `handoff-notes.md` into it. Keep `report.json` there: doctor reads it.
-6. Switch: set `HARNESS_DIR` to `/mnt/project-files/harness/state/history` wherever it names dogfood2 (the lead's
-   environment and the allow rules in `.claude/settings.json`). From then on the hooks and the CLI write the history,
-   and dogfood2 is not written again.
+6. Switch: set `HARNESS_DIR` to `/mnt/project-files/harness/state/history` wherever it names dogfood2: the lead's
+   environment, and the `HARNESS_DIR` the lead's briefs name in each store command they hand an agent. The allow rule
+   for the history is already in place: `.claude/settings.json` allows the store command with `state/history` next to
+   the one with `state/dogfood2` (#150), so no session has to add a rule for itself. `session-start.sh` merges that
+   file into the user settings when a session starts, so the switch takes effect in the session that starts after the
+   rule lands, not in one already running. From then on the hooks and the CLI write the history, and dogfood2 is not
+   written again.
 
 The host does with an era's effects what it did before: it runs each and acks it, by the id it knows
 (`harness ack e27.1`) or by the new one (`harness ack era:dogfood2.0`); either acks the same effect, and a second ack,
