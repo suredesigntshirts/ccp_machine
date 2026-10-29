@@ -475,6 +475,7 @@ export function createMachines(sink = () => {}, { rung, fact } = {}) {
       wipOutOfRange: ({ event: { limit } }, { min, max }) => !Number.isInteger(limit) || limit < min || limit > max,
       modeIs: ({ event }, params) => event.mode === params.mode,
       inboxEmpty: ({ context }) => context.inbox.length === 0,
+      inboxNotEmpty: ({ context }) => context.inbox.length > 0,
       // The decision waits on the person, and the live grant covers its class and door at the event's own time.
       grantMissesDecision: ({ context: c, event: e }) => {
         const d = decisionOf(e.decision);
@@ -544,6 +545,15 @@ export function createMachines(sink = () => {}, { rung, fact } = {}) {
       addToInbox: assign({ inbox: ({ context, event }) => [...context.inbox, event.decisionId] }),
       removeFromInbox: assign({
         inbox: ({ context, event }) => context.inbox.filter((d) => d !== event.decisionId)
+      }),
+      // No entry outlives its item: the item finishing now and any finished before leave (its item: meta.store.eras
+      // byItem.inbox). An item not in the snapshot is not known to have finished, so its entries stay.
+      dropFinishedFromInbox: assign({
+        inbox: ({ context, event, self }) => {
+          const children = self.getSnapshot?.()?.children ?? {};
+          const itemOf = (d) => new RegExp(specs.harness.meta.store.eras.byItem.inbox).exec(d)?.[1];
+          return context.inbox.filter((d) => itemOf(d) !== event.id && (children[itemOf(d)]?.getSnapshot?.().status ?? 'active') === 'active');
+        }
       }),
       ...external(sink, 'publishDigest')
     }
