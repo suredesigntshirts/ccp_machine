@@ -180,6 +180,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `meta.sources`, `upcast` migrates a row from a store that predates a field (the schema's `upcast`: each envelope
   field and each field its event type needs that the row lacks becomes a labelled `legacy` placeholder), `eraEnd`
   writes the `ERA_ENDED` row that ends a store's era (its actor and source placeholders, as no one sent it),
+  `historyRows` reads a store's rows as a history (none when no row carries provenance), giving each row the runtime
+  appended after the join's, which carries no provenance and is never rewritten, the schema's `live` provenance
+  (origin `live`, `from` the history's own store),
   `placeholders` (by era: the store a row was read from, else the kind of source, then by field) and `outOfBand`
   list what doctor will report, and `dedupe` applies the identity
   rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
@@ -305,7 +308,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `join.mjs` made, it gives the flow replay page what each row did.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
-- `src/doctor.js`: `harness doctor` checks the store (on a history, whose rows carry provenance, every row against
+- `src/doctor.js`: `harness doctor` checks the store (on a history, whose rows carry provenance, every row, a live one
+  as `historyRows` reads it, against
   `history.schema.json`, each failure a `schema:` problem, and `history` lists the rows, the schema errors and the
   legacy placeholders by era and field; event version gaps, acks for unknown effects, effects
   pending over a day, a lock older than 60s, a snapshot that will not restore, an actor in a state whose spec

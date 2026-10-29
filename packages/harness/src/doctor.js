@@ -3,7 +3,7 @@
 // cannot be checked yet (GitHub unreachable, a ledger not filed yet for a session that has just acted) is
 // unverifiable, listed but not a problem.
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { tryRestore } from './runtime.js';
 import { replay } from './replay.js';
 import { readDecisionLog } from './decision-log.js';
@@ -13,7 +13,7 @@ import { verifyFacts, verifyFactsText } from './verify-facts.js';
 import { verifyMerges, verifyMergesText } from './gates.js';
 import { slowRefreshes, slowRefreshText } from './pages.js';
 import { specs } from './machines.js';
-import { outOfBand, validate, placeholders } from './history.js';
+import { outOfBand, validate, placeholders, historyRows } from './history.js';
 import { prKey } from './pr-binding.js';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -69,9 +69,10 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   if (state?.snapshot) problems.push(...waitingOnNothing(state.snapshot, store.pending()));
   for (const e of store.pending())
     if (now - Date.parse(e.at) > pendingMaxMs) problems.push(`effect ${e.id} (${e.name}) pending since ${e.at}`);
-  // A history (its rows carry provenance: history.schema.json, as scripts/history/join.mjs writes it): every row held
-  // to the schema, each error a problem, and its legacy placeholders counted by era and field.
-  const history = events.some((e) => e.provenance) ? { rows: events.length, schemaErrors: events.flatMap(validate), placeholders: placeholders(events), refused: {} } : null;
+  // A history (harness meta.store.history: a row carries provenance, and a live row reads as history.schema.json live):
+  // every row held to the schema, each error a problem, and its legacy placeholders counted by era and field.
+  const rows = historyRows(events, basename(store.dir));
+  const history = rows ? { rows: rows.length, schemaErrors: rows.flatMap(validate), placeholders: placeholders(rows), refused: {} } : null;
   // The rows the join could not apply, as its report lists them ("<id>: <reason>"): known, not a divergence (harness meta.store.facts).
   const report = join(store.dir, 'report.json');
   const listed = history && existsSync(report) ? JSON.parse(readFileSync(report, 'utf8')).refused ?? [] : [];

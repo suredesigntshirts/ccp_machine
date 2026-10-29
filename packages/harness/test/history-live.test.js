@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { eraEnd } from '../src/history.js';
+import * as history_ from '../src/history.js';
 import { openStore } from '../src/store.js';
 import { init, apply, ack } from '../src/runtime.js';
 import { doctor } from '../src/doctor.js';
@@ -76,7 +76,7 @@ function history() {
     const e1 = run('extract-store.mjs', [store.dir, ref]);
     assert.equal(e1.status, 0, e1.stderr);
     const got = rowsOf(e1.stdout);
-    candidates.push(...got, eraEnd(ref, store.read(), store.outbox(), store.acks(), got.map((r) => r.at).sort().at(-1)));
+    candidates.push(...got, history_.eraEnd(ref, store.read(), store.outbox(), store.acks(), got.map((r) => r.at).sort().at(-1)));
   }
   const e3 = run('extract-github.mjs', [archive(root), `github/${REPO.replace('/', '--')}`]);
   assert.equal(e3.status, 0, e3.stderr);
@@ -143,4 +143,40 @@ test('#146: an era effect keeps its source id; harness ack <source id> acks it, 
     assert.deepEqual(ack(store, [id]), { acked: 0, duplicate: [id] }, `${id}: acked already`);
   }
   assert.equal(store.acks().filter((a) => a.effectId === carried.id).length, 1, 'one ack, not a second');
+});
+
+// #153: the live store is the history. A row harness send appends to it carries no provenance (runtime.apply writes the
+// same envelope in every store); history.schema.json live says what it is, and src/history.js historyRows applies it.
+test('#153: a row harness send appends to a joined history is live: doctor finds no schema problem, and its problems do not grow', async () => {
+  const { out } = history();
+  const before = await doctor(openStore(out), { verify: false, pendingMaxMs: Infinity });
+  assert.deepEqual(before.history.schemaErrors, []);
+  const joined = openStore(out).events().length;
+  for (const [id, n] of [['d', 4], ['e', 5]]) {
+    const r = cli(out, 'send', JSON.stringify(request(id, n)), '--id', `req-${id}`, '--actor', `session:${LEAD}`, '--source', 'cli:harness send');
+    assert.equal(r.status, 0, r.stderr);
+  }
+  const rows = openStore(out).events();
+  assert.deepEqual(rows.slice(joined).map((r) => r.id), ['req-d', 'req-e']);
+  assert.ok(rows.slice(joined).every((r) => !('provenance' in r)), 'the log is as the runtime wrote it, never rewritten');
+  const after = await doctor(openStore(out), { verify: false, pendingMaxMs: Infinity });
+  assert.deepEqual(after.history.schemaErrors, [], 'a live row passes the schema');
+  assert.deepEqual(after.problems.filter((p) => p.startsWith('schema:')), []);
+  assert.equal(after.history.rows, rows.length);
+  assert.deepEqual(after.problems, before.problems, 'ordinary events add no problem');
+  assert.deepEqual(history_.historyRows?.(rows, 'history').slice(joined).map((r) => r.provenance), [
+    { origin: 'live', from: { source: 'store', ref: 'history' } },
+    { origin: 'live', from: { source: 'store', ref: 'history' } },
+  ]);
+});
+
+test('#153: only the rows after the last row with provenance are live; one before it is still missing provenance, and a store with none is no history', async () => {
+  const { out, newStore } = history();
+  const rows = openStore(out).events();
+  const { provenance, ...bare } = rows[1];
+  const errors = history_.historyRows?.([rows[0], bare, ...rows.slice(2)], 'history').flatMap(history_.validate);
+  assert.deepEqual(errors, [`${bare.id}: provenance: missing`], 'a joined row without provenance is not a live row');
+  assert.equal(history_.historyRows?.(newStore.events(), 'new'), null, 'no row carries provenance: not a history');
+  const d = await doctor(newStore, { verify: false, pendingMaxMs: Infinity });
+  assert.equal(d.history, undefined, 'doctor holds a store that is not a history to no history schema, as before');
 });

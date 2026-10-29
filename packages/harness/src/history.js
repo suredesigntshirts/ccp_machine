@@ -1,7 +1,7 @@
 // The one history (epic #59): every era's events in one shape, spec/history.schema.json. This module only
 // reads that file: validate() holds a row to it (with the actor and source kinds from harness meta), eventProblems()
 // holds an event's payload to its type's declaration (workItem's unrecordable guard reads it), upcast() migrates a
-// row from a store that predates a field (E1), eraEnd() writes the row that ends a store's era, placeholders() counts the legacy values doctor reports by era and
+// row from a store that predates a field (E1), historyRows() reads a store's rows as a history (a live row's provenance), eraEnd() writes the row that ends a store's era, placeholders() counts the legacy values doctor reports by era and
 // field, factKey() and dedupe() apply its identity rules, stepProblems() holds a step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
 // checkLogNeeds() holds a history, its steps and its usage fields to a view's needs file. The schema is a subset of
 // JSON Schema, and so is the checker below.
@@ -78,6 +78,19 @@ export function eraEnd(store, state, outbox, acks, lastAt) {
   const at = [lastAt, state.updatedAt].filter(Boolean).sort().at(-1);
   const row = { id: `era:${store}`, version: 1, at, to: 'harness', actor: say, source: say, harness: state.writtenBy ?? say, event: { type: specs.harness.meta.store.eras.event, era: store, snapshot: state.snapshot, pending } };
   return { ...row, provenance: { origin: 'migrated', from: { source: 'store', ref: store }, placeholders: legacyPaths(row) } };
+}
+
+/**
+ * A store's rows as a history (harness meta.store.history), or null when no row carries provenance: it is not one. Each
+ * row with no provenance after the last row that has one is live, read with history.schema.json live's provenance, `store`
+ * the history's name; the rows themselves are not changed.
+ */
+export function historyRows(rows, store) {
+  const last = rows.findLastIndex((r) => r?.provenance);
+  if (last < 0) return null;
+  const { from, ...live } = HISTORY.live.provenance;
+  const provenance = { ...live, from: { ...from, ref: from.ref.replaceAll('{store}', store) } };
+  return rows.map((r, i) => (i > last && typeOf(r) === 'object' && r.provenance === undefined ? { ...r, provenance } : r));
 }
 
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
