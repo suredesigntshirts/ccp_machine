@@ -134,10 +134,14 @@ writeFileSync(join(sessionsDir, lead, 'agents', `${agents[0].agentId}.json`), JS
 writeFileSync(join(sessionsDir, lead, 'calls', 'toolu_check.json'), JSON.stringify({ sessionId: lead, toolUseId: 'toolu_check', at: plus(started[0].at, 2), kind: 'bash', agentId: agents[0].agentId }));
 const usageText = execFileSync(process.execPath, [fileURLToPath(new URL('./history/usage.mjs', import.meta.url)), sessionsDir, join(historyDir, 'events.jsonl')], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 const usageItem = /^item:(.+)$/.exec(started[0].to)[1];
+// The introspection page reads usage.jsonl beside the history at render and on refresh (reads.with).
+writeFileSync(join(historyDir, 'usage.jsonl'), usageText);
 const LIVE = [
   { page: 'mission-control', dir: liveStore.dir, files: 'harness/state/check/state.json', size: JSON.parse(stateText).version,
     variants: [['current', stateText, false], ['unsupported schemaVersion', JSON.stringify({ ...JSON.parse(stateText), schemaVersion: 99, version: 1e6 }), true]] },
   { page: 'ledger', dir: historyDir, files: 'harness/state/check/events.jsonl', size: historyRows.length, usage: { 'harness/state/check/usage.jsonl': usageText },
+    variants: [['current', historyText, false], ['unsupported schemaVersion', historyRows.map((r) => JSON.stringify({ ...r, schemaVersion: 99 }) + '\n').join(''), true]] },
+  { page: 'introspection', dir: historyDir, files: 'harness/state/check/events.jsonl', size: historyRows.length, more: { 'harness/state/check/usage.jsonl': usageText },
     variants: [['current', historyText, false], ['unsupported schemaVersion', historyRows.map((r) => JSON.stringify({ ...r, schemaVersion: 99 }) + '\n').join(''), true]] }
 ];
 const fakeRuntime = ({ text, path, more }) => {
@@ -164,7 +168,7 @@ for (const [label, text, expectBanner] of live.variants) {
       tab.on('pageerror', (e) => errors.push(e.message));
       // Once without the usage file (light, 400 px): its section must say so and leave the page as it is.
       const lacking = live.usage && width === 400 && colorScheme === 'light';
-      await tab.addInitScript(fakeRuntime, { text, path: live.files, more: lacking ? {} : live.usage ?? {} });
+      await tab.addInitScript(fakeRuntime, { text, path: live.files, more: lacking ? {} : live.usage ?? live.more ?? {} });
       await tab.goto(pathToFileURL(livePage).href);
       const where = `${live.page}-live.html (${label}) at ${width}px ${colorScheme}`;
       const before = await tab.evaluate(() => ({ age: document.getElementById('data-age').textContent, reads: window.__reads.length, rows: window.__rows.length }));
@@ -211,6 +215,47 @@ for (const [label, text, expectBanner] of live.variants) {
       checked++;
     }
 }
+}
+// The introspection page (#143) at 390 and 1280 px, light and dark: a session row of the timeline expands (its runs
+// shown, what it hid no longer said) and collapses again, an item selected shows its runs and lead turns, and
+// nothing scrolls sideways: the tables and the timeline scroll inside their own box.
+{
+  const page = join(out, 'site', 'introspection-live.html');
+  for (const width of [390, 1280])
+    for (const colorScheme of ['light', 'dark']) {
+      const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme });
+      const tab = await ctx.newPage();
+      const errors = [];
+      tab.on('pageerror', (e) => errors.push(e.message));
+      await tab.goto(pathToFileURL(page).href);
+      const where = `introspection-live.html at ${width}px ${colorScheme}`;
+      const state = () => tab.evaluate(() => {
+        const t = document.querySelector('[data-toggle]');
+        const id = t && t.dataset.toggle;
+        return { toggle: Boolean(t), runs: [...document.querySelectorAll('[data-parent]')].filter((r) => r.dataset.parent === id && r.offsetParent).length,
+          hides: [...document.querySelectorAll('[data-hides]')].some((h) => h.dataset.hides === id && h.offsetParent),
+          details: [...document.querySelectorAll('[data-detail]')].filter((d) => d.offsetParent).map((d) => d.dataset.detail),
+          scroll: document.documentElement.scrollWidth, inner: window.innerWidth };
+      });
+      const shut = await state();
+      if (!shut.toggle || shut.runs || !shut.hides) failures.push(`${where}: the timeline has no collapsed session row that says what it hides (${JSON.stringify(shut)})`);
+      await tab.click('[data-toggle]');
+      const open = await state();
+      if (!open.runs || open.hides) failures.push(`${where}: expanding a session row does not show its runs (${JSON.stringify(open)})`);
+      await tab.screenshot({ path: join(shots, `introspection-live-expanded-${width}-${colorScheme}.png`), fullPage: true }).catch((e) => warnings.push(`${where}: no screenshot (${e.message.split('\n')[0]})`));
+      await tab.click('[data-toggle]');
+      const again = await state();
+      if (again.runs || !again.hides) failures.push(`${where}: collapsing a session row does not hide its runs (${JSON.stringify(again)})`);
+      const item = await tab.getAttribute('[data-pick]', 'data-pick');
+      await tab.click('[data-pick]');
+      const picked = await state();
+      if (JSON.stringify(picked.details) !== JSON.stringify([item])) failures.push(`${where}: selecting ${item} does not show its runs and lead turns alone (${JSON.stringify(picked.details)})`);
+      for (const s of [shut, open, again, picked]) if (s.scroll > s.inner + 1) { failures.push(`${where}: scrolls sideways (${s.scroll} > ${s.inner})`); break; }
+      if (errors.length) failures.push(`${where}: script error ${errors[0]}`);
+      await tab.screenshot({ path: join(shots, `introspection-live-item-${width}-${colorScheme}.png`), fullPage: true }).catch((e) => warnings.push(`${where}: no screenshot (${e.message.split('\n')[0]})`));
+      await ctx.close();
+      checked++;
+    }
 }
 // The design log's paging and calendar (#131), clicked through in the browser on a history of more than 50 rows over
 // five days in two months: page 2 and back, a September day's rows and cards, the busiest day's second page, all days.

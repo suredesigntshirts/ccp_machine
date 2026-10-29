@@ -115,7 +115,7 @@
       "GRANT_GIVEN": { "v": 1 },
       "ITEM_FINISHED": { "v": 1 },
       "ITEM_PARKED": { "v": 1 },
-      "MERGED": { "v": 1, "required": ["pr"] },
+      "MERGED": { "v": 1, "required": ["pr"], "schema": { "properties": { "pr": {} } } },
       "MERGE_FAILED": { "v": 1 },
       "ORCHESTRATOR_STARTED": { "v": 1 },
       "PERSON_DECIDED": { "v": 1, "required": ["choice"], "description": "A tap on a decision card. choice is the decision's own word (decision context.options: approve, revise, reject); a session's record of the tap (scripts/history/extract-session.mjs) also keeps label, the option the card showed, and where that label is no decision card's (src/card.js), choice is a legacy placeholder.", "schema": { "properties": { "choice": {}, "label": {}, "option": {} } } },
@@ -221,7 +221,7 @@
   },
   "usage": {
     "file": "usage.jsonl",
-    "description": "Time and tokens by item, beside a history in usage.jsonl. scripts/history/usage.mjs writes it from the session ledgers the Stop hook files (ledger/sessions/<session>.json: each turn with its own usage and the subagents it started), the agent records beside them (<session>/agents/<agentId>.json: bind.item, bind.spawn and resumes; <session>/calls/: each call the hook recorded) and a store's or a history's rows. A segment row is one start of an agent: its first start and each resume its record lists. The agent (session/agentId, one run) is tied to an item by its record's bind.item, else by the WORKER_STARTED row that names it; its role is that of the WORKER_SPAWNED row whose toolUseId is bind.spawn; its agentType and model are the ledger's. The first segment starts at the WORKER_STARTED time (else at the start of the turn that lists the agent) and a resume at its time; the last segment ends at the first start plus the ledger's durationMs, and a segment before a resume ends at the agent's last call the hook recorded before that resume, a lower bound. The ledger counts an agent's whole transcript, so its counts are on the last segment and an earlier segment's are placeholders: summed over the segments they are counted once. An agent the ledger lists more than once is its transcript filed again: its counts are the listing with the most requests (the latest of equals), never a sum. A lead row is a turn of a session that wrote rows for an item (rows whose actor is that session, sent to the item or REQUEST_RECEIVED for it, inside the turn's start..end), with the turn's own usage (not its subagents'), once, naming every item it wrote for. A value no ledger holds is a legacy placeholder, never a guess. A subagent tied to no item has no row; usage.mjs reports it with the reason. A page that reads this file (pages/<page>/needs.json reads.onDemand) declares the fields it reads here, so dropping one fails naming the page and the field.",
+    "description": "Time and tokens by item, beside a history in usage.jsonl. scripts/history/usage.mjs writes it from the session ledgers the Stop hook files (ledger/sessions/<session>.json: each turn with its own usage and the subagents it started), the agent records beside them (<session>/agents/<agentId>.json: bind.item, bind.spawn and resumes; <session>/calls/: each call the hook recorded) and a store's or a history's rows. A segment row is one start of an agent: its first start and each resume its record lists. The agent (session/agentId, one run) is tied to an item by its record's bind.item, else by the WORKER_STARTED row that names it; its role is that of the WORKER_SPAWNED row whose toolUseId is bind.spawn; its agentType and model are the ledger's. The first segment starts at the WORKER_STARTED time (else at the start of the turn that lists the agent) and a resume at its time; the last segment ends at the first start plus the ledger's durationMs, and a segment before a resume ends at the agent's last call the hook recorded before that resume, a lower bound. The ledger counts an agent's whole transcript, so its counts are on the last segment and an earlier segment's are placeholders: summed over the segments they are counted once. An agent the ledger lists more than once is its transcript filed again: its counts are the listing with the most requests (the latest of equals), never a sum. A lead row is a turn of a session that wrote rows for an item (rows whose actor is that session, sent to the item or REQUEST_RECEIVED for it, inside the turn's start..end), with the turn's own usage (not its subagents'), once, naming every item it wrote for. A value no ledger holds is a legacy placeholder, never a guess. A subagent tied to no item has no segment row: the session row of its ledger names it with the reason and its cost, and usage.mjs also reports it on stderr. Each session ledger read is one session row, so a session the history names with no session row has no ledger. A page that reads this file (pages/<page>/needs.json reads.onDemand, or reads.with to read it with the history at render and on refresh) declares the fields it reads here, so dropping one fails naming the page and the field.",
     "count": { "anyOf": [{ "type": "number", "minimum": 0 }, { "$ref": "#/$defs/legacy" }] },
     "text": { "anyOf": [{ "type": "string", "minLength": 1 }, { "$ref": "#/$defs/legacy" }] },
     "row": {
@@ -270,6 +270,30 @@
             "cacheWrite": { "$ref": "#/usage/count" },
             "output": { "$ref": "#/usage/count" },
             "cost": { "$ref": "#/usage/count" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "session", "unbound"],
+          "additionalProperties": false,
+          "description": "A session ledger usage.mjs read, once, with each subagent it lists that no item could be tied to (the agent's session/agentId, its agentType, why it is tied to none, and its cost at list price).",
+          "properties": {
+            "kind": { "enum": ["session"] },
+            "session": { "type": "string", "minLength": 1 },
+            "unbound": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["agentId", "agentType", "reason", "cost"],
+                "additionalProperties": false,
+                "properties": {
+                  "agentId": { "type": "string", "minLength": 1 },
+                  "agentType": { "$ref": "#/usage/text" },
+                  "reason": { "type": "string", "minLength": 1 },
+                  "cost": { "$ref": "#/usage/count" }
+                }
+              }
+            }
           }
         }
       ]

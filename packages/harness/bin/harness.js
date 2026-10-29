@@ -184,7 +184,8 @@ const HELP = `harness <command> [options]
                                  (mission-control: the store's state.json; ledger: a history's events.jsonl,
                                  such as scripts/history/join.mjs writes, and, when an item's Time and tokens
                                  is opened, usage.jsonl beside it (scripts/history/usage.mjs); flow-replay: that and steps.jsonl
-                                 beside it, from replay --steps), its age, and a Refresh button that
+                                 beside it, from replay --steps; introspection: that and usage.jsonl beside it),
+                                 its age, and a Refresh button that
                                  rereads <F>/<file> through the Artifact files capability and times each
                                  refresh into db; publish with capabilities {files: {project}, db: {}}. Data
                                  outside the needs schemaVersion range shows a red banner and no data
@@ -585,10 +586,11 @@ try {
         const needs = loadNeeds(o.page);
         const source = join(o.dir, needs.reads.file);
         if (!existsSync(source)) throw new Error(`no ${needs.reads.file} in ${o.dir}`);
-        // And each file it reads beside that one (reads.with: flow replay's steps.jsonl, from harness replay --steps).
+        // And each file it reads beside that one (reads.with: flow replay's steps.jsonl, from harness replay --steps;
+        // introspection's usage.jsonl, from scripts/history/usage.mjs).
         const also = {};
         for (const name of Object.keys(needs.reads.with ?? {})) {
-          if (!existsSync(join(o.dir, name))) throw new Error(`no ${name} in ${o.dir}: ${o.page} reads it beside ${needs.reads.file} (harness replay --steps writes it)`);
+          if (!existsSync(join(o.dir, name))) throw new Error(`no ${name} in ${o.dir}: ${o.page} reads it beside ${needs.reads.file} (${needs.joins?.[name] ? 'harness replay --steps' : 'scripts/history/usage.mjs'} writes it)`);
           also[name] = formatOf(needs).parse(readFileSync(join(o.dir, name), 'utf8'));
         }
         const file = o.html ?? `${o.dir}/${o.page}-live.html`;

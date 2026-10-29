@@ -196,8 +196,8 @@ const valuesAt = (o, keys) => (!keys.length ? [o] : Array.isArray(o) ? o.flatMap
  * Everything that breaks a log view's needs file against the schema and, given rows, against a history: each line
  * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each: the schema
  * must declare each field, every row of the type must carry it, as a value or a legacy placeholder, and at least one
- * row a value. A file it reads beside the history (reads.with: the steps file) has its fields declared in the schema's
- * steps.row, and, given that file's rows (also), every row and every element on the way carries each one.
+ * row a value. A file it reads beside the history (reads.with: the steps or the usage file) has its fields declared in
+ * the schema's steps.row or usage.row, and, given the steps (also), every step and every element on the way carries each one.
  */
 export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
   const out = [];
@@ -208,10 +208,14 @@ export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
     if (type !== '*' && !schema.events.types[type]) { say(`reads ${type}, which history.schema.json does not declare`); continue; }
     for (const f of fields) if (!declaresLog(schema, type, f)) say(`reads ${type} field ${f}, which history.schema.json does not declare`);
   }
+  // A file it reads beside the history (reads.with): the steps, one per row and joined to it by the schema's key, or
+  // the usage rows, read with the history; each held to its own part of the schema.
   for (const [file, fields] of Object.entries(needs.reads.with ?? {})) {
-    if (file !== schema.steps?.file) { say(`reads ${file} beside the history, which history.schema.json does not declare`); continue; }
-    for (const f of fields) if (!declares(schema, [schema.steps.row], f)) say(`reads ${file} field ${f}, which history.schema.json steps does not declare`);
-    if (!also[file]) continue;
+    const part = ['steps', 'usage'].find((k) => schema[k]?.file === file);
+    if (!part) { say(`reads ${file} beside the history, which history.schema.json does not declare`); continue; }
+    for (const f of fields) if (!declares(schema, [schema[part].row], f)) say(`reads ${file} field ${f}, which history.schema.json ${part} does not declare`);
+    // Only a file joined row by row holds every field on every row; usage rows differ by kind.
+    if (!also[file] || !schema[part].key) continue;
     for (const f of fields) {
       const lack = also[file].filter((s) => valuesAt(s, f.split('.')).includes(undefined)).map((s) => s.version);
       if (lack.length) say(`reads ${file} field ${f}, which ${lack.length === 1 ? 'step' : 'steps'} ${lack.slice(0, 5).join(', ')}${lack.length > 5 ? ` and ${lack.length - 5} more` : ''} ${lack.length === 1 ? 'lacks' : 'lack'}`);
