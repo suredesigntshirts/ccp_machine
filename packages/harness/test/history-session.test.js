@@ -7,12 +7,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, cpSync, existsSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validate, factKey } from '../src/history.js';
+import { openStore } from '../src/store.js';
+import { doctor } from '../src/doctor.js';
+import { choiceOf } from '../src/card.js';
 import { tempDir } from './tmp.js';
 
 const SCRIPTS = fileURLToPath(new URL('../scripts/history/', import.meta.url));
@@ -168,8 +171,12 @@ test('E2: a card is one CARD_POSTED with its question, options and recommended i
   assert.equal(tap.relayedBy, LEAD);
   assert.equal(tap.event.type, 'PERSON_DECIDED');
   assert.equal(tap.event.card, 'cmsg_01Card1');
-  assert.equal(tap.event.choice, 'Revise');
+  // The choice in the store's words (the decision's, src/card.js), the label the card showed beside it.
+  assert.equal(tap.event.choice, 'revise');
+  assert.equal(tap.event.label, 'Revise');
   assert.equal(tap.event.option, 1);
+  // Each decision card label is its choice's; any other label is no decision card's, and E2 writes no choice for it.
+  assert.deepEqual(['Approve', 'Revise', 'Drop it', 'Revise: every 6 hours only', 'approve'].map(choiceOf), ['approve', 'revise', 'reject', undefined, undefined]);
   assert.deepEqual(tap.provenance.from, FROM(14));
   assert.deepEqual(tap.provenance.placeholders.sort(), ['event.item', 'harness']);
   assert.equal(rows.filter((x) => x.event.type === 'CARD_POSTED').length, 1, 'a card the platform refused was never posted');
@@ -331,13 +338,13 @@ test('E2 with E1 and E3: the join keeps one row per spawn, card, tap and landing
     ['tap-u-tap1', 'cmsg_01Card2', []],
     ['e14', 'cmsg_01Card1', [S1]],
   ]);
-  // Where the store and a session disagree, it is reported and never merged silently: the store names the tapped
-  // option by the machine's choice, the session by the label the card showed; and they name another agent type for
-  // the nested spawn.
+  // Where the store and a session disagree, it is reported and never merged silently: they name another agent type
+  // for the nested spawn. The tap is no conflict: the session's row names the tapped option by the decision's choice,
+  // as the store does, with the card's label beside it.
+  assert.equal(history.find((r) => r.id === 'e14').event.choice, 'revise');
   assert.deepEqual(
     report.conflicts.map((c) => [c.fact, c.field, c.kept, c.other]),
     [
-      ['tap:cmsg_01Card1', 'event.choice', 'e14', 'tap-u-tap1'],
       ['spawn:toolu_Nested', 'event.agentType', 'spawn-toolu_Nested', 'spawn-toolu_Nested'],
       ['spawn:toolu_Nested', 'event.agentType', 'spawn-toolu_Nested', 'spawn-toolu_Nested'],
     ],
@@ -356,4 +363,103 @@ test('C4: a card is keyed by its message id and a tap by the card it answers, so
 
 test('E1, E2 and E3 share one candidate writer', () => {
   assert.match(readFileSync(join(SCRIPTS, 'extract-session.mjs'), 'utf8'), /from '\.\/candidates\.mjs'/);
+});
+
+// M1 (#138): join.mjs --from builds the one history from every source in its fixed list, laid out as the Library's
+// harness/ folder: the stores main, dogfood and dogfood2 (state/<name>), both GitHub repos (archive/github/<repo>) and
+// every archived session (archive/sessions/<id>).
+const REPOS = ['suredesigntshirts--ccp_machine', 'suredesigntshirts--ccp_machine_test'];
+// A store from before the event envelope, as main is: no actor, source or harness, and a CHECKS_PASSED naming no PR.
+const MAIN = [
+  { id: 'req-old', version: 2, at: '2026-10-26T09:00:00.000Z', to: 'harness', event: { type: 'REQUEST_RECEIVED', request: { id: 'old', title: 'old' } } },
+  { id: 'ci-old', version: 3, at: '2026-10-26T09:00:01.000Z', to: 'item:old', event: { type: 'CHECKS_PASSED' } },
+];
+/** A copy of the Library's harness/ folder holding every source join --from reads; `drop` leaves one out. */
+function library({ drop } = {}) {
+  const root = join(tempDir('history-build-'), 'harness');
+  const put = (rel, rows) => {
+    mkdirSync(join(root, rel, '..'), { recursive: true });
+    writeFileSync(join(root, rel), rows.map((r) => JSON.stringify(r) + '\n').join(''));
+  };
+  put('state/main/events.jsonl', MAIN);
+  put('state/dogfood/events.jsonl', STORE);
+  // dogfood2's outbox and acks: the effects its rows queued (as the join replays them), each acked by the host.
+  const pre = tempDir('history-build-pre-');
+  put('state/dogfood2/events.jsonl', STORE.slice(0, 1).map((r) => ({ ...r, id: 'req-wip-set-2', event: { ...r.event, request: { id: 'wip-set-2', title: 'wip 2' } } })));
+  const e1 = run('extract-store.mjs', [join(root, 'state/dogfood2'), 'dogfood2']);
+  writeFileSync(join(pre, 'c.jsonl'), e1.stdout);
+  assert.equal(run('join.mjs', [join(pre, 'c.jsonl'), '--out', join(pre, 'out')]).status, 0);
+  const queued = rowsOf(readFileSync(join(pre, 'out', 'outbox.jsonl'), 'utf8'));
+  assert.ok(queued.length >= 1, 'the dogfood2 row queues an effect');
+  put('state/dogfood2/outbox.jsonl', queued);
+  put('state/dogfood2/acks.jsonl', queued.map((e) => ({ effectId: e.id, outcome: 'done', note: 'run done', at: '2026-10-27T09:30:00.000Z' })));
+  cpSync(github(), join(root, 'archive/github', REPOS[1]), { recursive: true });
+  const empty = join(root, 'archive/github', REPOS[0]);
+  mkdirSync(join(empty, 'pages'), { recursive: true });
+  writeFileSync(join(empty, 'manifest.json'), JSON.stringify({ source: 'github', id: 'suredesigntshirts/ccp_machine', pages: [], totals: { pulls: 0 } }));
+  cpSync(archive(), join(root, 'archive/sessions', SID), { recursive: true });
+  cpSync(archive(events('cmsg_01Card2'), 'session_01Other'), join(root, 'archive/sessions/session_01Other'), { recursive: true });
+  if (drop) rmSync(join(root, drop), { recursive: true });
+  return root;
+}
+
+test('M1: join --from builds the one history from every listed source, on a copy it never writes, with each skip and refusal listed', async () => {
+  const root = library();
+  const before = shaDir(root);
+  const out = join(tempDir('history-build-out-'), 'history');
+  const j = run('join.mjs', ['--from', root, '--out', out]);
+  assert.equal(j.status, 0, j.stderr);
+  assert.equal(shaDir(root), before, 'the sources are only read');
+  const report = JSON.parse(readFileSync(join(out, 'report.json'), 'utf8'));
+  const history = rowsOf(readFileSync(join(out, 'events.jsonl'), 'utf8'));
+  assert.deepEqual(history.flatMap(validate), []);
+  // Every source in the list, in its order, read as its archive ref, with its rows and each skip with its reason.
+  assert.deepEqual(report.sources.map((x) => x.ref), ['main', 'dogfood', 'dogfood2', ...REPOS.map((r) => `github/${r}`), `sessions/${SID}`, 'sessions/session_01Other']);
+  assert.deepEqual(report.sources.find((x) => x.ref === 'main'), { ref: 'main', rows: MAIN.length, skips: [] }, 'every main event is a row');
+  const skips = report.sources.flatMap((x) => x.skips);
+  assert.ok(skips.length > 0 && skips.every((k) => k.ref && k.reason), 'each skip names where and why');
+  assert.equal(report.read, report.sources.reduce((n, x) => n + x.rows, 0));
+  // The old era's rows hold labelled placeholders for what main did not record.
+  const ci = history.find((r) => r.id === 'ci-old');
+  assert.deepEqual(ci.provenance.placeholders.sort(), ['actor', 'event.pr', 'harness', 'source']);
+  assert.equal(ci.event.pr.legacy, 'main recorded no event.pr on its CHECKS_PASSED rows then');
+  // The tap joins without a conflict: the session names the choice as the store does.
+  assert.deepEqual(report.conflicts.filter((c) => c.field === 'event.choice'), []);
+  // A row replay cannot apply is listed with its reason.
+  assert.ok(report.refused.every((r) => /^[^:]+: .+/.test(r)));
+  // dogfood2's acks reach the effects replay queued again for its rows, so none of them is pending.
+  const store = openStore(out);
+  const acked = rowsOf(readFileSync(join(root, 'state/dogfood2/acks.jsonl'), 'utf8')).map((a) => a.effectId);
+  assert.equal(report.acks, acked.length);
+  assert.deepEqual(store.pending().filter((e) => acked.includes(e.id)), []);
+  // doctor on the history: no schema error, and its placeholders counted by era (a store, or the kind of source) and field.
+  const d = await doctor(store, { verify: false });
+  assert.deepEqual(d.history.schemaErrors, []);
+  assert.equal(d.history.rows, history.length);
+  assert.deepEqual(d.history.placeholders.main, { actor: 2, source: 2, harness: 2, 'event.pr': 1 });
+  assert.deepEqual(Object.keys(d.history.placeholders).sort(), ['github', 'main', 'session']);
+  assert.ok(!d.problems.some((p) => /^schema:/.test(p)));
+  assert.ok(!d.problems.some((p) => acked.some((id) => p.startsWith(`effect ${id} `))), 'no effect its source acked is pending');
+});
+
+test('M1: join --from refuses a list with a source missing, writing nothing; doctor names a row that breaks the schema', async () => {
+  const root = library({ drop: 'state/dogfood' });
+  const out = join(tempDir('history-build-out-'), 'history');
+  const j = run('join.mjs', ['--from', root, '--out', out]);
+  assert.equal(j.status, 1);
+  assert.match(j.stderr, /state\/dogfood: a source of the one history is missing/);
+  assert.equal(existsSync(out), false);
+  assert.match(run('join.mjs', ['--from', root, join(root, 'x.jsonl'), '--out', out]).stderr, /usage/, 'a list or candidates, not both');
+  // A history row that does not hold to the schema is a schema error doctor names.
+  const ok = library();
+  const built = join(tempDir('history-build-out-'), 'history');
+  assert.equal(run('join.mjs', ['--from', ok, '--out', built]).status, 0);
+  const file = join(built, 'events.jsonl');
+  const rows = rowsOf(readFileSync(file, 'utf8'));
+  const i = rows.findIndex((r) => !r.provenance.placeholders);
+  rows[i] = { ...rows[i], actor: { legacy: 'not listed' } };
+  writeFileSync(file, rows.map((r) => JSON.stringify(r) + '\n').join(''));
+  const d = await doctor(openStore(built), { verify: false });
+  assert.deepEqual(d.history.schemaErrors, [`${rows[i].id}: actor: holds a legacy placeholder that provenance.placeholders does not list`]);
+  assert.ok(d.problems.includes(`schema: ${d.history.schemaErrors[0]}`));
 });
