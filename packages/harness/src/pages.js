@@ -9,19 +9,21 @@ import { specs as SPECS } from './machines.js';
 import { CSS, wrapPage } from './page.js';
 import { rowsOf } from './intake.js';
 import { schemaProblem, renderShell, renderView, renderData, viewKeys, formatOf, projectBeside } from './live.js';
-import { checkLogNeeds, HISTORY } from './history.js';
+import { checkLogNeeds, HISTORY, liveProvenance } from './history.js';
 
 const ROOT = new URL('../pages/', import.meta.url);
 export const PAGES = readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
 const REPO = new URL('../../../', import.meta.url);
 // A page's needs, with the diagram it names (needs.diagram, a file beside it: flow replay's diagram.json) read in, and
 // the key each file it reads beside the history is joined to its rows by (joins: history.schema.json steps.key; a
-// file with no key, usage.jsonl, is rows of its own), so the inlined page script has them too.
-export function loadNeeds(page) {
+// file with no key, usage.jsonl, is rows of its own), and, for a page that reads the history, the provenance its live
+// rows are read with (live: history.schema.json live for the history named `store`, src/live.js liveRows), so the
+// inlined page script has them too.
+export function loadNeeds(page, store = 'history') {
   const read = (file) => JSON.parse(readFileSync(new URL(`${page}/${file}`, ROOT), 'utf8'));
   const needs = read('needs.json');
   const joins = Object.fromEntries(Object.keys(needs.reads.with ?? {}).flatMap((f) => [HISTORY.steps, HISTORY.usage].filter((p) => p.file === f && p.key).map((p) => [f, p.key])));
-  return { ...needs, ...(needs.reads.with && { joins }), ...(needs.diagram && { diagram: { file: needs.diagram, ...read(needs.diagram) } }) };
+  return { ...needs, ...(needs.reads.file === 'events.jsonl' && { live: liveProvenance(store) }), ...(needs.reads.with && { joins }), ...(needs.diagram && { diagram: { file: needs.diagram, ...read(needs.diagram) } }) };
 }
 
 // What breaks a page's diagram: a box in an undeclared zone or whose repo path does not exist, and an arrow, sender
@@ -240,8 +242,8 @@ tr.usage>td{padding-top:0}tr.usage summary{cursor:pointer;color:var(--accent);fo
  * through the Artifact files capability of `project`, renders it and records the timing in the db collection the
  * spec names. Publish with capabilities {files: {project}, db: {}}.
  */
-export function renderLivePage(data, { page = 'mission-control', also = {}, project: projectId = null, path = '', title, standalone = false, now = new Date().toISOString() } = {}) {
-  const needs = loadNeeds(page);
+export function renderLivePage(data, { page = 'mission-control', store, also = {}, project: projectId = null, path = '', title, standalone = false, now = new Date().toISOString() } = {}) {
+  const needs = loadNeeds(page, store);
   const format = formatOf(needs);
   const dir = path ? `${path.replace(/\/+$/, '')}/` : '';
   const cfg = {

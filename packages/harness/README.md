@@ -108,6 +108,10 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `storeVersion` is the history's row count, `bytes` its size), the trend and `harness doctor --refreshes` are
   mission control's. A history with a row whose `schemaVersion` (history.schema.json; absent means `absentMeans`)
   is outside the page's `reads.schemaVersion`, or a file that is not a history, shows the red banner and no data.
+  The history pages read its rows as doctor does: a row the runtime appended after the join's is live (`liveRows`
+  in `src/live.js`, with the needs' `live` provenance `loadNeeds` gives for the history named by `--dir`), at render
+  and on Refresh; a row with no provenance before a joined one, or a store with none, gets the banner
+  (`test/live-pages-live-rows.test.js` runs the page's own script on Refresh, #155).
   `test/ledger-page.test.js` builds a history with the current code (`contractHistory`: the sim's contract store
   through `extract-store.mjs` and `join.mjs`), renders it and the golden history and checks every count the page
   shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
@@ -182,7 +186,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   writes the `ERA_ENDED` row that ends a store's era (its actor and source placeholders, as no one sent it),
   `historyRows` reads a store's rows as a history (none when no row carries provenance), giving each row the runtime
   appended after the join's, which carries no provenance and is never rewritten, the schema's `live` provenance
-  (origin `live`, `from` the history's own store),
+  (origin `live`, `from` the history's own store: `liveProvenance`); the rule itself is `liveRows` in `src/live.js`,
+  which the history pages run too,
   `placeholders` (by era: the store a row was read from, else the kind of source, then by field) and `outOfBand`
   list what doctor will report, and `dedupe` applies the identity
   rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
