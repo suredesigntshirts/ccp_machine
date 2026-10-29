@@ -101,8 +101,8 @@ function strictLog(rows, needs, reads) {
  * state or event it names that the spec does not have; a view state or event missing from its spec lists; and,
  * given a store's state.json, a schemaVersion outside its range, a declared field no row of its kind has, and a
  * read of a field it does not declare. A view that reads the one history (reads.file events.jsonl) declares event
- * types and fields instead, and is held to history.schema.json and, given rows, to that history (checkLogNeeds);
- * one with a renderer (the ledger) also names the machines that take its event types and reads nothing else.
+ * types and fields instead, and is held to history.schema.json and, given rows, to that history (checkLogNeeds),
+ * and its renderer reads nothing else; one that names spec machines (the ledger) names one that takes each type.
  */
 export function checkPage(page, { state, history, specs = SPECS, needs = loadNeeds(page) } = {}) {
   const out = [];
@@ -118,9 +118,8 @@ export function checkPage(page, { state, history, specs = SPECS, needs = loadNee
   }
   if (needs.reads.file === 'events.jsonl') {
     out.push(...checkLogNeeds(needs, history));
-    if (!needs.spec) return out;
-    const named = Object.values(needs.spec).flatMap((m) => m.events ?? []);
-    for (const type of Object.keys(needs.events)) if (type !== '*' && !named.includes(type)) say(`its view reads ${type}, which ${file} spec does not name under a machine that takes it`);
+    const named = needs.spec && Object.values(needs.spec).flatMap((m) => m.events ?? []);
+    if (named) for (const type of Object.keys(needs.events)) if (type !== '*' && !named.includes(type)) say(`its view reads ${type}, which ${file} spec does not name under a machine that takes it`);
     if (!history) return out;
     const problem = schemaProblem(history, needs, absentMeansOf(needs));
     if (problem) { say(problem); return out; }
@@ -151,11 +150,12 @@ const json = (x) => JSON.stringify(x).replace(/</g, '\\u003c');
 const LIVE_CSS = `${CSS}
 .age{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.age button{font:inherit;font-weight:600;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:6px 14px;cursor:pointer}.age button:disabled{opacity:.6}
 .banner{border-radius:10px;padding:14px 16px;border:2px solid var(--bad);background:var(--bad-soft);color:var(--bad)}
+.stepper{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.stepper button{font:inherit;color:var(--accent);background:var(--accent-soft);border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}h3{margin:0;font-size:1rem}.step[hidden]{display:none}
 .bar{display:inline-block;height:8px;border-radius:3px;background:var(--accent);min-width:2px}.slow{color:var(--bad)}`;
 
 /**
  * A live page: its data as it was at render (a store's state.json for mission control, a history's rows for the
- * ledger; only the declared fields), the data age, and a Refresh button that reads `<path>/<needs.reads.file>`
+ * ledger, flow replay and design log; only the declared fields), the data age, and a Refresh button that reads `<path>/<needs.reads.file>`
  * through the Artifact files capability of `project`, renders it and records the timing in the db collection the
  * spec names. Publish with capabilities {files: {project}, db: {}}.
  */

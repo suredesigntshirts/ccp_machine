@@ -105,13 +105,24 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `test/ledger-page.test.js` builds a history with the current code (`contractHistory`: the sim's contract store
   through `extract-store.mjs` and `join.mjs`), renders it and the golden history and checks every count the page
   shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
+- The flow replay and design log pages (`pages/flow-replay/needs.json`, `pages/design-log/needs.json`, #121) are the
+  ledger's live page over the same history, rendered by `--page flow-replay` and `--page design-log` with the same
+  projection, data age, Refresh, timing row and banner. Flow replay lists every row in time order, grouped by item
+  (the `to` address; rows with no item address have a group of their own), and steps through one group a row at a
+  time (First, Previous, Next, Last), each showing the row's type, time, sender (actor and source) and provenance
+  origin and source. The design log lists, newest first, the out-of-band rows (who ordered each, the message, what
+  was done, the gates it skipped) and the requests, stand-in answers (choice and reason), the person's decisions and
+  grants. On both, a placeholder is counted and never shown as a value, and every count carries `data-count`.
+  `test/history-pages.test.js` renders both on the golden history, the contract history and, with
+  `HARNESS_DOGFOOD2_DIR` set, a joined copy of dogfood2, and checks every count against the rows.
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
   `meta.sources`, `placeholders` and `outOfBand` list what doctor will report, and `dedupe` applies the identity
   rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
   design log) declares the event types and fields it reads instead of state fields, and `checkPage` holds it to the
-  schema and, given rows, to that history. `test/history.test.js` checks all of it against the golden history,
+  schema (each field a property of the envelope or of its type's schema, so dropping one fails naming the page and
+  the field) and, given rows, to that history, and fails a read of a field it does not declare. `test/history.test.js` checks all of it against the golden history,
   `test/fixtures/history-golden/events.jsonl`.
 - `scripts/history/`: tools that build the one history, outside the plugin and the runtime (tracer T, #65).
   `extract-store.mjs <store dir> <archive ref>` (E1) reads a store's `events.jsonl` and prints each row as a

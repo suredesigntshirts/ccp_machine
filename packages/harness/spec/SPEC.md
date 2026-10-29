@@ -486,7 +486,7 @@ Row layout: a row's `schemaVersion`, absent means 1. The history schema the row 
 
 Provenance: `origin` is one of `live`, `migrated`, `recovered`. live: the runtime wrote it into this history. migrated: copied from an older store, upcast. recovered: reconstructed from a session transcript, GitHub or the Library, where no store recorded it. `from.source` is one of `store`, `session`, `github`, `library`, `artifact`. Paths in this row (actor, harness, event.sha, ...) that hold a legacy placeholder. Exactly those, no more and no fewer. A placeholder for a value that could not be recovered.
 
-Events: Every event type the history holds, with its current version and the payload fields it needs to mean anything (a weak schema: the rest are optional, because eras differ). Every type the machines take is here; OUT_OF_BAND, which records work done outside the gates, the item takes as a fact. A version above 1 needs a declared conversion from each earlier one.
+Events: Every event type the history holds, with its current version and the payload fields it needs to mean anything (a weak schema: the rest are optional, because eras differ). Every type the machines take is here; OUT_OF_BAND, which records work done outside the gates, the item takes as a fact. A version above 1 needs a declared conversion from each earlier one. Every field a page reads (pages/<page>/needs.json) is a property here, in the envelope or in its type's schema, so dropping one fails naming the page and the field.
 
 - `CARD_POSTED` v1, needs `card`
 - `CHECKS_FAILED` v1, needs `pr`

@@ -176,8 +176,8 @@ export const tablesInCards = (html) => (html.match(/<div class="card"[^]*?<\/div
 /**
  * A store the page contract test reads: the simulation's finished items, then, on top, one of every row a page
  * shows that a settled simulation no longer has: a budget reading, a decision waiting on the person with its card
- * posted, an item triage gave no criteria, one building, one queued, and the day's open stand-in audit. Built
- * with the current runtime every time, never a frozen fixture.
+ * posted, an item triage gave no criteria, one building, one queued, the day's open stand-in audit, and an
+ * out-of-band landing. Built with the current runtime every time, never a frozen fixture.
  */
 export async function contractStore(dir) {
   const { store } = await simulate({ items: 6, wip: 3, dir });
@@ -211,6 +211,8 @@ export async function contractStore(dir) {
   const picks = store.outbox().filter((e) => e.name === 'logPrecedent').slice(0, 2).map((e) => e.id);
   const day = now();
   send({ type: 'AUDIT_PICKED', day: day.slice(0, 10), picks }, undefined, 'c-audit', day);
+  // A landing by hand on the person's order, which the item takes as a fact (the design log lists it).
+  send({ type: 'OUT_OF_BAND', orderedBy: { kind: 'person', id: 'sim-person' }, message: 'cmsg_contract_order', what: 'landed the PR by hand', skipped: ['acceptGate', 'mergeGate'], pr: 'https://example.test/pull/1' }, 'item:c-build', 'c-oob');
   return { store, dir };
 }
 

@@ -132,17 +132,32 @@ export function dedupe(rows) {
   return { rows: kept, dropped, conflicts };
 }
 
+// Whether the schema declares a field path for an event type: each segment a property (through $ref and anyOf), a
+// payload path in the envelope's event or in the type's own schema.
+function declares(schema, type, path) {
+  const ref = (n) => (n && n.$ref ? ref(n.$ref.slice(2).split('/').reduce((x, k) => x?.[k], schema)) : n);
+  const forms = (n) => { n = ref(n); return !n ? [] : n.anyOf ? n.anyOf.flatMap(forms) : [n]; };
+  const [head, ...rest] = path.split('.');
+  let nodes = [schema.properties?.[head], head === 'event' && type !== '*' && schema.events.types[type]?.schema].filter(Boolean);
+  for (const k of rest) nodes = nodes.flatMap(forms).map((n) => n.properties?.[k]).filter(Boolean);
+  return nodes.length > 0;
+}
+
 /**
  * Everything that breaks a log view's needs file against the schema and, given rows, against a history: each line
- * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each: every row
- * of the type must carry each field, as a value or a legacy placeholder, and at least one row a value.
+ * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each: the schema
+ * must declare each field, every row of the type must carry it, as a value or a legacy placeholder, and at least one
+ * row a value.
  */
-export function checkLogNeeds(needs, rows) {
+export function checkLogNeeds(needs, rows, schema = HISTORY) {
   const out = [];
   const say = (m) => out.push(`${needs.page}: ${m}`);
   const range = needs.reads.schemaVersion;
-  if (HISTORY.schemaVersion < range.min || HISTORY.schemaVersion > range.max) say(`reads history schema ${range.min}..${range.max}, and history.schema.json is ${HISTORY.schemaVersion}`);
-  for (const type of Object.keys(needs.events)) if (type !== '*' && !HISTORY.events.types[type]) say(`reads ${type}, which history.schema.json does not declare`);
+  if (schema.schemaVersion < range.min || schema.schemaVersion > range.max) say(`reads history schema ${range.min}..${range.max}, and history.schema.json is ${schema.schemaVersion}`);
+  for (const [type, fields] of Object.entries(needs.events)) {
+    if (type !== '*' && !schema.events.types[type]) { say(`reads ${type}, which history.schema.json does not declare`); continue; }
+    for (const f of fields) if (!declares(schema, type, f)) say(`reads ${type} field ${f}, which history.schema.json does not declare`);
+  }
   if (!rows) return out;
   for (const [type, fields] of Object.entries(needs.events)) {
     const of = rows.filter((r) => type === '*' || r.event.type === type);

@@ -1,7 +1,7 @@
-// Live pages: mission control (a store's state.json) and the ledger (the one history's events.jsonl), each a page
-// that reads its file itself, but only when a viewer asks. Node imports this module to render a page and to check
-// it against its needs file; `harness page --live` also inlines its source in the page (each `export ` dropped), so
-// the refresh button runs the same code. It has no imports and touches no Node API. Everything a page reads goes
+// Live pages: mission control (a store's state.json) and the ledger, flow replay and design log (the one history's
+// events.jsonl), each a page that reads its file itself, but only when a viewer asks. Node imports this module to
+// render a page and to check it against its needs file; `harness page --live` also inlines its source in the page
+// (each `export ` dropped), so the refresh button and flow replay's step buttons run the same code. It has no imports and touches no Node API. Everything a page reads goes
 // through project() or projectLog(), which copy only the fields the page's needs file declares.
 
 export const esc = (s) =>
@@ -219,8 +219,19 @@ const FORMATS = {
   }
 };
 export const formatOf = (needs) => FORMATS[needs.reads.file];
-/** The page's data, rendered by its view (mission control or the ledger). */
-export const renderData = (view, needs) => (needs.page === 'ledger' ? renderLedger(view, needs) : renderView(view, needs));
+// The view that renders each page that reads the history; any other page is mission control's.
+const VIEWS = { ledger: renderLedger, 'flow-replay': renderFlowReplay, 'design-log': renderDesignLog };
+/** The page's data, rendered by its view. */
+export const renderData = (view, needs) => (VIEWS[needs.page] ?? renderView)(view, needs);
+
+// A history value as text, and the placeholders in a row: a placeholder is counted, never shown as a value.
+const text = (v) => (v == null || isLegacy(v) ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+const legacies = (v) => (isLegacy(v) ? 1 : v && typeof v === 'object' ? Object.values(v).reduce((n, x) => n + legacies(x), 0) : 0);
+const PLACEHOLDER = '<i class="m">placeholder</i>';
+const shownAs = (v) => (isLegacy(v) ? PLACEHOLDER : esc(text(v)));
+// An actor (kind:id) or a source (kind:ref).
+const party = (v) => (v == null ? '' : isLegacy(v) ? PLACEHOLDER : esc([v.kind, v.id ?? v.ref].filter((x) => x != null).join(':')));
+const timeOrder = (a, b) => text(a.at).localeCompare(text(b.at)) || (a.version ?? 0) - (b.version ?? 0);
 
 /**
  * The ledger: who did the work on each item, as which role and on which model (spawns, starts, runs), the usage
@@ -229,13 +240,11 @@ export const renderData = (view, needs) => (needs.page === 'ledger' ? renderLedg
  */
 export function renderLedger(rows, needs) {
   const of = (type) => rows.filter((r) => r.event.type === type);
-  const text = (v) => (v == null || isLegacy(v) ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
   const tally = (list) => {
     const n = new Map();
     for (const v of list.filter((v) => v !== '')) n.set(v, (n.get(v) ?? 0) + 1);
     return [...n].map(([k, c]) => `${esc(k)}${c > 1 ? ` ×${c}` : ''}`).join(', ');
   };
-  const legacies = (v) => (isLegacy(v) ? 1 : v && typeof v === 'object' ? Object.values(v).reduce((n, x) => n + legacies(x), 0) : 0);
   const count = (name, n) => `<b data-count="${name}">${n}</b>`;
   const items = new Map();
   for (const [type, key] of [['WORKER_SPAWNED', 'spawns'], ['WORKER_STARTED', 'starts'], ['RUN_SUCCEEDED', 'runs']])
@@ -279,6 +288,85 @@ export function renderLedger(rows, needs) {
 <div class="tablewrap"><table><thead><tr><th>Source</th><th>Origin</th><th>Rows</th><th>Placeholders</th></tr></thead><tbody>${[...eras].map(([ref, e]) => `<tr data-era="${esc(ref)}"><td class="m">${esc(ref)}</td><td class="m">${tally(e.origins)}</td><td><b data-count="rows">${e.rows}</b></td><td><b data-count="placeholders">${e.placeholders}</b></td></tr>`).join('')}</tbody></table></div></section>`;
 }
 
+/**
+ * Flow replay: every row in time order, grouped by item (the to address; rows with no item address in a group of
+ * their own), each group stepped one row at a time (step) showing the row's type, time, sender and provenance.
+ */
+export function renderFlowReplay(rows, needs) {
+  const groups = new Map();
+  for (const r of [...rows].sort(timeOrder)) {
+    const m = /^item:([^/]+)/.exec(typeof r.to === 'string' ? r.to : '');
+    const g = m ? `item:${m[1]}` : '(no item)';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  }
+  const count = (name, n) => `<b data-count="${name}">${n}</b>`;
+  const card = (r, i) =>
+    `<div class="card step" data-version="${esc(r.version)}"${i ? ' hidden' : ''}><span class="eyebrow">row ${esc(r.version)} · to ${shownAs(r.to)}</span><b>${esc(r.event.type)}</b>` +
+    `<div class="m">${shownAs(r.at)} · sent by ${party(r.actor)} via ${party(r.source)} · ${shownAs(at(r, 'provenance.origin'))} from ${shownAs(at(r, 'provenance.from.source'))} · id ${shownAs(r.id)}</div></div>`;
+  const button = (step, label) => `<button type="button" data-step="${step}">${label}</button>`;
+  const group = ([g, list]) =>
+    `<section class="group" data-group="${esc(g)}" data-steps><h3>${esc(g)}: ${count('rows', list.length)} rows, ${count('placeholders', list.reduce((n, r) => n + legacies(r), 0))} placeholders</h3>` +
+    `<div class="stepper">${button('first', 'First')}${button('prev', 'Previous')}<span class="m" data-pos>1 / ${list.length}</span>${button('next', 'Next')}${button('last', 'Last')}</div>${list.map(card).join('')}</section>`;
+  return `<div class="tiles">
+<div class="tile"><span class="eyebrow">Rows</span>${count('rows', rows.length)}<small>in time order</small></div>
+<div class="tile"><span class="eyebrow">Groups</span>${count('groups', groups.size)}<small>one per item, and one for rows with no item</small></div>
+<div class="tile"><span class="eyebrow">Placeholders</span>${count('placeholders', rows.reduce((n, r) => n + legacies(r), 0))}<small>values no source recorded, never shown</small></div>
+</div>
+${[...groups].map(group).join('\n')}`;
+}
+
+/** Shows the next, previous, first or last row of a flow replay group: a click on one of its data-step buttons. */
+export function step(e) {
+  const b = e.target && e.target.closest ? e.target.closest('[data-step]') : null;
+  const g = b && b.closest('[data-steps]');
+  if (!g) return;
+  const list = [...g.querySelectorAll('[data-version]')];
+  const now = Math.max(0, list.findIndex((r) => !r.hidden));
+  const to = { first: 0, prev: Math.max(0, now - 1), next: Math.min(list.length - 1, now + 1), last: list.length - 1 }[b.dataset.step];
+  list.forEach((r, i) => { r.hidden = i !== to; });
+  g.querySelector('[data-pos]').textContent = `${to + 1} / ${list.length}`;
+}
+
+/**
+ * The design log: the decisions and what they led to, newest first: requests, stand-in answers (choice and reason),
+ * the person's decisions and grants, and every out-of-band step with who ordered it, the message, what was done and
+ * the gates it skipped. Every number carries data-count.
+ */
+export function renderDesignLog(rows, needs) {
+  const count = (name, x) => `<b data-count="${name}">${x}</b>`;
+  const list = (v) => (Array.isArray(v) ? v.map(esc).join(', ') : shownAs(v));
+  const by = (r) => `${party(r.actor)} via ${party(r.source)}`;
+  const row = {
+    REQUEST_RECEIVED: (r) => ['request', `item:${shownAs(at(r, 'event.request.id'))}`, 'filed', ''],
+    STAND_IN_ANSWERED: (r) => ['answer', shownAs(r.to), `<b>${shownAs(at(r, 'event.answer.choice'))}</b> ${shownAs(at(r, 'event.answer.reason'))}`, 'the stand-in'],
+    PERSON_DECIDED: (r) => ['decision', shownAs(r.to), `<b>${shownAs(r.event.choice)}</b>`, by(r)],
+    PERSON_GRANTED: (r) => ['grant', '', `granted ${list(r.event.picks)}`, by(r)]
+  };
+  const of = rows.filter((r) => row[r.event.type] || r.event.type === 'OUT_OF_BAND').sort(timeOrder).reverse();
+  const n = (type) => of.filter((r) => r.event.type === type).length;
+  const tr = (r) => {
+    const [kind, where, what, who] = row[r.event.type](r);
+    return `<tr data-kind="${kind}" data-version="${esc(r.version)}"><td class="m">${shownAs(r.at)}</td><td>${kind}</td><td class="m">${where}</td><td>${what}</td><td class="m">${who}</td></tr>`;
+  };
+  const oob = of.filter((r) => r.event.type === 'OUT_OF_BAND');
+  const rest = of.filter((r) => r.event.type !== 'OUT_OF_BAND');
+  const card = (r) =>
+    `<div class="card" data-oob="${esc(r.version)}"><span class="eyebrow">${shownAs(r.at)} · ${shownAs(r.to)}</span><b>${shownAs(r.event.what)}</b>` +
+    `<div class="m">Ordered by ${party(r.event.orderedBy)}, message ${shownAs(r.event.message)}. Skipped: ${list(r.event.skipped)}.</div></div>`;
+  const tile = (name, label, x, small) => `<div class="tile"><span class="eyebrow">${label}</span>${count(name, x)}<small>${small}</small></div>`;
+  return `<div class="tiles">
+${tile('requests', 'Requests', n('REQUEST_RECEIVED'), 'items filed')}
+${tile('answers', 'Stand-in answers', n('STAND_IN_ANSWERED'), 'with choice and reason')}
+${tile('decisions', 'Your decisions', n('PERSON_DECIDED'), 'taps on decision cards')}
+${tile('grants', 'Grants', n('PERSON_GRANTED'), 'what the stand-in may decide')}
+${tile('outOfBand', 'Out of band', oob.length, 'work done outside the gates')}
+${tile('placeholders', 'Placeholders', of.reduce((x, r) => x + legacies(r), 0), 'values no source recorded, never shown')}
+</div>
+<section><h2>Out of band</h2>${oob.length ? oob.map(card).join('') : '<div class="empty">No out-of-band step in this history.</div>'}</section>
+<section><h2>Decisions, newest first</h2>${rest.length ? `<div class="tablewrap"><table><thead><tr><th>At (UTC)</th><th>Kind</th><th>Where</th><th>What</th><th>Who</th></tr></thead><tbody>${rest.map(tr).join('')}</tbody></table></div>` : '<div class="empty">No decision in this history.</div>'}</section>`;
+}
+
 /** The data age line: when the page last read its file and when the data last changed. */
 export function ageText(meta, now) {
   const of = meta.of ?? 'store';
@@ -311,6 +399,7 @@ export function client(cfg, meta) {
   const showAge = () => { $('data-age').textContent = ageText(meta, new Date().toISOString()); };
   showAge();
   document.addEventListener('visibilitychange', showAge);
+  $('view').addEventListener('click', step);
   const trend = async () => {
     const db = await use('db').catch(() => null);
     if (!db) return;
