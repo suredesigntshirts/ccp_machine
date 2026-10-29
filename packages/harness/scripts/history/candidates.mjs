@@ -1,8 +1,8 @@
-// The candidate writer every extractor shares (epic #59: E1 extract-store.mjs, E3 extract-github.mjs). It turns one
-// record into a history row (spec/history.schema.json): the draft gets its provenance (origin and from) unless it has
-// one, and `placeholders` lists each field holding a legacy placeholder. A row that passes validate() goes to stdout
-// as one JSONL line; one that does not is skipped, never guessed at, and the skip goes to stderr naming where the
-// record was and why. done() writes the count last, one JSON object per line like everything else on stderr.
+// The candidate writer every extractor shares (epic #59: E1 extract-store.mjs, E2 extract-session.mjs, E3
+// extract-github.mjs). It turns one record into a history row (spec/history.schema.json): the draft gets its
+// provenance (origin and from) unless it has one, and `placeholders` lists each field holding a legacy placeholder.
+// A row that passes validate() goes to stdout as one JSONL line; one that does not is skipped, never guessed at, and
+// the skip goes to stderr naming where the record was and why. done() writes the count last, one JSON object per line like everything else on stderr.
 import { validate, legacyPaths } from '../../src/history.js';
 
 export function candidates(ref, { out = process.stdout, err = process.stderr } = {}) {
@@ -14,14 +14,15 @@ export function candidates(ref, { out = process.stdout, err = process.stderr } =
     skips++;
     say({ skip: where, reason });
   };
-  /** A draft row as a history row, written if valid; else skipped at `where` (default: its from, less the source). */
-  const write = (draft, { origin, from }) => {
+  /** A draft row as a history row, written if valid (true); else skipped at `where` (default: its from, less the source). */
+  const write = (draft, { origin, from, where = { ref: from.ref, line: from.line } }) => {
     const placeholders = draft?.provenance ? [] : legacyPaths(draft ?? {});
     const row = draft?.provenance ? draft : { ...draft, provenance: { origin, from, ...(placeholders.length && { placeholders }) } };
     const problems = validate(row);
-    if (problems.length) return skip({ ref: from.ref, line: from.line }, problems.join('; '));
+    if (problems.length) return skip(where, problems.join('; ')), false;
     rows++;
     out.write(JSON.stringify(row) + '\n');
+    return true;
   };
   return { write, skip, say, done: (extra = {}) => say({ ref, rows, skips, ...extra }) };
 }
