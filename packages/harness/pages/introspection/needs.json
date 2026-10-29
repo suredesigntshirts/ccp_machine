@@ -14,6 +14,9 @@
     "MERGED": ["to", "event.pr"],
     "*": ["at", "actor"]
   },
+  "optional": {
+    "RUN_SUCCEEDED": ["event.pr"]
+  },
   "spec": {
     "workItem": { "events": ["RUN_SUCCEEDED", "MERGED"] }
   },

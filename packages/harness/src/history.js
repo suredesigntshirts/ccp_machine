@@ -5,7 +5,8 @@
 // field, factKey() and dedupe() apply its identity rules, stepProblems() holds a step (steps, beside a history) to its row, usageProblems() a usage row (usage, read on demand) to its row, and
 // checkLogNeeds() holds a history, its steps and its usage fields to a view's needs file. The schema is a subset of
 // JSON Schema, and so is the checker below.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { specs } from './machines.js';
 import { liveRows } from './live.js';
 
@@ -92,6 +93,16 @@ export function liveProvenance(store) {
  * src/live.js liveRows applies the rule, the one place that does (the history pages run it too), with `store`'s live provenance.
  */
 export const historyRows = (rows, store) => liveRows(rows, liveProvenance(store));
+
+/**
+ * The rows the join's report (report.json beside a history's events.jsonl) lists as refused, "<id>: <reason>" lines:
+ * [] for a store that is not a history or has no report. harness replay and harness doctor both read them here, and
+ * replay takes a row refused for its listed reason as known (harness meta.store.facts).
+ */
+export function joinRefused(store, rows = historyRows(store.events(), basename(store.dir))) {
+  const report = join(store.dir, 'report.json');
+  return rows && existsSync(report) ? JSON.parse(readFileSync(report, 'utf8')).refused ?? [] : [];
+}
 
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
 export function validate(row) {
@@ -203,6 +214,23 @@ function declares(schema, nodes, path) {
 // A history field path for an event type: in the envelope, or for event.* in the type's own schema.
 const declaresLog = (schema, type, path) =>
   declares(schema, [schema], path) || (path.startsWith('event.') && type !== '*' && Boolean(schema.events.types[type]?.schema) && declares(schema, [schema.events.types[type].schema], path.slice(6)));
+// Whether the schema requires a field path: each segment required (through $ref, and by every form of an anyOf) of the
+// node it starts from. For event.* of a type, its declaration's required (events.types).
+function requires(schema, node, keys) {
+  const ref = (n) => (n && n.$ref ? ref(n.$ref.slice(2).split('/').reduce((x, k) => x?.[k], schema)) : n);
+  const forms = (n) => { n = ref(n); return !n ? [] : n.anyOf ? n.anyOf.flatMap(forms) : [n]; };
+  let nodes = [node];
+  for (const k of keys) {
+    nodes = nodes.flatMap(forms);
+    if (!nodes.length || !nodes.every((n) => n.required?.includes(k))) return false;
+    nodes = nodes.map((n) => n.properties?.[k]).filter(Boolean);
+  }
+  return true;
+}
+const requiresLog = (schema, type, path) => {
+  const keys = path.split('.');
+  return requires(schema, schema, keys) || (keys[0] === 'event' && keys.length === 2 && type !== '*' && Boolean(schema.events.types[type]?.required?.includes(keys[1])));
+};
 // The values at a path, through arrays: one per object the path reaches, undefined where that object lacks it.
 const valuesAt = (o, keys) => (!keys.length ? [o] : Array.isArray(o) ? o.flatMap((x) => valuesAt(x, keys)) : o == null || typeof o !== 'object' ? [undefined] : valuesAt(o[keys[0]], keys.slice(1)));
 
@@ -210,7 +238,9 @@ const valuesAt = (o, keys) => (!keys.length ? [o] : Array.isArray(o) ? o.flatMap
  * Everything that breaks a log view's needs file against the schema and, given rows, against a history: each line
  * starts with the view's name. A view names the event types it reads ("*" for all) and the fields of each: the schema
  * must declare each field, every row of the type must carry it, as a value or a legacy placeholder, and at least one
- * row a value. A file it reads beside the history (reads.with: the steps or the usage file) has its fields declared in
+ * row a value. A field it reads that only some rows of the type carry it also lists in `optional` (history.schema.json
+ * events): no row is reported for lacking it, and it must be one the view reads and the schema does not require. The
+ * rows are read as a history (src/live.js liveRows, with the needs' live provenance): a live row has its provenance. A file it reads beside the history (reads.with: the steps or the usage file) has its fields declared in
  * the schema's steps.row or usage.row, and, given the steps (also), every step and every element on the way carries each one.
  */
 export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
@@ -222,6 +252,15 @@ export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
     if (type !== '*' && !schema.events.types[type]) { say(`reads ${type}, which history.schema.json does not declare`); continue; }
     for (const f of fields) if (!declaresLog(schema, type, f)) say(`reads ${type} field ${f}, which history.schema.json does not declare`);
   }
+  // A field only some rows carry (needs.optional): one the view reads and the schema does not require, else it is a
+  // problem and still held to every row.
+  const optional = new Set();
+  for (const [type, fields] of Object.entries(needs.optional ?? {}))
+    for (const f of fields) {
+      if (!(needs.events[type] ?? []).includes(f)) say(`declares ${type} field ${f} optional, which its events.${type} does not read`);
+      else if (requiresLog(schema, type, f)) say(`declares ${type} field ${f} optional, which history.schema.json requires`);
+      else optional.add(`${type} ${f}`);
+    }
   // A file it reads beside the history (reads.with): the steps, one per row and joined to it by the schema's key, or
   // the usage rows, read with the history; each held to its own part of the schema.
   for (const [file, fields] of Object.entries(needs.reads.with ?? {})) {
@@ -241,13 +280,14 @@ export function checkLogNeeds(needs, rows, schema = HISTORY, also = {}) {
     for (const f of fields) if (!declares(schema, [schema.usage.row], f)) say(`reads ${file} field ${f}, which history.schema.json usage does not declare`);
   }
   if (!rows) return out;
+  rows = liveRows(rows, needs.live) || rows;
   for (const [type, fields] of Object.entries(needs.events)) {
     const of = rows.filter((r) => type === '*' || r.event.type === type);
     if (!of.length) { say(`reads ${type} events, and this history has none`); continue; }
     for (const f of fields) {
       const lack = of.filter((r) => get(r, f) === undefined).map((r) => r.id);
       if (!of.some((r) => get(r, f) !== undefined && !isLegacy(get(r, f)))) say(`reads ${type} field ${f}, which no ${type} event in this history has`);
-      else if (lack.length) say(`reads ${type} field ${f}, which ${lack.length === 1 ? 'row' : 'rows'} ${lack.join(', ')} ${lack.length === 1 ? 'lacks' : 'lack'}`);
+      else if (lack.length && !optional.has(`${type} ${f}`)) say(`reads ${type} field ${f}, which ${lack.length === 1 ? 'row' : 'rows'} ${lack.join(', ')} ${lack.length === 1 ? 'lacks' : 'lack'}`);
     }
   }
   return out;

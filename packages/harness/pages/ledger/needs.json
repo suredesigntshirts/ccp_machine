@@ -14,6 +14,9 @@
     "USAGE_SAMPLED": ["at", "event.sevenDay", "event.fiveHour"],
     "*": ["at", "provenance.origin", "provenance.from.ref"]
   },
+  "optional": {
+    "RUN_SUCCEEDED": ["event.pr"]
+  },
   "spec": {
     "workItem": { "events": ["WORKER_SPAWNED", "WORKER_STARTED", "RUN_SUCCEEDED"] },
     "budget": { "events": ["USAGE_SAMPLED"] }

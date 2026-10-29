@@ -2,7 +2,7 @@
 // wrong and where, so the orchestrator can stop and report instead of building on a broken store; what
 // cannot be checked yet (GitHub unreachable, a ledger not filed yet for a session that has just acted) is
 // unverifiable, listed but not a problem.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { tryRestore } from './runtime.js';
 import { replay } from './replay.js';
@@ -13,7 +13,7 @@ import { verifyFacts, verifyFactsText } from './verify-facts.js';
 import { verifyMerges, verifyMergesText } from './gates.js';
 import { slowRefreshes, slowRefreshText } from './pages.js';
 import { specs } from './machines.js';
-import { outOfBand, validate, placeholders, historyRows } from './history.js';
+import { outOfBand, validate, placeholders, historyRows, joinRefused } from './history.js';
 import { prKey } from './pr-binding.js';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -74,8 +74,7 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   const rows = historyRows(events, basename(store.dir));
   const history = rows ? { rows: rows.length, schemaErrors: rows.flatMap(validate), placeholders: placeholders(rows), refused: {} } : null;
   // The rows the join could not apply, as its report lists them ("<id>: <reason>"): known, not a divergence (harness meta.store.facts).
-  const report = join(store.dir, 'report.json');
-  const listed = history && existsSync(report) ? JSON.parse(readFileSync(report, 'utf8')).refused ?? [] : [];
+  const listed = joinRefused(store, rows);
   if (history) problems.push(...history.schemaErrors.map((e) => `schema: ${e}`));
   const lock = join(store.dir, 'lock');
   if (existsSync(lock) && now - statSync(lock).mtimeMs > STALE_LOCK_MS) problems.push(`lock is older than ${STALE_LOCK_MS / 1000}s (fix with harness repair)`);
