@@ -6,11 +6,15 @@
 // event's closes (harness meta.store.closes) are compared with the withdrawn acks the log holds for it, with the host's
 // own acks put on the scratch copy in time order so the same effects are pending. An event today's rules would refuse,
 // route otherwise or close more for is listed (admittedThen), with the release that wrote it: not a problem.
+// With {steps: true} it also returns what each row did on the way (history.schema.json steps): the actors whose state
+// it changed and the context fields it changed (the scratch copy before and after the row), the effects it queued with
+// the store's acks for them, and its route; a row it cannot apply is a step with the reason it was refused.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from './store.js';
 import { init, apply } from './runtime.js';
+import { valueText } from './live.js';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // The actor field can be an internal session id (x:0), so effects match on name, subject and params.
@@ -36,8 +40,32 @@ function compare(stored, rebuilt, path = 'harness', out = { differences: [], not
   return out;
 }
 
-/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], admittedThen: object[], rebuilt: object}} rebuilt is the scratch state.json */
-export function replay(store) {
+// Every actor in a snapshot by address (harness, item:<id>, item:<id>/<child id>), with its state as text and its context.
+function actorsOf(snap, address = 'harness', out = {}) {
+  out[address] = { state: valueText(snap.value), context: snap.context ?? {} };
+  for (const [key, c] of Object.entries(snap.children ?? {}))
+    if (c?.snapshot) actorsOf(c.snapshot, address === 'harness' ? c.systemId ?? key : `${address}/${key}`, out);
+  return out;
+}
+
+/** What one row changed: the actors whose state changed and the context fields that changed, each before and after (null: absent). */
+export function changes(before, after) {
+  const b = actorsOf(before);
+  const a = actorsOf(after);
+  const actors = [];
+  const context = [];
+  for (const address of new Set([...Object.keys(b), ...Object.keys(a)])) {
+    if (b[address]?.state !== a[address]?.state) actors.push({ address, before: b[address]?.state ?? null, after: a[address]?.state ?? null });
+    const was = b[address]?.context ?? {};
+    const is = a[address]?.context ?? {};
+    for (const field of new Set([...Object.keys(was), ...Object.keys(is)]))
+      if (!same(was[field], is[field])) context.push({ address, field, before: was[field] ?? null, after: is[field] ?? null });
+  }
+  return { actors, context };
+}
+
+/** @returns {{ok: boolean, events: number, firstDivergence: string|null, differences: string[], notes: string[], admittedThen: object[], rebuilt: object, steps?: object[]}} rebuilt is the scratch state.json */
+export function replay(store, { steps: withSteps = false } = {}) {
   const state = store.read();
   if (!state) return { ok: false, events: 0, firstDivergence: null, differences: ['no state.json'], notes: [], admittedThen: [] };
   const dir = mkdtempSync(join(tmpdir(), 'harness-replay-'));
@@ -56,8 +84,21 @@ export function replay(store) {
     const hostAcks = acks.filter((a) => a.outcome !== 'withdrawn').sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? '')));
     const closedBy = (id) => acks.filter((a) => a.outcome === 'withdrawn' && String(a.note ?? '').endsWith(` withdrawn by ${id}`)).map((a) => a.effectId).sort();
     let fed = 0;
+    const steps = [];
+    const acksOf = (id) => acks.filter((a) => a.effectId === id).map(({ outcome, at, note }) => ({ outcome, at: at ?? null, note: note ?? null }));
+    let before = withSteps && scratch.read().snapshot;
+    // A row it applied is a step from the scratch copy before it to the copy after; one it could not apply is refused.
+    const record = (e, r, err) => {
+      // An id applied already (two sources can share one) is applied once: replay passes over the later row.
+      const twice = r?.duplicate && `replay applies one event per id, and row ${steps.find((s) => s.id === e.id)?.version ?? '?'} applied ${e.id} already`;
+      if (!r || twice) return steps.push({ version: e.version, id: e.id, refused: twice || err.message, route: null, actors: [], context: [], effects: [] });
+      const after = scratch.read().snapshot;
+      steps.push({ version: e.version, id: e.id, refused: null, route: r.route, ...changes(before, after), effects: r.effects.map((fx) => ({ id: fx.id, name: fx.name, subject: fx.subject ?? null, acks: acksOf(fx.id) })) });
+      before = after;
+    };
     for (const e of events) {
       let effects;
+      let r = null;
       const upTo = hostAcks.slice(fed).findIndex((a) => String(a.at ?? '') > e.at);
       const next = upTo < 0 ? hostAcks.length : fed + upTo;
       scratch.withLock(() => scratch.appendAcks(hostAcks.slice(fed, next))); // every writer holds the lock (oneWriter), the scratch copy too
@@ -69,7 +110,7 @@ export function replay(store) {
         const today = apply(scratch, sent, { ...at, dryRun: true });
         const logged = JSON.stringify(outbox.get(e.id) ?? []);
         // A row records its route; one written before routes were recorded is matched to its logged effects.
-        const r = apply(scratch, sent, { ...at, fact: e.route ? { route: e.route } : { matches: (fx) => JSON.stringify(fx.map(effectKey)) === logged } });
+        r = apply(scratch, sent, { ...at, fact: e.route ? { route: e.route } : { matches: (fx) => JSON.stringify(fx.map(effectKey)) === logged } });
         // Its closes are the ones the log holds. A row written before routes were recorded may close fewer, by a release
         // that closed less; a logged close today's rules do not give, or any difference on a routed row, is a divergence.
         const logClosed = closedBy(e.id);
@@ -87,13 +128,15 @@ export function replay(store) {
         ({ effects } = r);
       } catch (err) {
         firstDivergence ??= `${e.id}: ${err.message}`;
+        if (withSteps) record(e, r, err);
         continue;
       }
+      if (withSteps) record(e, r);
       if (!firstDivergence && !same(effects.map(effectKey), outbox.get(e.id) ?? [])) firstDivergence = `${e.id} (${e.event.type}): effects differ`;
     }
     const rebuilt = scratch.read();
     const { differences } = compare(state.snapshot, rebuilt.snapshot, 'harness', { differences: [], notes });
-    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, admittedThen, rebuilt };
+    return { ok: !firstDivergence && differences.length === 0, events: events.length, firstDivergence, differences, notes, admittedThen, rebuilt, ...(withSteps && { steps }) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

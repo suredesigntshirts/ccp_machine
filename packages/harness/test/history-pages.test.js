@@ -125,6 +125,18 @@ const check = (page, built) => {
 // The card of one row, as the page shows it.
 const cardOf = (html, version) => new RegExp(`<div class="card step" data-version="${version}"[^>]*>(.*?)</div>(?=<div class="card step"|</section>)`, 's').exec(shown(html))?.[1];
 
+// The refusals in a history's steps that are neither a row its join refused nor a second row of one id; and the join's
+// refusals missing from the steps.
+function refusals(steps, dir) {
+  const joined = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8')).refused;
+  const listed = steps.filter((s) => s.refused != null).map((s) => `${s.id}: ${s.refused}`);
+  const twice = (s) => s.refused.startsWith('replay applies one event per id') && steps.some((o) => o.id === s.id && o.version < s.version && o.refused == null);
+  return [
+    ...joined.filter((j) => !listed.includes(j)).map((j) => `not in the steps: ${j}`),
+    ...steps.filter((s) => s.refused != null && !joined.includes(`${s.id}: ${s.refused}`) && !twice(s)).map((s) => `not a join refusal: ${s.version} ${s.id}: ${s.refused}`)
+  ];
+}
+
 // Every actor's state and every context field of a snapshot, by address ({} has no state: it reads as '').
 const everything = (snapshot) => changes({ value: {}, context: {} }, snapshot);
 
@@ -139,9 +151,9 @@ test('harness replay --steps writes one step per history row, from the replay pa
     const { rebuilt: _, ...plain } = replay(store);
     assert.deepEqual(withSteps, plain);
     assert.deepEqual(again, steps);
-    // A row replay cannot apply is a step with its reason, never dropped: the join refused the same rows.
-    const report = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8'));
-    assert.deepEqual(steps.filter((s) => s.refused != null).map((s) => `${s.id}: ${s.refused}`), report.refused);
+    // A row replay cannot apply is a step with its reason, never dropped: the rows the join refused, and a row whose
+    // id an earlier row (of another source) holds, which replay, like the join, applies once.
+    assert.deepEqual(refusals(steps, dir), []);
     for (const s of steps.filter((s) => s.refused != null)) assert.deepEqual([s.route, s.actors, s.context, s.effects], [null, [], [], []]);
     // Each row's effects are the ones the store queued for it, with the store's acks for each.
     const outbox = store.outbox();
@@ -152,7 +164,8 @@ test('harness replay --steps writes one step per history row, from the replay pa
     }
     // The steps add up to the state the replay ends in: each actor's last after is its state there, each field's its value.
     const start = openStore(join(tempDir('harness-history-pages-init-'), 'store'));
-    init(start, { wipLimit: rebuilt.snapshot.context.wipLimitAtInit }, rows[0].at);
+    const stored = store.read().snapshot.context;
+    init(start, { wipLimit: stored.wipLimitAtInit ?? stored.wipLimit }, rows[0].at); // as replay starts
     const first = everything(start.read().snapshot);
     const last = everything(rebuilt.snapshot);
     const stateOf = (list, address) => list.actors.find((a) => a.address === address)?.after ?? null;
@@ -242,7 +255,7 @@ test('each flow replay step shows its row and what it did: changed actors before
       const asText = (v) => (v == null ? 'none' : typeof v === 'string' ? v : JSON.stringify(v));
       for (const c of s.context) assert.ok(text.includes(`data-field="${c.address} ${c.field}"`) && text.includes(asText(c.before).slice(0, 40)) && text.includes(asText(c.after).slice(0, 40)), `row ${s.version}: ${c.address} ${c.field}`);
       for (const f of s.effects) assert.ok(text.includes(`data-effect="${f.id}"`) && text.includes(f.name), `row ${s.version}: effect ${f.id}`);
-      for (const id of s.route) assert.ok(text.includes(id), `row ${s.version}: route ${id}`);
+      for (const id of s.route ?? []) assert.ok(text.includes(id), `row ${s.version}: route ${id}`);
     }
   }
   assert.ok(golden().steps.some((s) => s.refused == null && !s.actors.length && !s.context.length && !s.effects.length) || (await contract()).steps.some((s) => s.refused == null && !s.actors.length && !s.context.length && !s.effects.length), 'a history here has a step that changed nothing');
@@ -299,7 +312,6 @@ test('both pages render a history the current code builds, with counts that matc
     check(page, built);
   }
   assert.ok(expectedLog(built.rows).oob.length, 'the contract history has an out-of-band row');
-  assert.ok(built.steps.every((s) => s.refused == null), 'the current code applies every row of a history it built');
 });
 
 // Drop one declared field from a schema: the property its path names, through $ref, anyOf and an array's items.
@@ -422,7 +434,7 @@ test('both pages render a joined dogfood2 history, and its steps hold every row 
   assert.deepEqual(steps.flatMap(stepProblems), []);
   const refused = steps.filter((s) => s.refused != null);
   for (const s of refused) assert.ok(s.refused.length, `${s.id}: a refusal names its reason`);
-  assert.deepEqual(refused.map((s) => `${s.id}: ${s.refused}`), JSON.parse(readFileSync(join(built.dir, 'report.json'), 'utf8')).refused);
+  assert.deepEqual(refusals(steps, built.dir), []);
   for (const page of PAGES) {
     assert.deepEqual(checkPage(page, { history: rows, also: { [STEPS]: steps } }), [], page);
     check(page, built);

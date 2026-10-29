@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
+import { HISTORY } from '../src/history.js';
 import { eventsWhere, openStore, init, apply as applyEvent, ack, status, renderPage, renderItemPage, itemHref, budgetEvents, logPrecedents, readDecisionLog, renderDecisionLog, ladder, writeDigest, doctor, cardFor, stalled, parseAfter, replay, runScenarios, attention, attentionText, repair , writeRetro, retroDue, calibration, canaryRequest, canaryReport, intakeRows, readRows, pickAudit, auditCardFor, openAudits, verifyTaps, verifyTapsText, fromGithubText, verifyFacts, verifyFactsText, verifyActors, verifyActorsText, ledgerDir, writeHandoff, giveVerdict, mergeGate, acceptance, acceptanceText, standinAnswer, specs, requestFromIssue, issueBody, renderLivePage, loadNeeds, formatOf, checklistFor } from '../src/index.js';
 const HELP = `harness <command> [options]
 
@@ -148,7 +149,10 @@ const HELP = `harness <command> [options]
                                  today's rules would refuse, route otherwise or
                                  close more for are listed (admittedThen); its closes must be the log's.
                                  It re-applies github refs as logged without reading GitHub: verify-facts
-                                 re-checks them
+                                 re-checks them. --steps also writes steps.jsonl beside events.jsonl: for each
+                                 row, the actors whose state it changed and the context fields it changed (before
+                                 and after), the effects it queued with the store's acks, and its route, or why
+                                 it could not be applied (history.schema.json steps; the flow replay page reads it)
   doctor [--refreshes PATH]      check the store (version gaps, unknown acks, effects pending over a day,
                                  a stale lock, a snapshot that will not restore), verify-actors,
                                  verify-facts, and every merged PR of an item: the store's verifier PASS on
@@ -177,7 +181,8 @@ const HELP = `harness <command> [options]
                                  render a live page (default mission-control, into <dir>/<P>-live.html): only
                                  the fields pages/<P>/needs.json declares from the one file it names
                                  (mission-control: the store's state.json; ledger: a history's events.jsonl,
-                                 such as scripts/history/join.mjs writes), its age, and a Refresh button that
+                                 such as scripts/history/join.mjs writes; flow-replay: that and steps.jsonl
+                                 beside it, from replay --steps), its age, and a Refresh button that
                                  rereads <F>/<file> through the Artifact files capability and times each
                                  refresh into db; publish with capabilities {files: {project}, db: {}}. Data
                                  outside the needs schemaVersion range shows a red banner and no data
@@ -224,6 +229,7 @@ try {
       after: { type: 'string', default: '60m' },
       sessions: { type: 'string' },
       rebuild: { type: 'boolean', default: false },
+      steps: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
       due: { type: 'boolean', default: false },
       'request-box': { type: 'boolean', default: false },
@@ -533,7 +539,12 @@ try {
       break;
     }
     case 'replay': {
-      const { rebuilt, ...r } = replay(store);
+      const { rebuilt, steps, ...r } = replay(store, { steps: o.steps });
+      if (steps) {
+        const file = join(o.dir, HISTORY.steps.file);
+        writeFileSync(file, steps.map((s) => JSON.stringify(s) + '\n').join(''));
+        r.steps = { file, steps: steps.length, refused: steps.filter((s) => s.refused != null).length };
+      }
       print(r);
       if (!r.ok) process.exitCode = 1;
       break;
@@ -572,10 +583,17 @@ try {
         const needs = loadNeeds(o.page);
         const source = join(o.dir, needs.reads.file);
         if (!existsSync(source)) throw new Error(`no ${needs.reads.file} in ${o.dir}`);
+        // And each file it reads beside that one (reads.with: flow replay's steps.jsonl, from harness replay --steps).
+        const also = {};
+        for (const name of Object.keys(needs.reads.with ?? {})) {
+          if (!existsSync(join(o.dir, name))) throw new Error(`no ${name} in ${o.dir}: ${o.page} reads it beside ${needs.reads.file} (harness replay --steps writes it)`);
+          also[name] = formatOf(needs).parse(readFileSync(join(o.dir, name), 'utf8'));
+        }
         const file = o.html ?? `${o.dir}/${o.page}-live.html`;
         mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, renderLivePage(formatOf(needs).parse(readFileSync(source, 'utf8')), { page: o.page, project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
-        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: `${o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : ''}${needs.reads.file}` });
+        writeFileSync(file, renderLivePage(formatOf(needs).parse(readFileSync(source, 'utf8')), { page: o.page, also, project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
+        const under = o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : '';
+        print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: [needs.reads.file, ...Object.keys(also)].map((f) => `${under}${f}`).join(', ') });
         break;
       }
       const st = status(store);

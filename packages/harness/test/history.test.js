@@ -114,7 +114,9 @@ test('C4: two rows of one key in one source are two facts; the n-th of a source 
 
 test('C3: every log view declares what it reads, and the golden history has all of it', () => {
   assert.deepEqual(LOG_VIEWS.sort(), ['design-log', 'flow-replay', 'ledger']);
-  for (const page of LOG_VIEWS) assert.deepEqual(checkPage(page, { history: golden() }), [], `${page}'s needs are not met`);
+  // A view that also reads a file beside the history (flow replay's steps) is held to the golden rows here, and to
+  // the golden history joined, with its steps, in history-pages.test.js.
+  for (const page of LOG_VIEWS) assert.deepEqual(loadNeeds(page).reads.with ? checkLogNeeds(loadNeeds(page), golden()) : checkPage(page, { history: golden() }), [], `${page}'s needs are not met`);
 });
 
 test('C3: a field a view reads that the history lacks fails, naming the view and the field', () => {

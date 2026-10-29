@@ -78,7 +78,8 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
 - `src/page.js`: mission control, one page with what needs the person, what is in flight, the host's
   to-do and recent events. Each item row links to its item page.
 - `pages/<page>/needs.json`, `src/pages.js` and `src/live.js`: the page needs contract. A page declares in its needs
-  file the one file it reads (`reads.file`, mission control's is `state.json`), the `schemaVersion` range it
+  file the file it reads (`reads.file`, mission control's is `state.json`; flow replay also names one it reads beside
+  it, `reads.with`), the `schemaVersion` range it
   understands, the fields it reads (paths into the store root, the harness snapshot and each child snapshot, the
   children told apart by spec machine id), and the spec states and events it names. `project()` copies only those
   fields; the renderer sees nothing else. `harness page --live --project chan_... --files-path <store path in the
@@ -107,14 +108,20 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   shows against the rows; with `HARNESS_DOGFOOD2_DIR` set it does the same on a joined copy of that store.
 - The flow replay and design log pages (`pages/flow-replay/needs.json`, `pages/design-log/needs.json`, #121) are the
   ledger's live page over the same history, rendered by `--page flow-replay` and `--page design-log` with the same
-  projection, data age, Refresh, timing row and banner. Flow replay lists every row in time order, grouped by item
-  (the `to` address; rows with no item address have a group of their own), and steps through one group a row at a
-  time (First, Previous, Next, Last), each showing the row's type, time, sender (actor and source) and provenance
-  origin and source. The design log lists, newest first, the out-of-band rows (who ordered each, the message, what
+  projection, data age, Refresh, timing row and banner. Flow replay steps a row at a time (First, Previous, Next,
+  Last, and a position counter) through the whole history in time order, or follows one group: an item (the `to`
+  address; rows with no item address have a group of their own). Each step shows the row's type, time, sender
+  (actor and source) and provenance origin and source, and what the row did, from `steps.jsonl` beside the history
+  (#124; written by replay's `--steps`, see `src/replay.js`; history.schema.json `steps`): each actor whose state it changed, before
+  and after, the context fields it changed, the effects it queued with their acks, and its route; a step that changed
+  nothing says so, and a row replay could not apply shows why. Its needs file declares the step fields it reads
+  (`reads.with`), and Refresh reads both files; without the steps, or with the steps of another history, the page
+  shows the banner and says how to build them. The design log lists, newest first, the out-of-band rows (who ordered each, the message, what
   was done, the gates it skipped) and the requests, stand-in answers (choice and reason), the person's decisions and
-  grants. On both, a placeholder is counted and never shown as a value, and every count carries `data-count`.
-  `test/history-pages.test.js` renders both on the golden history, the contract history and, with
-  `HARNESS_DOGFOOD2_DIR` set, a joined copy of dogfood2, and checks every count against the rows.
+  grants. On both, a placeholder is counted and never shown as a value, and every count carries `data-count` (flow
+  replay's steps, refusals, changed actors and effects too). `test/history-pages.test.js` builds the steps of the
+  golden history, the contract history and, with `HARNESS_DOGFOOD2_DIR` set, a joined copy of dogfood2, renders both
+  pages on each and checks every count against the rows and the steps, and that every row is a step or a refusal.
 - `spec/history.schema.json` and `src/history.js`: the one history (epic #59), the row every era's events take,
   with its provenance, placeholders, event versions and fact identity; `spec/SPEC.md` renders its rules (History).
   `src/history.js` only reads the schema: `validate` holds a row to it and to harness `meta.actors` and
@@ -122,7 +129,9 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   rules and reports conflicts. A view that reads the history (`reads.file` `events.jsonl`: ledger, flow replay,
   design log) declares the event types and fields it reads instead of state fields, and `checkPage` holds it to the
   schema (each field a property of the envelope or of its type's schema, so dropping one fails naming the page and
-  the field) and, given rows, to that history, and fails a read of a field it does not declare. `test/history.test.js` checks all of it against the golden history,
+  the field) and, given rows, to that history, and fails a read of a field it does not declare. The step fields a
+  view reads beside the history (`reads.with`, `steps.jsonl`) are held the same way to the schema's `steps.row`
+  (`stepProblems` holds a step to it) and, given the steps, to every step. `test/history.test.js` checks all of it against the golden history,
   `test/fixtures/history-golden/events.jsonl`.
 - `scripts/history/`: tools that build the one history, outside the plugin and the runtime (tracer T, #65).
   `extract-store.mjs <store dir> <archive ref>` (E1) reads a store's `events.jsonl` and prints each row as a
@@ -181,6 +190,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   rules would refuse, route otherwise or close more for is listed in `admittedThen` with its id and the release
   that wrote it (a searched row says its route was found by its effects), and is not a difference.
   It re-applies github-wake refs as logged, without reading GitHub; `harness verify-facts` re-checks them.
+  `harness replay --steps` also writes `steps.jsonl` beside `events.jsonl` (history.schema.json `steps`), from the
+  same replay: for each row, the actors whose state it changed and the context fields it changed (the scratch copy
+  before and after the row), the effects it queued with the store's acks for them, and its route; a row it cannot
+  apply, or a second row of an id it applied already, is a step with the reason and no changes. Run on a history
+  `join.mjs` made, it gives the flow replay page what each row did.
 - `src/stalled.js`: `harness stalled [--after 60m]` lists in-flight items whose last event is older than
   the limit; mission control shows how long ago each in-flight item moved.
 - `src/doctor.js`: `harness doctor` checks the store (event version gaps, acks for unknown effects, effects
