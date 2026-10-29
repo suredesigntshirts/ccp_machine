@@ -25,7 +25,7 @@
     "briefing>replanning>brief failed": {"points": [[335,68], [475,68], [475,325], [520,325]], "label": {"x": 345, "y": 63, "anchor": "start", "text": "failed"}, "kind": "fail"},
     "building>replanning>build failed": {"points": [[335,160], [475,160], [475,325], [520,325]], "label": {"x": 345, "y": 155, "anchor": "start", "text": "failed"}, "kind": "fail"},
     "building>replanning>after buildTimeout": {"points": [[335,176], [475,176], [475,325], [520,325]], "label": {"x": 345, "y": 189, "anchor": "start", "text": "took too long"}, "kind": "fail"},
-    "verifying>replanning>verify done": {"points": [[335,280], [475,280], [475,325], [520,325]], "label": {"x": 345, "y": 275, "anchor": "start", "text": "no tries, or old head"}, "kind": "fail"},
+    "verifying>replanning>verify done": {"points": [[335,280], [475,280], [475,325], [520,325]], "label": {"x": 345, "y": 275, "anchor": "start", "text": "no tries / old head"}, "kind": "fail"},
     "verifying>replanning>verify failed": {"points": [[335,294], [475,294], [475,325], [520,325]], "label": {"x": 345, "y": 307, "anchor": "start", "text": "failed"}, "kind": "fail"},
     "awaitingMerge>replanning>ask done": {"points": [[335,378], [475,378], [475,325], [520,325]], "label": {"x": 345, "y": 373, "anchor": "start", "text": "rejected"}, "kind": "fail"},
     "awaitingMerge>replanning>ask failed": {"points": [[335,394], [475,394], [475,325], [520,325]], "label": {"x": 345, "y": 407, "anchor": "start", "text": "failed"}, "kind": "fail"},
