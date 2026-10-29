@@ -7,7 +7,8 @@
 // orchestrator agents            the session kinds the actors need: { name, tools, claim }
 // orchestrator status <dir>      where the item is, its context and what is pending
 // orchestrator page [dir]        an HTML page of the machine's states and data, and the item's run if dir is given
-// orchestrator inspect [dir]     an HTML page that draws the machine as a graph and plays the item's run over it
+// orchestrator inspect [dir]     an HTML page that draws the machine as a graph and plays runs over it: the item in dir,
+//                                if given, and the example flows (src/flows.js)
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ import { refusal, step, wait, where } from '../src/step.js';
 import { itemLayout, itemSpec, openItem } from '../src/item.js';
 import { itemPage } from '../src/page.js';
 import { itemInspector } from '../src/inspector.js';
+import { flows, play } from '../src/flows.js';
 
 const ISSUE = {
   url: 'sandbox:issues/1',
@@ -46,7 +48,11 @@ else if (command === 'check' && dir) print(refusal(openSandboxItem(dir), stdin()
 else if (command === 'wait' && dir) print(await wait(dir, Number(seq ?? 0)));
 else if (command === 'agents') print(Object.entries(sandboxActors({ dir: '', repo: '' })).filter(([, a]) => a.claim).map(([name, { tools, claim }]) => ({ name, tools, claim })));
 else if (command === 'page') console.log(itemPage(itemSpec, dir ? openItem(dir).journal.read() : []));
-else if (command === 'inspect') console.log(itemInspector(itemSpec, dir ? openItem(dir).journal.read() : [], itemLayout));
+else if (command === 'inspect') {
+  const examples = flows.map((flow) => ({ ...flow, entries: play(itemSpec, flow) }));
+  const mine = dir ? [{ name: 'This item', about: 'A real run, read from its journal.', entries: openItem(dir).journal.read() }] : [];
+  console.log(itemInspector(itemSpec, [...mine, ...examples], itemLayout));
+}
 else if (command === 'status' && dir) {
   const { host } = openSandboxItem(dir);
   print({ ...where(host), context: host.snapshot?.context, pending: host.pending });

@@ -58,6 +58,9 @@ const kindOf = (type) =>
   : type.startsWith('xstate.after.') ? 'timer'
   : 'outside';
 
+// The one word that says how a piece of work came out: a verdict, a choice, or the error.
+const detailOf = ({ output, error }) => output?.result ?? output?.choice ?? (error == null ? null : String(error));
+
 // Each journal entry with where it left the item, the edge it took, and the context fields it changed.
 const stepsOf = (spec, graph, entries) => {
   const steps = [];
@@ -73,6 +76,7 @@ const stepsOf = (spec, graph, entries) => {
       at: entry.at,
       kind: kindOf(entry.event.type),
       what: entry.event.type === 'xstate.init' ? 'start' : whenOf(entry.event.type),
+      detail: detailOf(entry.event),
       source: entry.source,
       run: entry.run ?? null,
       from: before.state,
@@ -88,10 +92,10 @@ const stepsOf = (spec, graph, entries) => {
   return steps;
 };
 
-/** The inspector page, as HTML for an Artifact. */
-export const itemInspector = (spec, entries = [], layout = null) => {
+/** The inspector page, as HTML for an Artifact. runs: [{ name, about, entries }], each a journal to play; the page picks between them. */
+export const itemInspector = (spec, runs = [], layout = null) => {
   const graph = graphOf(spec);
-  const data = { description: spec.description, graph, layout, steps: stepsOf(spec, graph, entries) };
+  const data = { description: spec.description, graph, layout, runs: runs.map(({ name, about, entries }) => ({ name, about: about ?? '', steps: stepsOf(spec, graph, entries) })) };
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   return TEMPLATE.replace('__DATA__', () => json);
 };
@@ -159,6 +163,10 @@ input[type=range]{flex:1 1 200px;accent-color:var(--accent);min-width:0}
 .key svg{vertical-align:-2px;margin-right:5px}
 .hint{display:none;color:var(--muted);font-size:12px;margin:2px 0 0}
 @media (max-width:620px){.hint{display:block}}
+.runpick{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:8px}
+.runpick select{max-width:100%}
+.runpick[hidden]{display:none}
+#about{font-size:12.5px;flex:1 1 260px}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;color:var(--muted);font-size:12px}
 .legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;background:var(--c);vertical-align:-1px}
 .insp{display:flex;flex-direction:column;gap:12px}
@@ -184,6 +192,7 @@ ol.hops li{border:1px solid var(--line);border-radius:7px;padding:6px 8px;cursor
 ol.hops li.cur{border-color:var(--hop);box-shadow:inset 3px 0 0 var(--hop)}
 ol.hops .h{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
 ol.hops .num{font:600 11px var(--mono);color:var(--muted);min-width:1.6em}
+ol.hops .det{font:600 11px var(--mono);color:var(--muted);overflow-wrap:anywhere}
 ol.hops .lbl{font:500 12.5px var(--mono);overflow-wrap:anywhere}
 .note{font-size:12.5px;color:var(--muted);border-left:3px solid var(--hop);padding-left:10px}
 </style>
@@ -195,6 +204,7 @@ ol.hops .lbl{font:500 12.5px var(--mono);overflow-wrap:anywhere}
   </header>
   <div class="grid">
     <div class="card">
+      <div class="runpick"><label for="run" class="muted">Run</label><select id="run"></select><span class="muted" id="about"></span></div>
       <div class="diagram" id="diagram"><p class="muted">Drawing the machine…</p></div>
       <p class="hint">Scroll the drawing sideways to see replanning.</p>
       <div class="key" aria-label="Kinds of transition">
@@ -235,7 +245,8 @@ ol.hops .lbl{font:500 12.5px var(--mono);overflow-wrap:anywhere}
 <script type="application/json" id="data">__DATA__</script>
 <script>
 const DATA = JSON.parse(document.getElementById('data').textContent);
-const { graph, steps } = DATA;
+const { graph, runs } = DATA;
+let steps = runs[0]?.steps ?? [];
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const NS = 'http://www.w3.org/2000/svg';
@@ -255,7 +266,7 @@ let tab = 'step';
 let picked = null; // the state whose sheet "About this state" shows; follows the step unless clicked
 let drawn = null;
 
-$('sub').textContent = DATA.description + ' Read from item.machine.json' + (steps.length ? ' and this item\'s journal: ' + steps.length + ' inputs, replayed through the real machine.' : '.');
+$('sub').textContent = DATA.description + ' Read from item.machine.json' + (runs.length ? '; each run is a journal replayed through the real machine.' : '.');
 
 // ---- The graph, placed by hand in the layout file
 
@@ -367,7 +378,7 @@ function showStep(step) {
   }).join('');
   $('tab-step').innerHTML =
     '<div><h2>Step ' + (cur + 1) + ' · ' + esc(step.at.slice(11, 19)) + '</h2><div class="big">' + (step.from ? esc(step.from) + ' <span class="arrow">→</span> ' : '<span class="arrow">→</span> ') + esc(step.state) + (step.done ? ' ✓' : '') + '</div></div>' +
-    '<dl class="kv"><dt>What happened</dt><dd><span class="pill">' + esc(step.what) + '</span></dd>' +
+    '<dl class="kv"><dt>What happened</dt><dd><span class="pill">' + esc(step.what) + '</span>' + (step.detail ? ' ' + esc(step.detail) : '') + '</dd>' +
     '<dt>From</dt><dd><code>' + esc(step.source) + '</code></dd>' +
     (step.run ? '<dt>Run</dt><dd><code>' + esc(step.run) + '</code></dd>' : '') +
     (edge && edge.why ? '<dt>Why this way</dt><dd>' + esc(edge.why) + '</dd>' : '') +
@@ -402,10 +413,22 @@ function setTab(name) {
 
 // ---- Controls
 
-$('legend').innerHTML = Object.entries(KINDS).filter(([k]) => steps.some((s) => s.kind === k)).map(([k, label]) => '<span style="--c:var(--k-' + k + ')">' + label + '</span>').join('');
-$('timeline').innerHTML = steps.map((s, i) => '<i style="--c:var(--k-' + s.kind + ')" title="' + esc((i + 1) + ': ' + s.what + ' → ' + s.state) + '" data-i="' + i + '"></i>').join('');
-$('hops').innerHTML = steps.map((s, i) => '<li data-i="' + i + '"><div class="h"><span class="num">' + (i + 1) + '</span><span class="lbl">' + esc(s.what) + '</span><span class="arrow">→</span><span>' + esc(s.state) + '</span></div></li>').join('') || '<li class="muted">No run.</li>';
-$('slider').max = Math.max(1, steps.length);
+// Show one run: its timeline, its list of hops, and its last step.
+function load(i) {
+  const run = runs[i];
+  steps = run?.steps ?? [];
+  cur = Math.max(0, steps.length - 1);
+  picked = null;
+  $('about').textContent = run?.about ?? '';
+  $('legend').innerHTML = Object.entries(KINDS).filter(([k]) => steps.some((s) => s.kind === k)).map(([k, label]) => '<span style="--c:var(--k-' + k + ')">' + label + '</span>').join('');
+  $('timeline').innerHTML = steps.map((s, i) => '<i style="--c:var(--k-' + s.kind + ')" title="' + esc((i + 1) + ': ' + s.what + ' → ' + s.state) + '" data-i="' + i + '"></i>').join('');
+  $('hops').innerHTML = steps.map((s, i) => '<li data-i="' + i + '"><div class="h"><span class="num">' + (i + 1) + '</span><span class="lbl">' + esc(s.what) + '</span>' + (s.detail ? '<span class="det">' + esc(s.detail) + '</span>' : '') + '<span class="arrow">→</span><span>' + esc(s.state) + '</span></div></li>').join('') || '<li class="muted">No run.</li>';
+  $('slider').max = Math.max(1, steps.length);
+  paint();
+}
+$('run').innerHTML = runs.map((r, i) => '<option value="' + i + '">' + esc(r.name) + ' (' + r.steps.length + ' steps)</option>').join('');
+$('run').closest('.runpick').hidden = !runs.length;
+$('run').addEventListener('change', () => { stop(); load(Number($('run').value)); });
 for (const id of ['timeline', 'hops']) $(id).addEventListener('click', (ev) => { const t = ev.target.closest('[data-i]'); if (t) go(Number(t.dataset.i)); });
 $('slider').addEventListener('input', () => go(Number($('slider').value) - 1));
 for (const b of document.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { if (b.dataset.tab === 'state' && tab !== 'state') picked = null; setTab(b.dataset.tab); });
@@ -431,7 +454,7 @@ document.addEventListener('keydown', (ev) => {
   else if (ev.key === ' ') { ev.preventDefault(); $('play').click(); }
 });
 
-paint();
+load(0);
 try { draw(); } catch (err) { $('diagram').innerHTML = '<p class="note">The graph could not be drawn (' + esc(err.message) + '). The steps and data still work.</p>'; }
 </script>
 `;
