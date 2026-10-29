@@ -2,7 +2,7 @@
 // harness: drive a stored harness one event at a time. Every command reads and writes the store
 // folder (--dir, default .harness), so each session wake runs a command and exits.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { HISTORY } from '../src/history.js';
@@ -599,7 +599,7 @@ try {
         }
         const file = o.html ?? `${o.dir}/${o.page}-live.html`;
         mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, renderLivePage(formatOf(needs).parse(readFileSync(source, 'utf8')), { page: o.page, also, project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
+        writeFileSync(file, renderLivePage(formatOf(needs).parse(readFileSync(source, 'utf8')), { page: o.page, store: basename(o.dir), also, project: o.project, path: o['files-path'] ?? '', standalone: o.standalone, ...(o.title !== 'Mission control' && { title: o.title }) }));
         const under = o['files-path'] ? `${o['files-path'].replace(/\/+$/, '')}/` : '';
         print({ page: file, capabilities: { files: { project: o.project ?? '<project id>' }, db: {} }, reads: [needs.reads.file, ...Object.keys(also), ...Object.keys(needs.reads.onDemand ?? {})].map((f) => `${under}${f}`).join(', ') });
         break;

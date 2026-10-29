@@ -7,6 +7,7 @@
 // JSON Schema, and so is the checker below.
 import { readFileSync } from 'node:fs';
 import { specs } from './machines.js';
+import { liveRows } from './live.js';
 
 export const HISTORY = JSON.parse(readFileSync(new URL('../spec/history.schema.json', import.meta.url), 'utf8'));
 // Read when used, not at load: machines.js imports this module for its guards.
@@ -80,18 +81,17 @@ export function eraEnd(store, state, outbox, acks, lastAt) {
   return { ...row, provenance: { origin: 'migrated', from: { source: 'store', ref: store }, placeholders: legacyPaths(row) } };
 }
 
-/**
- * A store's rows as a history (harness meta.store.history), or null when no row carries provenance: it is not one. Each
- * row with no provenance after the last row that has one is live, read with history.schema.json live's provenance, `store`
- * the history's name; the rows themselves are not changed.
- */
-export function historyRows(rows, store) {
-  const last = rows.findLastIndex((r) => r?.provenance);
-  if (last < 0) return null;
+/** history.schema.json live's provenance for the history named `store` (its folder, as a store is state/<name>). */
+export function liveProvenance(store) {
   const { from, ...live } = HISTORY.live.provenance;
-  const provenance = { ...live, from: { ...from, ref: from.ref.replaceAll('{store}', store) } };
-  return rows.map((r, i) => (i > last && typeOf(r) === 'object' && r.provenance === undefined ? { ...r, provenance } : r));
+  return { ...live, from: { ...from, ref: from.ref.replaceAll('{store}', store) } };
 }
+
+/**
+ * A store's rows as a history (harness meta.store.history), or null when no row carries provenance: it is not one.
+ * src/live.js liveRows applies the rule, the one place that does (the history pages run it too), with `store`'s live provenance.
+ */
+export const historyRows = (rows, store) => liveRows(rows, liveProvenance(store));
 
 /** What is wrong with one history row, each problem naming the row: [] when it is a valid row. */
 export function validate(row) {

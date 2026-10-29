@@ -179,11 +179,26 @@ const isLegacy = (v) => v != null && typeof v === 'object' && !Array.isArray(v) 
 const logFields = (needs, type) => [...(needs.events['*'] ?? []), ...(needs.events[type] ?? [])];
 const rowSchema = (r, absentMeans) => (r && r.schemaVersion !== undefined ? r.schemaVersion : absentMeans);
 
+/**
+ * A store's rows as a history (harness meta.store.history), or null when no row carries provenance: it is not one.
+ * Each row with no provenance after the last row that has one is live, read with `provenance` (history.schema.json
+ * live, for this history: src/history.js liveProvenance); the rows themselves are not changed. The one definition:
+ * doctor reads a history through src/history.js historyRows, which is this, and the history pages, at render and on
+ * Refresh, through logProblem and projectLog with their needs' `live` (src/pages.js loadNeeds).
+ */
+export function liveRows(rows, provenance) {
+  const last = rows.findLastIndex((r) => r && r.provenance);
+  if (last < 0) return null;
+  return rows.map((r, i) => (i > last && r && typeof r === 'object' && !Array.isArray(r) && r.provenance === undefined ? { ...r, provenance } : r));
+}
+
 function logProblem(rows, needs, absentMeans, also = {}) {
   const { file } = needs.reads;
   const page = esc(needs.page);
   const none = 'Nothing from it is shown, so nothing here can be taken as complete.';
   if (!Array.isArray(rows) || !rows.length) return `This ${file} has no rows, so ${page} shows nothing from it.`;
+  // A store that is not a history (no row carries provenance), or a row with none before a joined one, is refused below.
+  rows = liveRows(rows, needs.live) || rows;
   const bad = rows.findIndex((r) => !r || r.unreadable || !r.event || !r.provenance || !r.provenance.from);
   if (bad >= 0) return `Line ${bad + 1} of this ${file} is ${rows[bad] && rows[bad].unreadable ? 'not JSON' : 'not a history row (no event or provenance, spec/history.schema.json)'}. ${none}`;
   const { min, max } = needs.reads.schemaVersion;
@@ -225,11 +240,12 @@ function pick(o, paths) {
 }
 
 /**
- * The history as the page sees it: each row's type and only the fields `needs.events` declares for it ("*": every
+ * The history as the page sees it (its live rows read as liveRows reads them): each row's type and only the fields `needs.events` declares for it ("*": every
  * row), and, for a page that reads a file beside the history (reads.with), the row's step from it (by version), with
  * only the fields declared for that file.
  */
 export function projectLog(rows, needs, also = {}) {
+  rows = liveRows(rows, needs.live) || rows;
   const [name, fields] = Object.entries(needs.reads.with ?? {}).find(([n]) => needs.joins && needs.joins[n]) ?? [];
   const steps = new Map((name && Array.isArray(also[name]) ? also[name] : []).map((s) => [s.version, s]));
   return rows.map((r) => {
