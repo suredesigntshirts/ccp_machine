@@ -61,6 +61,34 @@ export const flows = [
       ['ask', person('replan', 'Why rejected? Thin tests. Why? The Expect lines did not ask for edge cases. Fix: add them.')],
       brief, ['build', pr(4)], ['verify', verdict('PASS', 4)], ...merged
     ]
+  },
+  {
+    name: 'Pushed during verification, verdict on the old head',
+    about: 'A push restarts verification, but the verifier still reports on the old commit; a PASS that does not match the head is not taken as a PASS, so the item stalls. The replanning question then fails too, and the item is dropped.',
+    script: [
+      brief, ['build', pr(1)], { type: 'pr.pushed', headSha: sha(2) }, ['verify', verdict('PASS', 1)],
+      ['ask', new Error('nobody answered the replanning question')]
+    ]
+  },
+  {
+    name: 'Briefing fails, then the verifier crashes',
+    about: 'No brief could be written, so the item is replanned; on the second pass the verifier session crashes, and the item is dropped.',
+    script: [
+      ['brief', new Error('the issue has no Expect lines a verifier can check')],
+      ['ask', person('replan', 'Why no brief? Expect lines were vague. Why? Written before the design. Fix: rewrite them.')],
+      brief, ['build', pr(1)], ['verify', new Error('the verifier session hit its turn limit')],
+      ['ask', person('drop', 'Park it until the verifier is fixed.')]
+    ]
+  },
+  {
+    name: 'Approval and merge both fail',
+    about: 'The approval question errors, so the item is replanned and built again; it is approved, but the merge fails (a conflict), and the item is dropped.',
+    script: [
+      brief, ['build', pr(1)], ['verify', verdict('PASS', 1)], ['ask', new Error('the stand-in could not read the verdict')],
+      ['ask', person('replan', 'Why could it not read it? The report path was relative. Fix: absolute paths.')],
+      brief, ['build', pr(2)], ['verify', verdict('PASS', 2)], ['ask', standIn('approve', 'PASS at the head.')],
+      ['merge', new Error('merge conflict with main')], ['ask', person('drop', 'Main moved on; start a fresh item.')]
+    ]
   }
 ];
 

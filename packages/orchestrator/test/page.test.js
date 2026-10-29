@@ -43,6 +43,13 @@ test('the layout places only states and transitions the spec has', () => {
   assert.equal(Object.keys(itemLayout.edges).length, edges.size, 'every transition has a place');
 });
 
+test('the example flows, between them, walk every transition', () => {
+  const runs = flows.map((flow) => ({ ...flow, entries: play(itemSpec, flow) }));
+  const { graph, runs: shown } = dataOf(itemInspector(itemSpec, runs, itemLayout));
+  const walked = new Set(shown.flatMap((run) => run.steps.map((s) => s.edge)));
+  assert.deepEqual(graph.edges.filter((e) => !walked.has(e.id)).map((e) => `${e.from}>${e.to}>${e.when}`), []);
+});
+
 test('every example flow plays through the machine and finishes', () => {
   const runs = flows.map((flow) => ({ ...flow, entries: play(itemSpec, flow) }));
   for (const { name, entries } of runs) assert.ok(Host.replay(itemSpec, entries).done, name);

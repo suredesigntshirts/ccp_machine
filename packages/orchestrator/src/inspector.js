@@ -261,7 +261,7 @@ const edgeById = Object.fromEntries(graph.edges.map((e) => [e.id, e]));
 const edgeLabel = (e) => e.when + (e.guard ? ' [' + e.guard + ']' : '');
 const KINDS = { start: 'Start', done: 'Work done', failed: 'Work failed', timer: 'Timer', outside: 'Outside event' };
 
-let cur = Math.max(0, steps.length - 1); // open on the last step, so the whole path walked shows at rest
+let cur = 0; // the step shown; load() sets it
 let tab = 'step';
 let picked = null; // the state whose sheet "About this state" shows; follows the step unless clicked
 let drawn = null;
@@ -413,11 +413,11 @@ function setTab(name) {
 
 // ---- Controls
 
-// Show one run: its timeline, its list of hops, and its last step.
-function load(i) {
+// Show one run from step at: its timeline, its list of hops, and that step.
+function load(i, at = 0) {
   const run = runs[i];
   steps = run?.steps ?? [];
-  cur = Math.max(0, steps.length - 1);
+  cur = Math.min(Math.max(0, at), Math.max(0, steps.length - 1));
   picked = null;
   $('about').textContent = run?.about ?? '';
   $('legend').innerHTML = Object.entries(KINDS).filter(([k]) => steps.some((s) => s.kind === k)).map(([k, label]) => '<span style="--c:var(--k-' + k + ')">' + label + '</span>').join('');
@@ -454,7 +454,7 @@ document.addEventListener('keydown', (ev) => {
   else if (ev.key === ' ') { ev.preventDefault(); $('play').click(); }
 });
 
-load(0);
+load(0, Infinity); // the first run opens on its last step, so the whole path it walked shows at rest
 try { draw(); } catch (err) { $('diagram').innerHTML = '<p class="note">The graph could not be drawn (' + esc(err.message) + '). The steps and data still work.</p>'; }
 </script>
 `;
