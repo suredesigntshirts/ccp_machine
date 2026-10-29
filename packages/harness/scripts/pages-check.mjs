@@ -212,8 +212,54 @@ for (const [label, text, expectBanner] of live.variants) {
     }
 }
 }
+// The design log's paging and calendar (#131), clicked through in the browser on a history of more than 50 rows over
+// five days in two months: page 2 and back, a September day's rows and cards, the busiest day's second page, all days.
+{
+  const fixture = fileURLToPath(new URL('../test/fixtures/history-design-log/', import.meta.url));
+  const logPage = join(out, 'site', 'design-log-live.html');
+  execFileSync(process.execPath, [bin, 'page', '--live', '--page', 'design-log', '--standalone', '--dir', fixture, '--html', logPage], { encoding: 'utf8' });
+  const steps = [
+    [null, 50, 3, 'page 1 of 2 · rows 1 to 50 of 91', '2026-10'],
+    ['[data-page="next"]', 41, 3, 'page 2 of 2 · rows 51 to 91 of 91', '2026-10'],
+    ['[data-page="first"]', 50, 3, 'page 1 of 2 · rows 1 to 50 of 91', '2026-10'],
+    ['[data-month="prev"]', 50, 3, 'page 1 of 2 · rows 1 to 50 of 91', '2026-09'],
+    ['[data-day="2026-09-30"]', 20, 2, 'page 1 of 1 · rows 1 to 20 of 20', '2026-09'],
+    ['[data-month="next"]', 20, 2, 'page 1 of 1 · rows 1 to 20 of 20', '2026-10'],
+    ['[data-day="2026-10-28"]', 50, 1, 'page 1 of 2 · rows 1 to 50 of 54', '2026-10'],
+    ['[data-page="last"]', 4, 1, 'page 2 of 2 · rows 51 to 54 of 54', '2026-10'],
+    ['[data-day=""]', 50, 3, 'page 1 of 2 · rows 1 to 50 of 91', '2026-10']
+  ];
+  for (const width of [390, 1280])
+    for (const colorScheme of ['light', 'dark']) {
+      const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme });
+      const tab = await ctx.newPage();
+      const errors = [];
+      tab.on('pageerror', (e) => errors.push(e.message));
+      await tab.goto(pathToFileURL(logPage).href);
+      const where = `design-log-live.html at ${width}px ${colorScheme}`;
+      for (const [click, rows, cards, pos, month] of steps) {
+        if (click) await tab.click(`#view ${click}:visible`);
+        const r = await tab.evaluate(() => ({
+          rows: [...document.querySelectorAll('#view tr[data-on]')].filter((x) => x.offsetParent).length,
+          cards: [...document.querySelectorAll('#view [data-oob]')].filter((x) => x.offsetParent).length,
+          pos: document.querySelector('#view [data-pos]').textContent,
+          month: [...document.querySelectorAll('#view [data-cal]')].filter((x) => x.offsetParent).map((x) => x.dataset.cal).join(),
+          scroll: document.documentElement.scrollWidth,
+          inner: window.innerWidth
+        }));
+        const got = [r.rows, r.cards, r.pos, r.month];
+        if (JSON.stringify(got) !== JSON.stringify([rows, cards, pos, month])) failures.push(`${where}: after ${click ?? 'opening'}, ${JSON.stringify(got)}, not ${JSON.stringify([rows, cards, pos, month])}`);
+        if (r.scroll > r.inner + 1) failures.push(`${where}: after ${click ?? 'opening'}, scrolls sideways (${r.scroll} > ${r.inner})`);
+        if (click === '[data-day="2026-09-30"]') await tab.screenshot({ path: join(shots, `design-log-live-day-${width}-${colorScheme}.png`), fullPage: true }).catch((e) => warnings.push(`${where}: no screenshot (${e.message.split('\n')[0]})`));
+      }
+      if (errors.length) failures.push(`${where}: script error ${errors[0]}`);
+      await tab.screenshot({ path: join(shots, `design-log-live-${width}-${colorScheme}.png`), fullPage: true }).catch((e) => warnings.push(`${where}: no screenshot (${e.message.split('\n')[0]})`));
+      await ctx.close();
+      checked++;
+    }
+}
 await browser.close();
-console.log(`checked ${pages.length + LIVE.length} pages in ${checked} views; screenshots in ${shots}`);
+console.log(`checked ${pages.length + LIVE.length + 1} pages in ${checked} views; screenshots in ${shots}`);
 for (const w of warnings) console.log(`WARN ${w}`);
 for (const f of failures) console.log(`FAIL ${f}`);
 if (failures.length) process.exitCode = 1;

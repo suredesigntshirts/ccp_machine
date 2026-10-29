@@ -110,7 +110,7 @@ export function factKey(row) {
 }
 
 /**
- * One row per fact. Keeps the owner's row (else the earliest), moves the other sources to provenance.also, and
+ * One row per fact. Keeps the first owner's row (the rule's owners in order; else the earliest), moves the other sources to provenance.also, and
  * reports a conflict where two rows of one fact disagree on a payload field both carry. Two rows of one source are
  * never one fact: the n-th row of a key in a source, in time order, is that key's n-th fact.
  */
@@ -128,9 +128,8 @@ export function dedupe(rows) {
   const kept = [], dropped = [], conflicts = [];
   for (const [key, group] of groups) {
     const rule = ruleOf(group[0].event.type);
-    const owner = rule?.owner;
     const sorted = [...group].sort((a, b) => a.at.localeCompare(b.at));
-    const keep = sorted.find((r) => r.provenance.from.source === owner) ?? sorted[0];
+    const keep = (rule?.owner ?? []).map((o) => sorted.find((r) => r.provenance.from.source === o)).find(Boolean) ?? sorted[0];
     const others = sorted.filter((r) => r !== keep);
     for (const o of others) {
       dropped.push({ id: o.id, from: o.provenance.from, kept: keep.id });

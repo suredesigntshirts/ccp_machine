@@ -127,7 +127,13 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   (`reads.with`), and Refresh reads both files; without the steps, or with the steps of another history, the page
   shows the banner and says how to build them. The design log lists, newest first, the out-of-band rows (who ordered each, the message, what
   was done, the gates it skipped) and the requests, stand-in answers (choice and reason), the person's decisions and
-  grants. On both, a placeholder is counted and never shown as a value, and every count carries `data-count` (flow
+  grants, 50 a page (`LOG_PAGE` in `src/live.js`) with First, Previous, Next, Last and "page N of M · rows a to b of
+  T" (#131). Its calendar shows each month with rows as a grid (weeks in rows, Monday first, UTC days), each day with
+  rows a control marked with how many fall on it; choosing one shows only that day's rows, paged the same way, and its
+  out-of-band cards, and All days returns. It opens on the newest row's month; Earlier and Later month move between
+  months with rows. The page script's `turn()` does this in the browser; the tiles keep the whole history's counts.
+  `test/history-pages.test.js` checks it on `test/fixtures/history-design-log/events.jsonl` (more than 50 rows over
+  five days in two months), and `pages:check` clicks it through in Chromium at 390 and 1280 px, light and dark. On both, a placeholder is counted and never shown as a value, and every count carries `data-count` (flow
   replay's steps, refusals, changed actors and effects too). `test/history-pages.test.js` builds the steps of the
   golden history, the contract history and, with `HARNESS_DOGFOOD2_DIR` set, a joined copy of dogfood2, renders both
   pages on each and checks every count against the rows and the steps, and that every row is a step or a refusal.
@@ -153,10 +159,23 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   record's index; actor, source and harness `legacy` placeholders, since GitHub holds none). Each PR goes to its
   item by the store's PR binding (`src/pr-binding.js`: a branch naming an item filed in the repo's issues, else the
   Item id line of an issue it closes; one PR to one item, once) or to "no item" with why; stderr lists every PR,
-  every skipped record with why, and the count, which must equal the pulls pages'. Both extractors write through
-  one candidate writer, `candidates.mjs`, which adds provenance, lists placeholders, validates and reports skips.
-  Where a store and GitHub both hold a landing or a CI result, the join keeps the store's row and puts GitHub's
-  source in its `provenance.also` (identity rules in `spec/SPEC.md`, History). `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
+  every skipped record with why, and the count, which must equal the pulls pages'.
+  `extract-session.mjs <archive session dir> <archive ref>` (E2) reads one session's folder of the session archive
+  (`harness/archive/sessions/<session id>/`), refusing it, with nothing written, unless `events.jsonl.gz` matches
+  the manifest's gzSha256, sha256 and count, and prints a WORKER_SPAWNED row per Agent call (toolUseId, agent type,
+  model, the sha256 of the brief as sent; role and item from its `Harness-Role:` line), a CARD_POSTED row per
+  decision card posted (its message id, question, options and recommended index), a PERSON_DECIDED row per tap on
+  one of those cards that reached the session (a `decision-chosen` wake, tied to its card by the `decision_id` it
+  names) and a MERGED row per merge_pull_request call whose result says it landed (the PR, the pinned head, the
+  merge commit), each `recovered` with `from` the archive ref and the line. What the session does not hold (the
+  harness release and source, an item no `Harness-Role:` line names, the actor of a subagent's call) is a `legacy`
+  placeholder. stderr lists every Agent, request_decision and merge_pull_request call and every tap with its row id
+  or why it was skipped (a call the platform refused, a tap on a card the session did not post), and the counts.
+  All three extractors write through one candidate writer, `candidates.mjs`, which adds provenance, lists
+  placeholders, validates and reports skips. Where a store and GitHub or a session hold one fact, the join keeps the
+  store's row (for a landing no store holds, GitHub's) and puts the other sources in its `provenance.also`: a spawn
+  by its toolUseId, a landing by its PR, a card by its message id and a tap by the card it answers (identity rules
+  in `spec/SPEC.md`, History). `join.mjs <candidates>... --out <dir>` (M1) takes those rows (each must pass `validate`), keeps one
   per fact (`dedupe`), numbers them from 1 in time order, and makes `--out`, which must not exist, a store:
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
   each row applied as a fact (harness `meta.store.facts`: no admission rule refuses a row the store admitted; a
