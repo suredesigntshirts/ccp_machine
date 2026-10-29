@@ -281,7 +281,8 @@ export function ack(store, effectIds, { outcome = 'done', note, card, by, now = 
       : !by ? { why: 'the session that posted the card sends its ack' } : apply(store, { type: 'CARD_POSTED', card, effect: post.id, ...by }, { to: cardAddress(post), id: `card-${post.id}`, now });
     if (r.why || r.duplicate) throw new Error(`${r.why ?? `${post.id} already has its card`}: ack ${post.id} alone with the card's message id (--card cmsg_...), once. Nothing acked`);
   }
-  store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now })));
+  // Under the lock, like every writer (harness meta.invariants oneWriter), so repair cannot rewrite acks.jsonl under it.
+  store.withLock(() => store.appendAcks(effectIds.map((effectId) => ({ effectId, outcome, note: note ?? card ?? null, at: now }))));
   return { acked: effectIds.length };
 }
 

@@ -18,6 +18,7 @@ const BRIEF = 'b'.repeat(64);
 const HEAD = 'a'.repeat(40);
 const OLD = 'c'.repeat(40);
 const PR = 'https://github.com/o/r/pull/7';
+const LATER = '2999-01-01T00:00:00Z'; // a landing after any test store's first event
 const ok = (r, label) => assert.ok(!r.refused, `${label}: ${r.why}`);
 
 // Item x, tier 0, built on PR o/r#7 by a session worker, its verifier spawned and bound, CI green: verifying until the
@@ -47,6 +48,7 @@ function github({ merged = false, head = HEAD } = {}) {
   const fetcher = async (path) => {
     if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return reviews;
     if (path === 'repos/o/r/pulls/7') return { number: 7, merged, head: { sha: head } };
+    if (path === 'repos/o/r/pulls?state=closed&base=main&per_page=100&page=1') return merged ? [{ number: 7, head: { sha: head }, merged_at: LATER }] : [];
     throw new Error(`HTTP 404 ${path}`);
   };
   return { post, fetcher, reviews };
@@ -127,6 +129,35 @@ test('doctor lists a merged PR whose merge head has no verifier PASS in the stor
   assert.ok(down.unverifiable.some((l) => /^merges: unreachable o\/r#7/.test(l)));
 });
 
+// #92: doctor reads every PR GitHub says landed on main, in each repository the store names, through REST pages,
+// from the store's first event on; a landing bound to no item has no verifier PASS in the store, so it is listed. A
+// landing from before the store began is outside what it can judge. GitHub is a fixture: no network.
+test('#92: doctor lists a PR landed on main since the store began that is bound to no item and has no verifier PASS on its landed head', async () => {
+  const store = merging(); // o/r#7 is item x's, still open
+  const UNBOUND = 'd'.repeat(40);
+  const start = store.events()[0].at;
+  const before = new Date(Date.parse(start) - 1000).toISOString();
+  const paths = [];
+  const fetcher = async (path) => {
+    paths.push(path);
+    if (path === 'repos/o/r/pulls?state=closed&base=main&per_page=100&page=1')
+      return [
+        { number: 9, head: { sha: UNBOUND }, base: { ref: 'main' }, merged_at: start },
+        { number: 8, head: { sha: OLD }, base: { ref: 'main' }, merged_at: null },
+        { number: 5, head: { sha: OLD }, base: { ref: 'main' }, merged_at: before }
+      ];
+    if (path === 'repos/o/r/pulls/7') return { number: 7, merged: false, head: { sha: HEAD } };
+    if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return [];
+    throw new Error(`HTTP 404 ${path}`);
+  };
+  const rows = await verifyMerges(store, { fetcher });
+  assert.deepEqual(rows.map((r) => [r.result, r.pr, r.item]), [['problem', 'o/r#9', null]], 'the closed-unlanded #8, the open #7 and #5, landed before the store began, are not listed');
+  assert.match(rows[0].why, /bound to no item: the store holds no verifier PASS for its landed head d{7}/);
+  const report = await doctor(store, { ledgers: tempDir('harness-ledgers-'), fetcher });
+  assert.ok(report.problems.includes(`merges: problem o/r#9 no item: ${rows[0].why}`), report.problems.join('\n'));
+  assert.ok(paths.every((p) => !/graphql/i.test(p)), 'REST only');
+});
+
 // #65: a joined store holds history rows (spec/history.schema.json); an OUT_OF_BAND row records a landing outside the
 // gates. The row goes in as join.mjs writes it, numbered after the log, with state.json at its version.
 function landedOutOfBand(store, sha) {
@@ -171,6 +202,7 @@ function passedReal(review) {
   const fetcher = async (path) => {
     if (path === 'repos/o/r/pulls/7/reviews?per_page=100') return [review];
     if (path === 'repos/o/r/pulls/7') return { number: 7, merged: true, head: { sha: v.sha } };
+    if (path === 'repos/o/r/pulls?state=closed&base=main&per_page=100&page=1') return [{ number: 7, head: { sha: v.sha }, merged_at: LATER }];
     throw new Error(`HTTP 404 ${path}`);
   };
   return { gate: () => mergeGate(store, { pr: PR, sha: v.sha }, { fetcher }), audit: async () => (await verifyMerges(store, { fetcher }))[0] };

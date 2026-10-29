@@ -40,7 +40,7 @@ function waitingOnNothing(snapshot, pending, src = 'harness', path = []) {
 
 /**
  * The store's own checks, then (unless verify is false) verify-actors against the ledgers in `ledgers`,
- * verify-facts with `fetcher`, and every merged PR of an item against its verifier's PASS (gates.js verifyMerges).
+ * verify-facts with `fetcher`, and every PR landed on main, bound or not, against its verifier's PASS (gates.js verifyMerges).
  * `refreshes` (the rows of a page's refresh collection, as ArtifactData gives them) adds a warning per refresh
  * slower than the spec's threshold (meta.pages.refreshSlowMs). Problems make the store unsafe to build on (`ok` false); unverifiable, warnings
  * (an untested class) and admittedThen (events the rules have changed for since they were written) leave `ok` true.
@@ -94,7 +94,7 @@ export async function doctor(store, { now = Date.now(), pendingMaxMs = DAY_MS, l
   for (const r of actors.filter((r) => r.result !== 'ok'))
     (['no ledger', 'no record'].includes(r.result) && /^no /.test(r.why) && now - lastAt[r.id] < LEDGER_GRACE_MS ? unverifiable : problems).push(`verify-actors: ${verifyActorsText([r])}`);
   for (const r of facts.filter((r) => r.result !== 'ok')) (r.result === 'unreachable' ? unverifiable : problems).push(`verify-facts: ${verifyFactsText([r])}`);
-  // A merged PR of an item needs the verifier's PASS on its merge head, in the store and as a review on GitHub.
+  // A PR landed on main, bound or not, needs the verifier's PASS on its landed head, in the store and as a review on GitHub.
   const merges = verify ? await verifyMerges(store, fetcher ? { fetcher } : {}) : [];
   for (const r of merges.filter((r) => !['ok', 'outOfBand'].includes(r.result))) (r.result === 'unreachable' ? unverifiable : problems).push(`merges: ${verifyMergesText([r])}`);
   // Work done outside the gates (history.schema.json OUT_OF_BAND): listed, never a problem by itself.

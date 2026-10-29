@@ -60,7 +60,7 @@ export function replay(store) {
       let effects;
       const upTo = hostAcks.slice(fed).findIndex((a) => String(a.at ?? '') > e.at);
       const next = upTo < 0 ? hostAcks.length : fed + upTo;
-      scratch.appendAcks(hostAcks.slice(fed, next));
+      scratch.withLock(() => scratch.appendAcks(hostAcks.slice(fed, next))); // every writer holds the lock (oneWriter), the scratch copy too
       fed = next;
       try {
         const sent = { ...e.event, actor: e.actor, source: e.source, ...(e.relayedBy && { relayedBy: e.relayedBy }) };
