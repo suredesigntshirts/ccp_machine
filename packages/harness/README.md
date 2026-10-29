@@ -32,6 +32,11 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   result says `refused: <EVENT> in <state>`. An item's PR is bound once, by the first event that names it
   (`"pr"`), and one PR binds to at most one item (`src/pr-binding.js`): an event naming another PR for a
   bound item, or a PR bound to another item, is refused the same way with the binding in the reason.
+  A transition marked `"record": true` (harness `meta.store` records) takes its event as a fact in any state,
+  a finished one included: the log row is written, and nothing else changes. An item takes `OUT_OF_BAND` so
+  (#102): a session records work done outside the gates, such as a PR landed by GitHub's button, on the item
+  even once it is done or cancelled, with the fields history.schema.json declares (`orderedBy`, `message`,
+  `what`, `skipped`, `pr`, and the landed `sha`); from any other actor, or without one of them, it is refused.
 - The envelope: every event carries `actor` {kind: person|session|agent|github|timer, id} (the kinds and their
   id forms are the spec's, `harness.machine.json` `meta.actors`; an agent is `<session_id>/<agent_id>`) and `source`
   {kind: tap|github-wake|cli|timer, ref}; one without them is refused, and so is one carrying `person`
@@ -107,7 +112,7 @@ skips the plan and accept gates; that is acceptable for now because triage, not 
   `events.jsonl` is the history, `state.json` and `outbox.jsonl` come from replaying it with the current code,
   and `report.json` lists the dropped rows, the conflicts and the rows the current code refuses. It writes
   nothing else and never edits an input. Acks are not history, so every effect of the joined store is pending.
-  An OUT_OF_BAND row is history only (no machine takes it), so the replay counts it among the refused rows.
+  An OUT_OF_BAND row is a fact its item takes in any state, so the replay applies it like any other row.
   `recovered/dogfood2.jsonl` holds what dogfood2 recorded in other rows only, rebuilt as rows (origin
   `recovered`, with `from` and `also` naming the sources): the PR #66 landing out of band, which its CANCEL row and
   GitHub record. Join it with dogfood2's extracted rows.
