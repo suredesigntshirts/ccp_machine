@@ -1,5 +1,5 @@
 {
-  "description": "Where the inspector draws item.machine.json and what it calls things. The main path runs down the middle; anything that goes wrong runs right to replanning (kind fail); the loops back run on the left and over the top (kind back). names and notes are display names and subtitles for states; an edge label may have cases, the first whose path (into the step: event, context) is the value given names that step instead. Edges are keyed from>to>when. A state or edge missing here is still drawn, in a plain fallback place.",
+  "description": "Where the inspector draws item.machine.json and what it calls things. The main path runs down the middle; anything that goes wrong runs right to replanning (kind fail); the loops back run on the left and over the top (kind back). names and notes are display names and subtitles for states, short their marks in run strips; an edge label may have cases, the first whose path (into the step: event, context) is the value given names that step instead. Edges are keyed from>to>when. guards says each guard as a sentence, inputs what each context path handed to a session is, and fields names the context fields and their parts. A state or edge missing here is still drawn, in a plain fallback place, and anything not named here shows its spec name.",
   "width": 720,
   "height": 640,
   "start": {"x": 130, "y": 55},
@@ -20,6 +20,39 @@
     "awaitingMerge": "asks: merge it?",
     "merging": "merges the PR",
     "replanning": "asks: replan or drop?"
+  },
+  "short": {"briefing": "Br", "building": "Bu", "verifying": "Ve", "awaitingMerge": "Ap", "merging": "Me", "replanning": "Re", "done": "✓", "dropped": "✗"},
+  "guards": {
+    "hasIssue": "an issue with a link and at least one Expect line",
+    "hasBriefs": "both briefs written, the builder's and the verifier's",
+    "buildsLeft": "fewer than 2 builds made since the item was last briefed",
+    "hasPr": "a PR with a branch and a head commit",
+    "failed": "a FAIL verdict",
+    "verifiedHead": "a PASS for the commit that is the PR head now",
+    "approved": "an approval to merge",
+    "replan": "a choice to replan, with a written five whys",
+    "isMerged": "a merge commit"
+  },
+  "inputs": {
+    "context.issue": "the issue",
+    "context.why": "the five whys, if the item was replanned",
+    "context.briefs.builder": "the builder's brief",
+    "context.briefs.verifier": "the verifier's brief",
+    "context.verdict": "the last verdict",
+    "context.pr": "the PR",
+    "context.verdict.sha": "the verified commit",
+    "context.failure": "what went wrong"
+  },
+  "fields": {
+    "issue": {"label": "Issue", "parts": {"title": "Title", "url": "Link", "expect": "Expect lines"}},
+    "briefs": {"label": "Briefs", "parts": {"builder": "Builder's brief", "verifier": "Verifier's brief"}},
+    "builds": {"label": "Builds made"},
+    "pr": {"label": "PR", "parts": {"branch": "Branch", "headSha": "PR head", "url": "Link"}},
+    "verdict": {"label": "Last verdict", "parts": {"result": "Result", "sha": "For commit", "report": "Report"}},
+    "failure": {"label": "What went wrong"},
+    "decision": {"label": "Decision", "parts": {"choice": "Choice", "by": "By", "why": "Reason"}},
+    "why": {"label": "Five whys"},
+    "merge": {"label": "Merge", "parts": {"sha": "Merged as"}}
   },
   "nodes": {
     "briefing": {"x": 185, "y": 30, "w": 150, "h": 50},
@@ -42,8 +75,8 @@
     "verifying>verifying>pr.pushed": {"points": [[285,250], [285,222], [320,222], [320,250]], "label": {"x": 326, "y": 226, "anchor": "start", "text": "new push"}, "kind": "back"},
     "briefing>replanning>brief failed": {"points": [[335,68], [490,68], [490,325], [520,325]], "label": {"x": 345, "y": 63, "anchor": "start", "text": "no briefs"}, "kind": "fail"},
     "building>replanning>build failed": {"points": [[335,160], [490,160], [490,325], [520,325]], "label": {"x": 345, "y": 155, "anchor": "start", "text": "crashed"}, "kind": "fail"},
-    "building>replanning>after buildTimeout": {"points": [[335,176], [490,176], [490,325], [520,325]], "label": {"x": 345, "y": 189, "anchor": "start", "text": "took too long"}, "kind": "fail"},
-    "verifying>replanning>verify done": {"points": [[335,280], [490,280], [490,325], [520,325]], "label": {"x": 345, "y": 275, "anchor": "start", "text": "out of builds / stale"}, "kind": "fail", "cases": [{"path": "event.output.result", "is": "FAIL", "text": "FAIL, no builds left"},{"path": "event.output.result", "is": "PASS", "text": "PASS on an old commit"}]},
+    "building>replanning>after buildTimeout": {"points": [[335,176], [490,176], [490,325], [520,325]], "label": {"x": 345, "y": 189, "anchor": "start", "text": "time limit"}, "kind": "fail"},
+    "verifying>replanning>verify done": {"points": [[335,280], [490,280], [490,325], [520,325]], "label": {"x": 345, "y": 275, "anchor": "start", "text": "no builds left / old commit"}, "kind": "fail", "cases": [{"path": "event.output.result", "is": "FAIL", "text": "FAIL, no builds left"},{"path": "event.output.result", "is": "PASS", "text": "PASS on an old commit"}]},
     "verifying>replanning>verify failed": {"points": [[335,294], [490,294], [490,325], [520,325]], "label": {"x": 345, "y": 307, "anchor": "start", "text": "crashed"}, "kind": "fail"},
     "awaitingMerge>replanning>ask done": {"points": [[335,378], [490,378], [490,325], [520,325]], "label": {"x": 345, "y": 373, "anchor": "start", "text": "rejected"}, "kind": "fail"},
     "awaitingMerge>replanning>ask failed": {"points": [[335,394], [490,394], [490,325], [520,325]], "label": {"x": 345, "y": 407, "anchor": "start", "text": "no answer"}, "kind": "fail"},

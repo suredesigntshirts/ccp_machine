@@ -26,12 +26,12 @@ export const flows = [
   },
   {
     name: 'Fails verification, fixed on the next build',
-    about: 'The verifier says FAIL; a build is left, so the builder tries again with the verdict, and the second build passes.',
+    about: 'The verifier says FAIL; a build is left, so the builder makes a second build with the verdict, and it passes.',
     script: [brief, ['build', pr(1)], ['verify', verdict('FAIL', 1)], ['build', pr(2)], ['verify', verdict('PASS', 2)], ...merged]
   },
   {
-    name: 'Fails twice, out of tries, dropped',
-    about: 'Two FAILs use up both builds, so the item stalls in replanning, and the person drops it.',
+    name: 'Fails twice, no builds left, dropped',
+    about: 'Two FAILs use up both builds, so the item goes to replanning, and the person drops it.',
     script: [brief, ['build', pr(1)], ['verify', verdict('FAIL', 1)], ['build', pr(2)], ['verify', verdict('FAIL', 2)], ['ask', person('drop', 'Not worth a third try.')]]
   },
   {
@@ -50,7 +50,7 @@ export const flows = [
   },
   {
     name: 'Build takes too long, dropped',
-    about: 'The build outlives buildTimeout; the timer moves the item to replanning, and it is dropped.',
+    about: 'The build runs past its one-hour time limit, which moves the item to replanning, and it is dropped.',
     script: [brief, 'timer', ['ask', person('drop', 'The issue is bigger than one item; split it.')]]
   },
   {
