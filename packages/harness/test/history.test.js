@@ -77,8 +77,8 @@ test('C4: one fact from two sources is one row; the owner is kept and the other 
   assert.deepEqual(conflicts, []);
   const merged = kept.filter((r) => r.event.type === 'MERGED');
   assert.equal(merged.length, 1);
-  assert.equal(merged[0].provenance.from.source, 'github', 'GitHub owns a merge');
-  assert.deepEqual(merged[0].provenance.also.map((f) => f.ref), ['library/harness/state/main/events.jsonl']);
+  assert.equal(merged[0].provenance.from.source, 'store', 'the store owns a merge it recorded: its row is what replay applies');
+  assert.deepEqual(merged[0].provenance.also.map((f) => f.ref), ['github/suredesigntshirts--ccp_machine_test/pages/pulls-001.json.gz']);
   const spawns = kept.filter((r) => r.event.type === 'WORKER_SPAWNED');
   assert.equal(spawns.length, 1);
   assert.equal(spawns[0].provenance.from.source, 'store', 'the store owns a spawn');
@@ -94,7 +94,7 @@ test('C4: two rows of one fact that disagree are reported, not merged silently',
   assert.equal(factKey(gh), factKey(store));
   const other = { ...store, event: { ...store.event, sha: '0'.repeat(40) }, provenance: { ...store.provenance, placeholders: ['actor', 'source', 'harness'] } };
   const { conflicts } = dedupe([gh, other]);
-  assert.deepEqual(conflicts.map((c) => [c.field, c.kept, c.other]), [['event.sha', gh.id, store.id]]);
+  assert.deepEqual(conflicts.map((c) => [c.field, c.kept, c.other]), [['event.sha', store.id, gh.id]]);
   // A row missing a key path is its own fact.
   const keyless = { ...gh, event: { type: 'MERGED' } };
   assert.notEqual(factKey(keyless), factKey(gh));
