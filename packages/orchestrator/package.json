@@ -1,0 +1,12 @@
+{
+  "name": "@ccp/orchestrator",
+  "version": "0.1.0",
+  "description": "Walking skeleton: XState runs a work item end to end; Claude sessions are invoked actors",
+  "type": "module",
+  "private": true,
+  "bin": { "orchestrator": "bin/orchestrator.js" },
+  "exports": { ".": "./src/index.js" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "xstate": "5.33.3" },
+  "scripts": { "test": "node --test \"test/*.test.js\"" }
+}
